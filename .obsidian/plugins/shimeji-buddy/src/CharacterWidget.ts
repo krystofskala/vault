@@ -1,4 +1,4 @@
-import { LOOPING_REACTIONS, type NarutoBuddySettings, type ReactionName } from "./settings";
+import { LOOPING_REACTIONS, type ShimejiSettings, type ReactionName } from "./settings";
 import type { LoadedSpritePack } from "./spritePack";
 
 // How long each built-in placeholder animation runs for, in ms.
@@ -27,7 +27,7 @@ export class CharacterWidget {
 	private spriteFrameEl!: HTMLElement;
 	private bubbleEl!: HTMLElement;
 
-	private settings: NarutoBuddySettings;
+	private settings: ShimejiSettings;
 	private callbacks: CharacterWidgetCallbacks;
 	private pack: LoadedSpritePack | null = null;
 
@@ -49,7 +49,7 @@ export class CharacterWidget {
 	private boundPointerMove = (e: PointerEvent) => this.onPointerMove(e);
 	private boundPointerUp = (e: PointerEvent) => this.onPointerUp(e);
 
-	constructor(settings: NarutoBuddySettings, callbacks: CharacterWidgetCallbacks) {
+	constructor(settings: ShimejiSettings, callbacks: CharacterWidgetCallbacks) {
 		this.settings = settings;
 		this.callbacks = callbacks;
 		this.containerEl = this.buildDom();
@@ -60,39 +60,39 @@ export class CharacterWidget {
 	}
 
 	private buildDom(): HTMLElement {
-		const container = document.body.createDiv({ cls: "nb-container" });
-		if (this.settings.clickThrough) container.addClass("nb-clickthrough");
+		const container = document.body.createDiv({ cls: "sm-container" });
+		if (this.settings.clickThrough) container.addClass("sm-clickthrough");
 
-		const shadow = container.createDiv({ cls: "nb-shadow" });
+		const shadow = container.createDiv({ cls: "sm-shadow" });
 		void shadow;
 
-		const char = container.createDiv({ cls: "nb-char nb-state-idle" });
+		const char = container.createDiv({ cls: "sm-char sm-state-idle" });
 		this.charEl = char;
 
 		// Built-in placeholder character, made of plain shapes (not any
 		// copyrighted artwork) so the plugin works out of the box.
-		char.createDiv({ cls: "nb-headband" });
-		const head = char.createDiv({ cls: "nb-head" });
-		head.createDiv({ cls: "nb-eye nb-eye-l" });
-		head.createDiv({ cls: "nb-eye nb-eye-r" });
-		head.createDiv({ cls: "nb-headband-strap" });
-		char.createDiv({ cls: "nb-torso" });
-		char.createDiv({ cls: "nb-arm nb-arm-l" });
-		char.createDiv({ cls: "nb-arm nb-arm-r" });
-		char.createDiv({ cls: "nb-leg nb-leg-l" });
-		char.createDiv({ cls: "nb-leg nb-leg-r" });
-		char.createDiv({ cls: "nb-zzz" });
+		char.createDiv({ cls: "sm-headband" });
+		const head = char.createDiv({ cls: "sm-head" });
+		head.createDiv({ cls: "sm-eye sm-eye-l" });
+		head.createDiv({ cls: "sm-eye sm-eye-r" });
+		head.createDiv({ cls: "sm-headband-strap" });
+		char.createDiv({ cls: "sm-torso" });
+		char.createDiv({ cls: "sm-arm sm-arm-l" });
+		char.createDiv({ cls: "sm-arm sm-arm-r" });
+		char.createDiv({ cls: "sm-leg sm-leg-l" });
+		char.createDiv({ cls: "sm-leg sm-leg-r" });
+		char.createDiv({ cls: "sm-zzz" });
 
 		// Sprite-pack frame layer, hidden unless a custom pack is active. The
 		// stage is sized to an animation's largest frame and stays put; the
 		// frame inside it is bottom-center anchored so frames of differing
 		// size (common on hand-packed/modular sheets) don't jitter around.
-		const spriteStage = container.createDiv({ cls: "nb-spritestage" });
+		const spriteStage = container.createDiv({ cls: "sm-spritestage" });
 		this.spriteStageEl = spriteStage;
-		const spriteFrame = spriteStage.createDiv({ cls: "nb-spriteframe" });
+		const spriteFrame = spriteStage.createDiv({ cls: "sm-spriteframe" });
 		this.spriteFrameEl = spriteFrame;
 
-		const bubble = container.createDiv({ cls: "nb-bubble" });
+		const bubble = container.createDiv({ cls: "sm-bubble" });
 		bubble.style.display = "none";
 		this.bubbleEl = bubble;
 
@@ -106,13 +106,13 @@ export class CharacterWidget {
 
 	setSpritePack(pack: LoadedSpritePack | null): void {
 		this.pack = pack;
-		this.containerEl.toggleClass("nb-sprite-mode", !!pack);
+		this.containerEl.toggleClass("sm-sprite-mode", !!pack);
 		this.setReaction(this.currentReaction === "sleep" ? "sleep" : "idle");
 	}
 
-	updateSettings(settings: NarutoBuddySettings): void {
+	updateSettings(settings: ShimejiSettings): void {
 		this.settings = settings;
-		this.containerEl.toggleClass("nb-clickthrough", settings.clickThrough);
+		this.containerEl.toggleClass("sm-clickthrough", settings.clickThrough);
 		this.applySize(settings.size);
 		this.restartIdleBrain();
 	}
@@ -178,7 +178,7 @@ export class CharacterWidget {
 	private playPlaceholder(name: ReactionName): void {
 		this.spriteStageEl.style.display = "none";
 		this.charEl.style.display = "";
-		this.charEl.className = `nb-char nb-state-${name}${this.facingLeft ? " nb-facing-left" : ""}`;
+		this.charEl.className = `sm-char sm-state-${name}${this.facingLeft ? " sm-facing-left" : ""}`;
 	}
 
 	private playSprite(name: ReactionName): void {
@@ -188,7 +188,7 @@ export class CharacterWidget {
 
 		this.charEl.style.display = "none";
 		this.spriteStageEl.style.display = "";
-		this.spriteStageEl.toggleClass("nb-facing-left", this.facingLeft);
+		this.spriteStageEl.toggleClass("sm-facing-left", this.facingLeft);
 
 		// Frames on hand-packed sheets can vary in size (e.g. a crouch frame
 		// shorter than a stand frame). Scale relative to the tallest frame in
@@ -237,8 +237,8 @@ export class CharacterWidget {
 	private showBubble(text: string): void {
 		this.bubbleEl.setText(text);
 		this.bubbleEl.style.display = "";
-		window.clearTimeout((this.bubbleEl as any)._nbHideTimer);
-		(this.bubbleEl as any)._nbHideTimer = window.setTimeout(() => {
+		window.clearTimeout((this.bubbleEl as any)._smHideTimer);
+		(this.bubbleEl as any)._smHideTimer = window.setTimeout(() => {
 			this.bubbleEl.style.display = "none";
 		}, 2200);
 	}
@@ -282,12 +282,12 @@ export class CharacterWidget {
 		newRight = Math.min(Math.max(newRight, 8), window.innerWidth - rect.width - 8);
 
 		this.setReaction("walk");
-		this.containerEl.addClass("nb-tween");
+		this.containerEl.addClass("sm-tween");
 		this.containerEl.style.right = `${newRight}px`;
 
 		this.clearTimer("wanderTimer");
 		this.wanderTimer = window.setTimeout(() => {
-			this.containerEl.removeClass("nb-tween");
+			this.containerEl.removeClass("sm-tween");
 			this.settings.posX = newRight;
 			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
 			if (this.currentReaction === "walk") this.setReaction("idle");
@@ -363,7 +363,7 @@ export class CharacterWidget {
 	// ---------- layout helpers ----------
 
 	private applySize(size: number): void {
-		this.containerEl.style.setProperty("--nb-size", `${size}px`);
+		this.containerEl.style.setProperty("--sm-size", `${size}px`);
 	}
 
 	private applyPosition(posX: number, posY: number): void {

@@ -1,0 +1,10 @@
+{
+	"id": "shimeji-buddy",
+	"name": "Shimeji Buddy",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "A little animated desktop-mascot-style companion that lives in your vault, idles on its own, and reacts to what you do (open, create, edit, delete, search...). Ships with a placeholder character and lets you drop in any sprites you like - folder pack or a freeform-sliced single sheet.",
+	"author": "krystofskala",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}

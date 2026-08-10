@@ -1,16 +1,17 @@
 # Folder pack format
 
 This folder is a **template**, not a ready-to-use character - it deliberately
-ships without any images, since real Naruto artwork is copyrighted and can't
-be included here. Use it as a reference for building your own pack (Naruto or
-otherwise) from sprites you have the rights to use.
+ships without any images. Use it as a reference for building your own pack
+from sprites of whatever character you like, however you found them, as long
+as you have the rights to use them.
 
 **Note:** this format requires every frame in a strip to be the same size,
 laid out in a neat row. If your sheet is irregular instead - frames of
 different sizes, packed by hand, extra non-sprite stuff mixed in (very
-common on fan-ripped sheets) - use **Settings → Naruto Buddy → Character
-source → Single spritesheet** instead. That mode lets you drag-select each
-frame's exact bounding box directly on the image, no uniform grid required.
+common on fan-made/ripped sheets) - use **Settings → Shimeji Buddy →
+Character source → Single spritesheet** instead. That mode lets you
+drag-select each frame's exact bounding box directly on the image, no
+uniform grid required.
 
 ## Layout
 
@@ -20,11 +21,11 @@ A folder pack is a folder containing:
 - one PNG per animation, each a **horizontal strip** of equally-sized frames
   (frame 0 leftmost, reading left to right)
 
-Point the plugin at the folder via **Settings → Naruto Buddy → Character
+Point the plugin at the folder via **Settings → Shimeji Buddy → Character
 source → Folder pack**, using a vault-relative path, e.g.:
 
 ```
-.obsidian/plugins/naruto-buddy/characters/naruto
+.obsidian/plugins/shimeji-buddy/characters/my-character
 ```
 
 ## manifest.json
@@ -65,10 +66,10 @@ source → Folder pack**, using a vault-relative path, e.g.:
 | `think`     | Opening the search pane                         |
 | `poke`      | Clicking the buddy                              |
 
-## Getting Naruto sprites
+## Getting sprites
 
-This plugin doesn't bundle or fetch any character artwork. If you want an
-actual Naruto (or any other) character, source sprite sheets yourself from
-somewhere you have the rights to use them, slice/arrange them into the strip
-format above, and drop them in a folder next to a `manifest.json` like this
-one.
+This plugin doesn't bundle or fetch any character artwork. Source sprite
+sheets yourself from somewhere you have the rights to use them, slice/arrange
+them into the strip format above (or use the single-spritesheet mode in
+settings if they're not a uniform grid), and drop them in a folder next to a
+`manifest.json` like this one.

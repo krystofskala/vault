@@ -1,19 +1,23 @@
-# Naruto Buddy
+# Shimeji Buddy
 
-A little animated ninja that lives in the corner of your Obsidian window. It
-idles on its own - picking its own animations, occasionally wandering to a new
-spot - and reacts when you open, create, edit, delete, rename or search notes.
+A little animated desktop-mascot-style character that lives in the corner of
+your Obsidian window - named after the classic [Shimeji](https://en.wikipedia.org/wiki/Shimeji_(software))
+desktop pets, because like those, it's built to wear *any* character you give
+it. It idles on its own - picking its own animations, occasionally wandering
+to a new spot - and reacts when you open, create, edit, delete, rename or
+search notes.
 
-## Copyright note
+## About the character
 
-This plugin does **not** ship any Naruto artwork. Naruto is copyrighted by
-Masashi Kishimoto / Shueisha / Studio Pierrot, and distributing character art
-from it isn't something this plugin can do. Out of the box it draws a small
-generic placeholder ninja with plain CSS shapes, so everything works
-immediately with no assets required.
+This plugin ships **no character artwork of its own** - just a small generic
+placeholder drawn with plain CSS shapes, so it works immediately with zero
+assets. Everything else is up to you: paste in sprites of your favorite
+character from wherever you find them, in whatever shape they come in.
+You're responsible for having the rights to use whatever art you bring in;
+this plugin doesn't fetch, bundle, or redistribute any character's artwork
+itself.
 
-The character engine isn't tied to Naruto at all - it just plays whatever you
-give it. Two ways to supply a character, both in **Settings → Naruto Buddy →
+Two ways to supply a character, both in **Settings → Shimeji Buddy →
 Character source**:
 
 - **Folder pack**: a folder with a `manifest.json` plus one sprite strip PNG
@@ -46,7 +50,7 @@ matter which one (or neither) is active.
   on the next action or click.
 - Draggable - click and drag to move it anywhere; position is remembered.
 - Click it for a quick reaction and an optional speech-bubble line.
-- Fully configurable from **Settings → Naruto Buddy**: size, idle timing,
+- Fully configurable from **Settings → Shimeji Buddy**: size, idle timing,
   sleep timeout, which event reactions are on, speech bubble on/off and its
   lines, click-through mode, and the character source (built-in, a folder
   pack, or a freeform-sliced single spritesheet).
@@ -56,15 +60,15 @@ matter which one (or neither) is active.
 ## Installing / enabling
 
 This plugin already lives inside this vault at
-`.obsidian/plugins/naruto-buddy`. In Obsidian: **Settings → Community
-plugins**, turn off Restricted mode if needed, and enable **Naruto Buddy** in
-the list. `main.js`, `manifest.json` and `styles.css` are already built and
-committed, so no build step is required to use it.
+`.obsidian/plugins/shimeji-buddy`. In Obsidian: **Settings → Community
+plugins**, turn off Restricted mode if needed, and enable **Shimeji Buddy**
+in the list. `main.js`, `manifest.json` and `styles.css` are already built
+and committed, so no build step is required to use it.
 
 ## Developing
 
 ```
-cd .obsidian/plugins/naruto-buddy
+cd .obsidian/plugins/shimeji-buddy
 npm install
 npm run dev     # watch mode
 npm run build   # production build -> main.js

@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
-import type NarutoBuddyPlugin from "./main";
+import type ShimejiBuddyPlugin from "./main";
 import { AtlasSlicer } from "./AtlasSlicer";
 import {
 	REACTION_LABELS,
@@ -9,14 +9,14 @@ import {
 	type ReactionName,
 } from "./settings";
 
-export class NarutoBuddySettingTab extends PluginSettingTab {
-	plugin: NarutoBuddyPlugin;
+export class ShimejiSettingTab extends PluginSettingTab {
+	plugin: ShimejiBuddyPlugin;
 
 	private slicer?: AtlasSlicer;
 	private pendingTargetReaction: ReactionName = "idle";
 	private frameCountEls: Partial<Record<ReactionName, HTMLElement>> = {};
 
-	constructor(app: App, plugin: NarutoBuddyPlugin) {
+	constructor(app: App, plugin: ShimejiBuddyPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -31,12 +31,12 @@ export class NarutoBuddySettingTab extends PluginSettingTab {
 		containerEl.empty();
 		const s = this.plugin.settings;
 
-		containerEl.createEl("h2", { text: "Naruto Buddy" });
+		containerEl.createEl("h2", { text: "Shimeji Buddy" });
 		containerEl.createEl("p", {
 			text:
 				"A little character that idles on its own and reacts to what you do in the vault. " +
-				"Ships with a generic placeholder - pick or drop in your own sprite pack below to make it " +
-				"look like anything you want, ninja or otherwise.",
+				"Ships with a generic placeholder - pick or drop in sprites of whatever character you like " +
+				"below, however you find them.",
 			cls: "setting-item-description",
 		});
 
@@ -181,9 +181,9 @@ export class NarutoBuddySettingTab extends PluginSettingTab {
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"The built-in character is a generic placeholder (not Naruto artwork - that's copyrighted). " +
-				"It doesn't have to be a ninja at all: use a folder pack (manifest.json + sprite strips), or " +
-				"a single freeform spritesheet sliced right here in settings.",
+				"The built-in character is a generic placeholder. Bring your own character instead: use a " +
+				"folder pack (manifest.json + sprite strips), or a single freeform spritesheet sliced right " +
+				"here in settings - whatever sprites you've got, in whatever shape you found them.",
 		});
 
 		new Setting(containerEl)
@@ -268,11 +268,11 @@ export class NarutoBuddySettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Custom pack path")
 			.setDesc(
-				"Vault-relative folder path, e.g. .obsidian/plugins/naruto-buddy/characters/my-pack. Leave empty for the built-in placeholder."
+				"Vault-relative folder path, e.g. .obsidian/plugins/shimeji-buddy/characters/my-pack. Leave empty for the built-in placeholder."
 			)
 			.addText((t) => {
 				customPathText = t;
-				t.setPlaceholder(".obsidian/plugins/naruto-buddy/characters/my-pack")
+				t.setPlaceholder(".obsidian/plugins/shimeji-buddy/characters/my-pack")
 					.setValue(s.customCharacterFolder)
 					.onChange(async (v) => {
 						s.customCharacterFolder = v.trim();
@@ -301,7 +301,7 @@ export class NarutoBuddySettingTab extends PluginSettingTab {
 			.setDesc("Vault-relative path to a single image containing all your frames.")
 			.addText((t) =>
 				t
-					.setPlaceholder(".obsidian/plugins/naruto-buddy/characters/my-sheet.png")
+					.setPlaceholder(".obsidian/plugins/shimeji-buddy/characters/my-sheet.png")
 					.setValue(s.atlasImagePath)
 					.onChange(async (v) => {
 						s.atlasImagePath = v.trim();
@@ -319,9 +319,9 @@ export class NarutoBuddySettingTab extends PluginSettingTab {
 			slicerHost.appendChild(this.slicer.rootEl);
 		}
 
-		const controls = containerEl.createDiv({ cls: "nb-slicer-controls" });
+		const controls = containerEl.createDiv({ cls: "sm-slicer-controls" });
 		const mkNumField = (label: string): HTMLInputElement => {
-			const wrap = controls.createDiv({ cls: "nb-slicer-field" });
+			const wrap = controls.createDiv({ cls: "sm-slicer-field" });
 			wrap.createEl("label", { text: label });
 			return wrap.createEl("input", { type: "number", attr: { min: "0" } });
 		};
@@ -387,7 +387,7 @@ export class NarutoBuddySettingTab extends PluginSettingTab {
 			const cfg = s.atlasAnimations[name];
 			const row = new Setting(containerEl).setName(REACTION_LABELS[name]);
 			row.descEl.empty();
-			const countEl = row.descEl.createSpan({ cls: "nb-frame-count" });
+			const countEl = row.descEl.createSpan({ cls: "sm-frame-count" });
 			this.frameCountEls[name] = countEl;
 			this.refreshFrameCountText(name);
 

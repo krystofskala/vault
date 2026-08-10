@@ -67,7 +67,7 @@ export async function loadSpritePack(
 		if (!(await vault.adapter.exists(manifestPath))) return null;
 		manifestRaw = await vault.adapter.read(manifestPath);
 	} catch (e) {
-		console.warn("Naruto Buddy: could not read sprite pack manifest", e);
+		console.warn("Shimeji Buddy: could not read sprite pack manifest", e);
 		return null;
 	}
 
@@ -78,7 +78,7 @@ export async function loadSpritePack(
 			throw new Error("manifest missing required fields");
 		}
 	} catch (e) {
-		console.warn("Naruto Buddy: invalid sprite pack manifest.json", e);
+		console.warn("Shimeji Buddy: invalid sprite pack manifest.json", e);
 		return null;
 	}
 
@@ -106,7 +106,7 @@ export async function loadSpritePack(
 				loop: def.loop,
 			};
 		} catch (e) {
-			console.warn(`Naruto Buddy: could not load sprite frame "${imgPath}"`, e);
+			console.warn(`Shimeji Buddy: could not load sprite frame "${imgPath}"`, e);
 		}
 	}
 
@@ -137,7 +137,7 @@ export async function loadAtlasSpritePack(
 		url = await blobUrlForVaultFile(vault, atlasImagePath);
 		dims = await getImageDimensions(url);
 	} catch (e) {
-		console.warn("Naruto Buddy: could not load atlas image", e);
+		console.warn("Shimeji Buddy: could not load atlas image", e);
 		return null;
 	}
 
@@ -237,7 +237,7 @@ export async function loadImageForSlicing(
 		const dims = await getImageDimensions(url);
 		return { url, width: dims.width, height: dims.height };
 	} catch (e) {
-		console.warn("Naruto Buddy: could not load image for slicing", e);
+		console.warn("Shimeji Buddy: could not load image for slicing", e);
 		return null;
 	}
 }

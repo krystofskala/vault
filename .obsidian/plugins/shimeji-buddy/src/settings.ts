@@ -67,7 +67,7 @@ export type AtlasAnimationsConfig = Record<ReactionName, AtlasAnimationConfig>;
 
 export type CharacterMode = "builtin" | "pack" | "atlas";
 
-export interface NarutoBuddySettings {
+export interface ShimejiSettings {
 	enabled: boolean;
 	size: number; // px, character height
 	posX: number; // px from right edge
@@ -121,7 +121,7 @@ function buildDefaultAtlasAnimations(): AtlasAnimationsConfig {
 
 export const DEFAULT_ATLAS_ANIMATIONS: AtlasAnimationsConfig = buildDefaultAtlasAnimations();
 
-export const DEFAULT_SETTINGS: NarutoBuddySettings = {
+export const DEFAULT_SETTINGS: ShimejiSettings = {
 	enabled: true,
 	size: 96,
 	posX: 24,

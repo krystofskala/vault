@@ -31,10 +31,10 @@ export class AtlasSlicer {
 	private boundPointerUp = (e: PointerEvent) => this.onPointerUp(e);
 
 	constructor(parentEl: HTMLElement) {
-		this.wrapperEl = parentEl.createDiv({ cls: "nb-slicer" });
+		this.wrapperEl = parentEl.createDiv({ cls: "sm-slicer" });
 		this.canvas = this.wrapperEl.createEl("canvas");
 		const ctx = this.canvas.getContext("2d");
-		if (!ctx) throw new Error("Naruto Buddy: canvas 2D context unavailable");
+		if (!ctx) throw new Error("Shimeji Buddy: canvas 2D context unavailable");
 		this.ctx = ctx;
 		this.ctx.imageSmoothingEnabled = false;
 
@@ -129,13 +129,13 @@ export class AtlasSlicer {
 
 	private showPlaceholder(text: string): void {
 		this.canvas.style.display = "none";
-		this.wrapperEl.querySelector(".nb-slicer-placeholder")?.remove();
-		this.wrapperEl.createDiv({ cls: "nb-slicer-placeholder", text });
+		this.wrapperEl.querySelector(".sm-slicer-placeholder")?.remove();
+		this.wrapperEl.createDiv({ cls: "sm-slicer-placeholder", text });
 	}
 
 	private redraw(): void {
 		if (!this.image) return;
-		this.wrapperEl.querySelector(".nb-slicer-placeholder")?.remove();
+		this.wrapperEl.querySelector(".sm-slicer-placeholder")?.remove();
 		this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 		this.ctx.drawImage(this.image, 0, 0, this.canvas.width, this.canvas.height);
 

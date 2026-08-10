@@ -8,13 +8,13 @@ import {
 	type LoadedSpritePack,
 	type SpritePackInfo,
 } from "./spritePack";
-import { DEFAULT_SETTINGS, type NarutoBuddySettings, type ReactionName, type SpeechLines } from "./settings";
-import { NarutoBuddySettingTab } from "./settingsTab";
+import { DEFAULT_SETTINGS, type ShimejiSettings, type ReactionName, type SpeechLines } from "./settings";
+import { ShimejiSettingTab } from "./settingsTab";
 
 const MODIFY_DEBOUNCE_MS = 1500;
 
-export default class NarutoBuddyPlugin extends Plugin {
-	settings!: NarutoBuddySettings;
+export default class ShimejiBuddyPlugin extends Plugin {
+	settings!: ShimejiSettings;
 	private widget: CharacterWidget | null = null;
 	private spritePack: LoadedSpritePack | null = null;
 	private modifyDebounce: number | null = null;
@@ -24,7 +24,7 @@ export default class NarutoBuddyPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
-		this.addSettingTab(new NarutoBuddySettingTab(this.app, this));
+		this.addSettingTab(new ShimejiSettingTab(this.app, this));
 
 		this.app.workspace.onLayoutReady(async () => {
 			this.createWidget();
@@ -36,13 +36,13 @@ export default class NarutoBuddyPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "naruto-buddy-poke",
+			id: "shimeji-buddy-poke",
 			name: "Poke the buddy",
 			callback: () => this.widget?.react("poke"),
 		});
 
 		this.addCommand({
-			id: "naruto-buddy-toggle",
+			id: "shimeji-buddy-toggle",
 			name: "Toggle buddy visibility",
 			callback: async () => {
 				this.settings.enabled = !this.settings.enabled;
