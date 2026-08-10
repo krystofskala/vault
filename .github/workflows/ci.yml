@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  core-tests:
+    name: StreetTrackerCore unit tests (Linux, fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.10"
+      - name: swift test
+        working-directory: Packages/StreetTrackerCore
+        run: swift test
+
+  app-build:
+    name: Full app build (macOS simulator, no signing)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build for simulator
+        run: |
+          xcodebuild build \
+            -project PragueStreetTracker.xcodeproj \
+            -scheme PragueStreetTracker \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
