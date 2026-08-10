@@ -31,11 +31,11 @@ instead of the cramped settings-tab column). In there:
 
 - Starts as an even grid (set Columns/Rows, and Gap X/Y if the sheet has
   padding between frames - excluded from each cell, shown as a shaded red
-  band). **Left-click a cell** to select it (numbered in click order - that
+  band). **Click a cell** to select it (numbered in click order - that
   order becomes the animation's frame order); click again to deselect.
-  **Right-click-drag a grid line** to move it, resizing its two neighboring
-  cells, for sheets where frames aren't quite uniform; a plain **right-click
-  on a line (no drag)** deletes it, merging those cells back into one.
+  **Drag a grid line** (hover shows a resize cursor) to move it, resizing
+  its two neighboring cells, for sheets where frames aren't quite uniform;
+  **double-click a line** to delete it, merging those cells back into one.
   Dragging snaps to whole source pixels, and to match another cell's width
   when you get close to one, so it's easy to land on a clean, consistent
   size. The slicer also magnifies small pixel-art sheets heavily (up to

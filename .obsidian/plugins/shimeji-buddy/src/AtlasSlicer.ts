@@ -10,21 +10,29 @@ const MIN_DISPLAY_WIDTH = 320;
 const MAX_UPSCALE = 24;
 
 const LINE_HOVER_TOLERANCE_PX = 8; // canvas px, how close the pointer must be to a line to grab it
-const LINE_DRAG_THRESHOLD_PX = 3; // canvas px of movement before a right-click-hold counts as a drag, not a delete
+const LINE_DRAG_PROMOTE_PX = 3; // canvas px of movement before a press-near-a-line becomes a drag
 const LINE_SNAP_TOLERANCE_PX = 6; // canvas px, snapping a dragged line to match another cell's width
 const MIN_CELL_SIZE_PX = 4; // natural px, a dragged line can't shrink a cell smaller than this
 
 type LineRef = { axis: "col" | "row"; index: number };
 
+function sameLine(a: LineRef | null, b: LineRef | null): boolean {
+	return !!a && !!b && a.axis === b.axis && a.index === b.index;
+}
+
 /**
  * A canvas-based tool for marking out an animation's frames on a sprite
  * sheet with an adjustable grid: start from an even cols x rows split (with
  * optional padding between cells), then drag any interior line to resize
- * its neighboring cells, or right-click a line to delete it (merging the
+ * its neighboring cells, or double-click a line to delete it (merging the
  * two cells it separated) - for sheets where frames aren't quite uniform.
- * Left-click a cell to toggle it into the current selection (shown as a
- * numbered blue overlay, numbered in click order - that order becomes the
- * animation's frame order); click again to remove it.
+ * (Right-click was tried first for move/delete, but Electron apps like
+ * Obsidian tend to intercept right-click for their own native context menu
+ * before a canvas ever sees it - left-drag and double-click don't have
+ * that problem.) Click a cell (without dragging, and not near a line) to
+ * toggle it into the current selection - shown as a numbered blue overlay,
+ * numbered in click order, which becomes the animation's frame order;
+ * click again to remove it.
  */
 export class AtlasSlicer {
 	private wrapperEl: HTMLElement;
@@ -49,8 +57,11 @@ export class AtlasSlicer {
 	private cellSelectionListener: ((count: number) => void) | null = null;
 
 	private hoveredLine: LineRef | null = null;
-	private draggingLine: (LineRef & { startCanvasPos: number }) | null = null;
-	private leftDownCell: number | null = null;
+	/** Set at pointerdown if the press landed near a line; promoted to an actual drag once the pointer has moved LINE_DRAG_PROMOTE_PX. */
+	private candidateLine: LineRef | null = null;
+	private gestureStartCanvas: { x: number; y: number } | null = null;
+	private draggingLine: LineRef | null = null;
+	private downCell: number | null = null;
 
 	constructor(parentEl: HTMLElement) {
 		this.wrapperEl = parentEl.createDiv({ cls: "sm-slicer" });
@@ -71,7 +82,7 @@ export class AtlasSlicer {
 		this.canvas.addEventListener("pointerup", (e) => this.onPointerUp(e));
 		this.canvas.addEventListener("pointercancel", () => this.onPointerCancel());
 		this.canvas.addEventListener("pointerleave", () => this.onPointerLeave());
-		this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+		this.canvas.addEventListener("dblclick", (e) => this.onDoubleClick(e));
 
 		this.showPlaceholder("No image loaded yet.");
 	}
@@ -125,7 +136,10 @@ export class AtlasSlicer {
 		this.rowBoundaries = [];
 		this.selectedCells = [];
 		this.hoveredLine = null;
+		this.candidateLine = null;
+		this.gestureStartCanvas = null;
 		this.draggingLine = null;
+		this.downCell = null;
 		this.redraw();
 
 		return { width: this.naturalWidth, height: this.naturalHeight };
@@ -356,7 +370,7 @@ export class AtlasSlicer {
 	 * (e.g. a global `canvas { max-width: 100% }` rule from the host app),
 	 * clicks would otherwise land on the wrong spot entirely.
 	 */
-	private canvasPoint(e: PointerEvent): { x: number; y: number } {
+	private canvasPoint(e: { clientX: number; clientY: number }): { x: number; y: number } {
 		const rect = this.canvas.getBoundingClientRect();
 		const scaleX = rect.width > 0 ? this.canvas.width / rect.width : 1;
 		const scaleY = rect.height > 0 ? this.canvas.height / rect.height : 1;
@@ -367,36 +381,31 @@ export class AtlasSlicer {
 	}
 
 	private onPointerDown(e: PointerEvent): void {
-		if (!this.image || !this.isGridMode()) return;
+		if (!this.image || !this.isGridMode() || e.button !== 0) return;
 		e.preventDefault();
 		const p = this.canvasPoint(e);
+		this.canvas.setPointerCapture(e.pointerId);
 
-		if (e.button === 2) {
-			const line = this.findNearestLine(p);
-			if (!line) return;
-			this.canvas.setPointerCapture(e.pointerId);
-			this.draggingLine = { ...line, startCanvasPos: line.axis === "col" ? p.x : p.y };
-			this.redraw();
-			return;
-		}
-		if (e.button === 0) {
-			this.canvas.setPointerCapture(e.pointerId);
-			this.leftDownCell = this.cellAt(p);
-		}
+		this.gestureStartCanvas = p;
+		this.candidateLine = this.findNearestLine(p);
+		this.downCell = this.cellAt(p);
 	}
 
 	private onPointerMove(e: PointerEvent): void {
 		const p = this.canvasPoint(e);
 
-		if (this.draggingLine) {
-			this.updateLineDrag(p);
+		if (this.gestureStartCanvas) {
+			if (!this.draggingLine && this.candidateLine) {
+				const dist = Math.hypot(p.x - this.gestureStartCanvas.x, p.y - this.gestureStartCanvas.y);
+				if (dist > LINE_DRAG_PROMOTE_PX) this.draggingLine = this.candidateLine;
+			}
+			if (this.draggingLine) this.updateLineDrag(p);
 			return;
 		}
-		if (this.leftDownCell !== null) return; // plain click - no live feedback needed mid-gesture
 
-		// Idle hover: highlight the nearest draggable/deletable line, if any.
+		// Idle hover (no gesture in progress): highlight the nearest draggable/deletable line, if any.
 		const line = this.findNearestLine(p);
-		const changed = line?.axis !== this.hoveredLine?.axis || line?.index !== this.hoveredLine?.index;
+		const changed = !sameLine(line, this.hoveredLine);
 		this.hoveredLine = line;
 		this.canvas.style.cursor = line ? (line.axis === "col" ? "ew-resize" : "ns-resize") : "crosshair";
 		if (changed) this.redraw();
@@ -406,28 +415,37 @@ export class AtlasSlicer {
 		const p = this.canvasPoint(e);
 
 		if (this.draggingLine) {
-			const { axis, index, startCanvasPos } = this.draggingLine;
-			const currentCanvasPos = axis === "col" ? p.x : p.y;
-			const moved = Math.abs(currentCanvasPos - startCanvasPos) > LINE_DRAG_THRESHOLD_PX;
 			this.draggingLine = null;
-			if (!moved) this.deleteLine({ axis, index });
-			this.redraw();
-			return;
+		} else if (this.candidateLine === null && this.downCell !== null && this.cellAt(p) === this.downCell) {
+			// A plain click, not near any line - toggle the cell it landed on.
+			this.toggleCell(this.downCell);
 		}
-		if (this.leftDownCell !== null) {
-			if (this.cellAt(p) === this.leftDownCell) this.toggleCell(this.leftDownCell);
-			this.leftDownCell = null;
-		}
+		this.gestureStartCanvas = null;
+		this.candidateLine = null;
+		this.downCell = null;
+		this.redraw();
+	}
+
+	/** Deletes the line nearest the double-click, merging the two cells it separated. */
+	private onDoubleClick(e: MouseEvent): void {
+		if (!this.image || !this.isGridMode()) return;
+		const line = this.findNearestLine(this.canvasPoint(e));
+		if (!line) return;
+		this.deleteLine(line);
+		this.hoveredLine = null;
+		this.redraw();
 	}
 
 	private onPointerCancel(): void {
+		this.gestureStartCanvas = null;
+		this.candidateLine = null;
 		this.draggingLine = null;
-		this.leftDownCell = null;
+		this.downCell = null;
 		this.redraw();
 	}
 
 	private onPointerLeave(): void {
-		if (this.draggingLine || this.leftDownCell !== null) return; // still mid-gesture (pointer capture keeps tracking it)
+		if (this.gestureStartCanvas) return; // still mid-gesture (pointer capture keeps tracking it)
 		if (this.hoveredLine) {
 			this.hoveredLine = null;
 			this.canvas.style.cursor = "crosshair";
