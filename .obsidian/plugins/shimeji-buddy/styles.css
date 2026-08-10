@@ -24,7 +24,9 @@
 }
 
 .sm-container.sm-tween {
-	transition: right 1.6s ease, bottom 1.6s ease;
+	/* duration is set inline per-run, scaled to how far it's travelling */
+	transition-property: right, bottom;
+	transition-timing-function: ease-in-out;
 }
 
 .sm-container.sm-clickthrough {

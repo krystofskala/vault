@@ -3,9 +3,10 @@
 A little animated desktop-mascot-style character that lives in the corner of
 your Obsidian window - named after the classic [Shimeji](https://en.wikipedia.org/wiki/Shimeji_(software))
 desktop pets, because like those, it's built to wear *any* character you give
-it. It idles on its own - picking its own animations, occasionally wandering
-to a new spot - and reacts when you open, create, edit, delete, rename or
-search notes.
+it. It idles on its own - picking its own animations, occasionally running to
+a new spot anywhere on screen - and reacts when you open, create, edit,
+delete, rename or search notes. Works on desktop and mobile, scaling to stay
+proportionate on anything from a phone to an ultrawide monitor.
 
 ## About the character
 
@@ -38,7 +39,8 @@ matter which one (or neither) is active.
 ## Features
 
 - **Standby brain**: on a randomized timer, the buddy decides for itself
-  whether to idle in place or wander to a new spot along the window edge.
+  whether to idle in place or run to a random spot anywhere on screen -
+  travel time scales with distance so it doesn't teleport or crawl.
 - **Reacts to what you do**:
   - opening a note → wave/greet
   - creating a note → cheer
@@ -49,11 +51,19 @@ matter which one (or neither) is active.
 - Falls asleep after a configurable period of vault inactivity, wakes back up
   on the next action or click.
 - Draggable - click and drag to move it anywhere; position is remembered.
+  Rescales and re-clamps on rotation/resize so it can't end up off-screen.
 - Click it for a quick reaction and an optional speech-bubble line.
+- **Responsive size**: the size setting is a baseline that scales with the
+  screen's smaller dimension, so it looks proportionate on a phone, a tablet,
+  and a huge monitor instead of the same fixed pixel count everywhere.
+- **Mobile-aware touch**: on Obsidian mobile, dragging/poking can be
+  restricted to reading view only (on by default), so it's not competing
+  with your thumb while you're typing - the buddy still animates and reacts
+  in edit view, it just won't take touch input there.
 - Fully configurable from **Settings → Shimeji Buddy**: size, idle timing,
   sleep timeout, which event reactions are on, speech bubble on/off and its
-  lines, click-through mode, and the character source (built-in, a folder
-  pack, or a freeform-sliced single spritesheet).
+  lines, click-through mode, mobile touch restriction, and the character
+  source (built-in, a folder pack, or a freeform-sliced single spritesheet).
 - Two commands (Command palette): "Poke the buddy" and "Toggle buddy
   visibility".
 

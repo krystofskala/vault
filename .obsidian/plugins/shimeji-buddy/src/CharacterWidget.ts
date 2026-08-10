@@ -6,6 +6,27 @@ import type { LoadedSpritePack } from "./spritePack";
 // bit more forgiving than a mouse would need.
 const DRAG_THRESHOLD_PX = 8;
 
+// The "size" setting is a base value tuned against a roughly desktop-sized
+// window; actual rendered size scales with the viewport's smaller dimension
+// (vmin) relative to this reference, so the same setting looks proportionate
+// on a small phone and a huge monitor instead of literally identical in px.
+const SIZE_REFERENCE_VMIN = 900;
+const MIN_RENDERED_SIZE = 44; // stay a reasonable touch target on tiny screens
+const MAX_RENDERED_SIZE = 320; // avoid absurdity on ultrawide/huge displays
+
+function computeResponsiveSize(baseSize: number): number {
+	const vmin = Math.min(window.innerWidth, window.innerHeight);
+	const scale = vmin / SIZE_REFERENCE_VMIN;
+	return Math.min(MAX_RENDERED_SIZE, Math.max(MIN_RENDERED_SIZE, baseSize * scale));
+}
+
+// Wandering picks a random spot anywhere on screen and runs there at roughly
+// this speed, so a short hop across a phone and a long dash across an
+// ultrawide monitor both feel like the same gait rather than snapping or crawling.
+const RUN_SPEED_PX_PER_SEC = 260;
+const RUN_MIN_DURATION_MS = 500;
+const RUN_MAX_DURATION_MS = 3400;
+
 // How long each built-in placeholder animation runs for, in ms.
 // Must stay in sync with the keyframe durations in styles.css.
 const PLACEHOLDER_DURATIONS: Record<ReactionName, number> = {
@@ -45,6 +66,9 @@ export class CharacterWidget {
 	private spriteFrameTimer: number | null = null;
 	private wanderTimer: number | null = null;
 
+	/** Forces click-through regardless of the user's own setting - e.g. mobile edit-view lockout. */
+	private autoClickThrough = false;
+
 	private lastActivity = Date.now();
 	private isDragging = false;
 	private dragMoved = false;
@@ -60,6 +84,7 @@ export class CharacterWidget {
 		this.settings = settings;
 		this.callbacks = callbacks;
 		this.containerEl = this.buildDom();
+		this.updateClickThroughClass();
 		this.applySize(settings.size);
 		this.applyPosition(settings.posX, settings.posY);
 		this.setReaction("idle");
@@ -69,7 +94,6 @@ export class CharacterWidget {
 
 	private buildDom(): HTMLElement {
 		const container = document.body.createDiv({ cls: "sm-container" });
-		if (this.settings.clickThrough) container.addClass("sm-clickthrough");
 
 		const shadow = container.createDiv({ cls: "sm-shadow" });
 		void shadow;
@@ -123,9 +147,20 @@ export class CharacterWidget {
 
 	updateSettings(settings: ShimejiSettings): void {
 		this.settings = settings;
-		this.containerEl.toggleClass("sm-clickthrough", settings.clickThrough);
+		this.updateClickThroughClass();
 		this.applySize(settings.size);
 		this.restartIdleBrain();
+	}
+
+	/** Forces click-through on/off independent of the user's own click-through setting (either wins). */
+	setAutoClickThrough(auto: boolean): void {
+		if (this.autoClickThrough === auto) return;
+		this.autoClickThrough = auto;
+		this.updateClickThroughClass();
+	}
+
+	private updateClickThroughClass(): void {
+		this.containerEl.toggleClass("sm-clickthrough", this.settings.clickThrough || this.autoClickThrough);
 	}
 
 	setVisible(visible: boolean): void {
@@ -206,7 +241,8 @@ export class CharacterWidget {
 		// and anchor each frame bottom-center within a fixed-size stage so
 		// switching frames doesn't make the whole widget jump around.
 		const maxFrameHeight = Math.max(...anim.frames.map((f) => f.h));
-		const scale = maxFrameHeight > 0 ? this.settings.size / maxFrameHeight : 1;
+		const renderedSize = computeResponsiveSize(this.settings.size);
+		const scale = maxFrameHeight > 0 ? renderedSize / maxFrameHeight : 1;
 		const maxFrameWidth = Math.max(...anim.frames.map((f) => f.w));
 
 		this.spriteStageEl.style.width = `${maxFrameWidth * scale}px`;
@@ -282,26 +318,40 @@ export class CharacterWidget {
 	}
 
 	private wander(): void {
-		const maxDelta = 140;
-		const deltaX = (Math.random() * 2 - 1) * maxDelta;
-		this.facingLeft = deltaX < 0;
-
 		const rect = this.containerEl.getBoundingClientRect();
+		const margin = 8;
+		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+
 		const currentRight = window.innerWidth - rect.right;
-		let newRight = currentRight - deltaX;
-		newRight = Math.min(Math.max(newRight, 8), window.innerWidth - rect.width - 8);
+		const currentBottom = window.innerHeight - rect.bottom;
+		const newRight = margin + Math.random() * (maxRight - margin);
+		const newBottom = margin + Math.random() * (maxBottom - margin);
+
+		const dx = newRight - currentRight;
+		const dy = newBottom - currentBottom;
+		if (Math.abs(dx) > 1) this.facingLeft = dx > 0; // moving toward the right offset = moving left on screen
+
+		const distance = Math.hypot(dx, dy);
+		const duration = Math.min(
+			RUN_MAX_DURATION_MS,
+			Math.max(RUN_MIN_DURATION_MS, (distance / RUN_SPEED_PX_PER_SEC) * 1000)
+		);
 
 		this.setReaction("walk");
 		this.containerEl.addClass("sm-tween");
+		this.containerEl.style.transitionDuration = `${duration}ms`;
 		this.containerEl.style.right = `${newRight}px`;
+		this.containerEl.style.bottom = `${newBottom}px`;
 
 		this.clearTimer("wanderTimer");
 		this.wanderTimer = window.setTimeout(() => {
 			this.containerEl.removeClass("sm-tween");
 			this.settings.posX = newRight;
+			this.settings.posY = newBottom;
 			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
 			if (this.currentReaction === "walk") this.setReaction("idle");
-		}, 1600);
+		}, duration);
 	}
 
 	// ---------- sleep watcher ----------
@@ -378,8 +428,13 @@ export class CharacterWidget {
 		this.isDragging = false;
 	}
 
-	/** Orientation change or an on-screen keyboard can shrink the viewport out from under a saved position. */
+	/** Orientation change, window resize, or an on-screen keyboard popping up: rescale and re-clamp position. */
 	private onViewportResize(): void {
+		this.applySize(this.settings.size);
+		// The placeholder character rescales for free via the --sm-size CSS
+		// var; a sprite pack/atlas needs its frame dimensions recomputed.
+		if (this.pack) this.setReaction(this.currentReaction);
+
 		const rect = this.containerEl.getBoundingClientRect();
 		const maxRight = Math.max(4, window.innerWidth - rect.width - 4);
 		const maxBottom = Math.max(4, window.innerHeight - rect.height - 4);
@@ -397,8 +452,8 @@ export class CharacterWidget {
 
 	// ---------- layout helpers ----------
 
-	private applySize(size: number): void {
-		this.containerEl.style.setProperty("--sm-size", `${size}px`);
+	private applySize(baseSize: number): void {
+		this.containerEl.style.setProperty("--sm-size", `${computeResponsiveSize(baseSize)}px`);
 	}
 
 	private applyPosition(posX: number, posY: number): void {

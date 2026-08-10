@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Platform, PluginSettingTab, Setting } from "obsidian";
 import type ShimejiBuddyPlugin from "./main";
 import { AtlasSlicer } from "./AtlasSlicer";
 import {
@@ -53,7 +53,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Size")
-			.setDesc("Height of the character, in pixels.")
+			.setDesc("Base height of the character - scales automatically to stay proportionate on smaller or larger screens.")
 			.addSlider((sl) =>
 				sl
 					.setLimits(48, 240, 4)
@@ -89,6 +89,23 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				})
 			);
 
+		if (Platform.isMobile) {
+			new Setting(containerEl)
+				.setName("Restrict touch to reading view")
+				.setDesc(
+					"Only let you drag or poke the buddy while the open note is in reading view - avoids " +
+						"misclicks while typing on a small screen. It keeps animating and reacting to what you " +
+						"do either way, it just won't respond to touch in edit view."
+				)
+				.addToggle((t) =>
+					t.setValue(s.mobileReadingViewOnly).onChange(async (v) => {
+						s.mobileReadingViewOnly = v;
+						await this.plugin.saveSettings();
+						this.plugin.updateMobileInteractivity();
+					})
+				);
+		}
+
 		containerEl.createEl("h3", { text: "Standby behaviour" });
 
 		new Setting(containerEl)
@@ -123,7 +140,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Wander")
-			.setDesc("Let the buddy occasionally walk to a new spot along the edge on its own.")
+			.setDesc("Let the buddy occasionally run to a random spot anywhere on the screen on its own.")
 			.addToggle((t) =>
 				t.setValue(s.wanderEnabled).onChange(async (v) => {
 					s.wanderEnabled = v;

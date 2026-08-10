@@ -85,6 +85,8 @@ export interface ShimejiSettings {
 	speechBubbleEnabled: boolean;
 	speechLines: SpeechLines;
 	clickThrough: boolean;
+	/** Mobile only: only draggable/pokeable while the active note is in reading view, to avoid misclicks while typing. */
+	mobileReadingViewOnly: boolean;
 
 	characterMode: CharacterMode;
 
@@ -139,6 +141,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	speechBubbleEnabled: true,
 	speechLines: DEFAULT_SPEECH_LINES,
 	clickThrough: false,
+	mobileReadingViewOnly: true,
 
 	characterMode: "builtin",
 	customCharacterFolder: "",

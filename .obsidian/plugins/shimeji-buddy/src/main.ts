@@ -1,4 +1,4 @@
-import { Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Platform, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { CharacterWidget } from "./CharacterWidget";
 import {
 	loadSpritePack,
@@ -33,6 +33,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.widget?.react("wave");
 			this.registerVaultEvents();
 			this.registerWorkspaceEvents();
+			this.registerMobileInteractivityWatcher();
 		});
 
 		this.addCommand({
@@ -105,6 +106,25 @@ export default class ShimejiBuddyPlugin extends Plugin {
 
 	applyLiveSettings(): void {
 		this.widget?.updateSettings(this.settings);
+	}
+
+	// ---------- mobile: touch only in reading view ----------
+
+	private registerMobileInteractivityWatcher(): void {
+		this.updateMobileInteractivity();
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.updateMobileInteractivity()));
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.updateMobileInteractivity()));
+	}
+
+	/** Reactions/idle animation always keep playing - this only gates dragging/poking. */
+	updateMobileInteractivity(): void {
+		if (!Platform.isMobile || !this.settings.mobileReadingViewOnly) {
+			this.widget?.setAutoClickThrough(false);
+			return;
+		}
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const isReadingView = !view || view.getMode() === "preview";
+		this.widget?.setAutoClickThrough(!isReadingView);
 	}
 
 	async reloadSpritePack(): Promise<void> {
