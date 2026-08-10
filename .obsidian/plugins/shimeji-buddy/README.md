@@ -65,7 +65,10 @@ get picked based on how you've been treating the buddy.
   whatever you've built (see "Actions and the animation library" above).
   Roaming is either anywhere on screen, or - with "Stick to window edges" on
   - patrolling the live boundaries of the sidebar(s) and main editor area,
-  hopping between them over time rather than crossing open space.
+  hopping between them over time rather than crossing open space. The
+  built-in placeholder also occasionally takes an idle workout break -
+  punches, push-ups, squats, or a dumbbell that appears/disappears in a puff
+  of smoke to be lifted.
 - **Reacts to what you do** - opening/creating/deleting/renaming/editing a
   note, the search pane opening, being poked, falling asleep, and any
   Obsidian command you name (see below) - each with the built-in placeholder

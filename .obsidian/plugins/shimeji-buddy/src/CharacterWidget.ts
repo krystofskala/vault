@@ -1,3 +1,4 @@
+import type { App } from "obsidian";
 import type { ShimejiSettings } from "./settings";
 import { pickWeighted, type LoadedSpritePack, type ResolvedAnimation } from "./spritePack";
 
@@ -14,9 +15,16 @@ type BuiltinPose =
 	| "walk"
 	| "run"
 	| "jump"
-	| "sleep";
+	| "sleep"
+	| "punch"
+	| "pushup"
+	| "squat"
+	| "lift";
 
 const LOOPING_POSES: ReadonlySet<BuiltinPose> = new Set(["idle", "walk", "run", "jump", "sleep"]);
+
+/** Occasional idle-time exercise poses, picked instead of a plain idle bob - builtin placeholder only. */
+const WORKOUT_TRIGGERS = ["idle:punch", "idle:pushup", "idle:squat", "idle:lift"];
 
 /** Which builtin pose plays for a trigger id when no pack/atlas animation is assigned to it. Anything not listed here (e.g. a command trigger) just rests at idle. */
 const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
@@ -29,6 +37,10 @@ const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
 	"search:open": "think",
 	poke: "poke",
 	sleep: "sleep",
+	"idle:punch": "punch",
+	"idle:pushup": "pushup",
+	"idle:squat": "squat",
+	"idle:lift": "lift",
 };
 
 // Movement past this many px (in either axis, summed) counts as a drag
@@ -79,20 +91,29 @@ const PLACEHOLDER_DURATIONS: Record<BuiltinPose, number> = {
 	surprised: 500,
 	think: 1100,
 	poke: 400,
+	punch: 1600,
+	pushup: 2400,
+	squat: 2000,
+	lift: 3000,
 };
 
 /**
  * The workspace's major regions, outermost-in: the left sidebar, the main
- * editor area, and the right sidebar (whichever of these are currently
- * visible - closing a sidebar removes it). Queried fresh each time, so it
- * always reflects the current layout without needing to watch for changes.
+ * editor area, and the right sidebar (whichever of these are currently open
+ * - a collapsed/closed sidebar is skipped). Uses the documented
+ * workspace.leftSplit/rootSplit/rightSplit rather than guessing at
+ * internal CSS class names, which aren't part of the public API and can
+ * change between Obsidian versions. Queried fresh each time, so it always
+ * reflects the current layout without needing to watch for changes.
  */
-function getWorkspaceRegions(): DOMRect[] {
-	const selectors = [".workspace-split.mod-left-split", ".workspace-split.mod-root", ".workspace-split.mod-right-split"];
+function getWorkspaceRegions(app: App): DOMRect[] {
 	const rects: DOMRect[] = [];
-	for (const selector of selectors) {
-		const el = document.querySelector(selector);
-		if (!el) continue;
+	const splits = [app.workspace.leftSplit, app.workspace.rootSplit, app.workspace.rightSplit];
+	for (const split of splits) {
+		if (!split) continue;
+		if ((split as { collapsed?: boolean }).collapsed) continue;
+		const el = (split as { containerEl?: HTMLElement }).containerEl;
+		if (!el || !el.isConnected) continue;
 		const r = el.getBoundingClientRect();
 		if (r.width > 40 && r.height > 40) rects.push(r);
 	}
@@ -134,6 +155,7 @@ export class CharacterWidget {
 	private spriteFrameEl!: HTMLElement;
 	private bubbleEl!: HTMLElement;
 
+	private app: App;
 	private settings: ShimejiSettings;
 	private callbacks: CharacterWidgetCallbacks;
 	private pack: LoadedSpritePack | null = null;
@@ -159,6 +181,7 @@ export class CharacterWidget {
 	private lastActivity = Date.now();
 	private isDragging = false;
 	private dragMoved = false;
+	private dragPointerType = "mouse";
 	private dragStart = { x: 0, y: 0 };
 	private dragPointerOffset = { x: 0, y: 0 };
 
@@ -167,7 +190,8 @@ export class CharacterWidget {
 	private boundPointerCancel = (e: PointerEvent) => this.onPointerCancel(e);
 	private boundResize = () => this.onViewportResize();
 
-	constructor(settings: ShimejiSettings, callbacks: CharacterWidgetCallbacks) {
+	constructor(app: App, settings: ShimejiSettings, callbacks: CharacterWidgetCallbacks) {
+		this.app = app;
 		this.settings = settings;
 		this.callbacks = callbacks;
 		this.containerEl = this.buildDom();
@@ -201,6 +225,8 @@ export class CharacterWidget {
 		char.createDiv({ cls: "sm-leg sm-leg-l" });
 		char.createDiv({ cls: "sm-leg sm-leg-r" });
 		char.createDiv({ cls: "sm-zzz" });
+		char.createDiv({ cls: "sm-smoke" });
+		char.createDiv({ cls: "sm-dumbbell" });
 
 		// Sprite-pack frame layer, hidden unless a custom pack is active. The
 		// stage is sized to an animation's largest frame and stays put; the
@@ -216,9 +242,6 @@ export class CharacterWidget {
 		this.bubbleEl = bubble;
 
 		container.addEventListener("pointerdown", (e) => this.onPointerDown(e));
-		container.addEventListener("pointermove", this.boundPointerMove);
-		container.addEventListener("pointerup", this.boundPointerUp);
-		container.addEventListener("pointercancel", this.boundPointerCancel);
 		container.addEventListener("contextmenu", (e) => e.preventDefault());
 
 		return container;
@@ -273,6 +296,7 @@ export class CharacterWidget {
 		this.clearTimer("spriteFrameTimer");
 		this.clearTimer("wanderTimer");
 		window.removeEventListener("resize", this.boundResize);
+		this.detachDragListeners();
 		this.containerEl.remove();
 	}
 
@@ -402,12 +426,20 @@ export class CharacterWidget {
 
 		if (this.settings.wanderEnabled && Math.random() < 0.35) {
 			this.wander();
-		} else {
-			// Nudge the placeholder animation to replay its idle keyframe
-			// (also picks a fresh random blink phase via CSS restart), or
-			// re-roll the pack's idle pool for variety.
-			this.setReaction("idle");
+			return;
 		}
+		if (!this.pack && Math.random() < 0.25) {
+			// A quick workout break - builtin placeholder only (a custom
+			// character can still opt in by assigning its own animation to
+			// one of these same trigger ids, e.g. "idle:lift").
+			const trigger = WORKOUT_TRIGGERS[Math.floor(Math.random() * WORKOUT_TRIGGERS.length)];
+			this.setReaction(trigger);
+			return;
+		}
+		// Nudge the placeholder animation to replay its idle keyframe (also
+		// picks a fresh random blink phase via CSS restart), or re-roll the
+		// pack's idle pool for variety.
+		this.setReaction("idle");
 	}
 
 	private wander(): void {
@@ -468,7 +500,7 @@ export class CharacterWidget {
 		const margin = 8;
 
 		if (this.settings.roamStickToEdges) {
-			const regions = getWorkspaceRegions();
+			const regions = getWorkspaceRegions(this.app);
 			if (regions.length > 0) {
 				if (this.patrolRegionIndex >= regions.length || Math.random() < 0.2) {
 					this.patrolRegionIndex = Math.floor(Math.random() * regions.length);
@@ -534,11 +566,8 @@ export class CharacterWidget {
 
 	private onPointerDown(e: PointerEvent): void {
 		if (e.pointerType === "mouse" && e.button !== 0) return;
-		// Stops the WebView from turning this into a page-scroll/callout gesture
-		// on touch, and captures the pointer so drag keeps tracking correctly
-		// even once the finger moves outside the widget's bounds.
+		// Stops the WebView from turning this into a page-scroll/callout gesture on touch.
 		e.preventDefault();
-		this.containerEl.setPointerCapture(e.pointerId);
 
 		// A roam in progress (or one that just finished) can leave a transition
 		// on right/bottom - clear it so manual dragging always tracks the
@@ -549,16 +578,27 @@ export class CharacterWidget {
 
 		this.isDragging = true;
 		this.dragMoved = false;
+		this.dragPointerType = e.pointerType;
 		this.dragStart = { x: e.clientX, y: e.clientY };
 		const rect = this.containerEl.getBoundingClientRect();
 		this.dragPointerOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+		// Added/removed per gesture (rather than always-on with pointer capture)
+		// so a mouse drag tracks the cursor as directly and immediately as
+		// possible - pointer capture measurably added a step of indirection.
+		window.addEventListener("pointermove", this.boundPointerMove);
+		window.addEventListener("pointerup", this.boundPointerUp);
+		window.addEventListener("pointercancel", this.boundPointerCancel);
 	}
 
 	private onPointerMove(e: PointerEvent): void {
 		if (!this.isDragging) return;
 		const dx = e.clientX - this.dragStart.x;
 		const dy = e.clientY - this.dragStart.y;
-		if (Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD_PX) this.dragMoved = true;
+		// Touch needs a bit of a dead-zone to tell a tap from a drag; a mouse
+		// doesn't, and a dead-zone there just reads as sluggish.
+		const threshold = this.dragPointerType === "mouse" ? 2 : DRAG_THRESHOLD_PX;
+		if (Math.abs(dx) + Math.abs(dy) > threshold) this.dragMoved = true;
 		if (!this.dragMoved) return;
 
 		const rect = this.containerEl.getBoundingClientRect();
@@ -577,6 +617,7 @@ export class CharacterWidget {
 	}
 
 	private onPointerUp(_e: PointerEvent): void {
+		this.detachDragListeners();
 		if (!this.isDragging) return;
 		this.isDragging = false;
 
@@ -595,7 +636,14 @@ export class CharacterWidget {
 
 	/** A touch drag can be cancelled mid-gesture by the OS (incoming call, edge-swipe, etc). */
 	private onPointerCancel(_e: PointerEvent): void {
+		this.detachDragListeners();
 		this.isDragging = false;
+	}
+
+	private detachDragListeners(): void {
+		window.removeEventListener("pointermove", this.boundPointerMove);
+		window.removeEventListener("pointerup", this.boundPointerUp);
+		window.removeEventListener("pointercancel", this.boundPointerCancel);
 	}
 
 	/** Orientation change, window resize, or an on-screen keyboard popping up: rescale and re-clamp position. */

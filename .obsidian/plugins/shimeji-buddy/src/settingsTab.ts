@@ -889,13 +889,22 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 	private pickAndUploadImage(folder: string): void {
 		// Must be attached to the DOM before .click() - a detached file input's
-		// click() is unreliable (often a silent no-op) in Obsidian's Electron/
-		// WebView environment.
+		// click() is unreliable in Obsidian's Electron environment. It also
+		// needs to be visually-hidden rather than display:none - some Chromium
+		// versions don't run the native file dialog for fully-hidden elements,
+		// even when they're in the DOM, so this positions it off-screen instead.
 		const input = document.createElement("input");
 		input.type = "file";
 		input.accept = "image/png,image/jpeg,image/gif,image/webp";
 		input.multiple = true;
-		input.style.display = "none";
+		Object.assign(input.style, {
+			position: "fixed",
+			top: "-1000px",
+			left: "-1000px",
+			width: "1px",
+			height: "1px",
+			opacity: "0",
+		});
 		document.body.appendChild(input);
 
 		const cleanup = () => input.remove();
@@ -904,15 +913,20 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			const files = Array.from(input.files ?? []);
 			cleanup();
 			if (files.length === 0) return;
-			let lastSaved: string | null = null;
-			for (const file of files) {
-				const buffer = await file.arrayBuffer();
-				lastSaved = await addImageToCharacter(this.app.vault, folder, file.name, buffer);
+			try {
+				let lastSaved: string | null = null;
+				for (const file of files) {
+					const buffer = await file.arrayBuffer();
+					lastSaved = await addImageToCharacter(this.app.vault, folder, file.name, buffer);
+				}
+				this.characterImages = await listCharacterImages(this.app.vault, folder);
+				if (lastSaved) this.editingImage = lastSaved;
+				await this.loadSlicerImage();
+				this.display();
+			} catch (e) {
+				console.error("Shimeji Buddy: image upload failed", e);
+				new Notice(`Couldn't add that image: ${e instanceof Error ? e.message : String(e)}`);
 			}
-			this.characterImages = await listCharacterImages(this.app.vault, folder);
-			if (lastSaved) this.editingImage = lastSaved;
-			await this.loadSlicerImage();
-			this.display();
 		};
 		// Some Electron/Chromium versions support the "cancel" event on file inputs; clean up if so, harmless no-op otherwise.
 		input.addEventListener("cancel", cleanup);

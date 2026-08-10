@@ -94,7 +94,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	private createWidget(force = false): void {
 		if (this.widget && !force) return;
 		this.widget?.destroy();
-		this.widget = new CharacterWidget(this.settings, {
+		this.widget = new CharacterWidget(this.app, this.settings, {
 			onPositionChange: async (posX, posY) => {
 				this.settings.posX = posX;
 				this.settings.posY = posY;

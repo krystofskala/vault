@@ -171,6 +171,54 @@
 	opacity: 0;
 }
 
+/* A puff of smoke the dumbbell prop appears/disappears through during "lift". */
+.sm-smoke {
+	position: absolute;
+	top: calc(var(--sm-size, 96px) * 0.42);
+	left: 50%;
+	width: calc(var(--sm-size, 96px) * 0.42);
+	height: calc(var(--sm-size, 96px) * 0.42);
+	margin-left: calc(var(--sm-size, 96px) * -0.21);
+	border-radius: 50%;
+	background: radial-gradient(circle, rgba(230, 230, 230, 0.95) 0%, rgba(230, 230, 230, 0.55) 45%, rgba(230, 230, 230, 0) 75%);
+	opacity: 0;
+	pointer-events: none;
+	z-index: 5;
+}
+
+/* A simple dumbbell prop for "lift" - a bar with a weight blob on each end, drawn with pseudo-elements so no extra DOM is needed. */
+.sm-dumbbell {
+	position: absolute;
+	top: calc(var(--sm-size, 96px) * 0.5);
+	left: 50%;
+	width: calc(var(--sm-size, 96px) * 0.32);
+	height: calc(var(--sm-size, 96px) * 0.06);
+	margin-left: calc(var(--sm-size, 96px) * -0.16);
+	background: #5b6472;
+	border-radius: 3px;
+	opacity: 0;
+	z-index: 6;
+}
+
+.sm-dumbbell::before,
+.sm-dumbbell::after {
+	content: "";
+	position: absolute;
+	top: calc(var(--sm-size, 96px) * -0.04);
+	width: calc(var(--sm-size, 96px) * 0.09);
+	height: calc(var(--sm-size, 96px) * 0.14);
+	background: #333c46;
+	border-radius: 2px;
+}
+
+.sm-dumbbell::before {
+	left: calc(var(--sm-size, 96px) * -0.02);
+}
+
+.sm-dumbbell::after {
+	right: calc(var(--sm-size, 96px) * -0.02);
+}
+
 /* ---------- state animations ---------- */
 
 @keyframes sm-bob {
@@ -245,6 +293,110 @@
 	20% { transform: translateY(2%) scaleY(0.85); }
 	50% { transform: translateY(-6%) scaleY(0.6); }
 	80% { transform: translateY(2%) scaleY(0.85); }
+}
+
+/* ---------- idle workout variety (builtin placeholder only) ---------- */
+
+.sm-state-punch {
+	animation: sm-punch-body 0.4s ease-in-out 4;
+}
+.sm-state-punch .sm-arm-l { animation: sm-punch-arm-l 0.4s ease-in-out 4; }
+.sm-state-punch .sm-arm-r { animation: sm-punch-arm-r 0.4s ease-in-out 4; }
+
+@keyframes sm-punch-body {
+	0%, 100% { transform: translateX(0); }
+	25% { transform: translateX(-2%); }
+	75% { transform: translateX(2%); }
+}
+@keyframes sm-punch-arm-l {
+	0%, 10%, 90%, 100% { transform: rotate(8deg) scaleY(1); }
+	50% { transform: rotate(-170deg) scaleY(1.15); }
+}
+@keyframes sm-punch-arm-r {
+	0%, 10%, 90%, 100% { transform: rotate(-8deg) scaleY(1); }
+	30% { transform: rotate(170deg) scaleY(1.15); }
+	50%, 100% { transform: rotate(-8deg) scaleY(1); }
+}
+
+.sm-state-pushup {
+	transform-origin: 50% 100%;
+	animation: sm-pushup-body 0.6s ease-in-out 4;
+}
+.sm-state-pushup .sm-arm-l,
+.sm-state-pushup .sm-arm-r {
+	animation: sm-pushup-arm 0.6s ease-in-out 4;
+}
+
+@keyframes sm-pushup-body {
+	0%, 100% { transform: rotate(-18deg) translateY(0); }
+	50% { transform: rotate(-18deg) translateY(10%); }
+}
+@keyframes sm-pushup-arm {
+	0%, 100% { transform: rotate(-70deg) scaleY(0.9); }
+	50% { transform: rotate(-55deg) scaleY(1.1); }
+}
+
+.sm-state-squat {
+	animation: sm-squat-body 0.5s ease-in-out 4;
+}
+.sm-state-squat .sm-leg-l,
+.sm-state-squat .sm-leg-r {
+	animation: sm-squat-legs 0.5s ease-in-out 4;
+}
+.sm-state-squat .sm-arm-l { animation: sm-squat-arm-l 0.5s ease-in-out 4; }
+.sm-state-squat .sm-arm-r { animation: sm-squat-arm-r 0.5s ease-in-out 4; }
+
+@keyframes sm-squat-body {
+	0%, 100% { transform: translateY(0); }
+	50% { transform: translateY(18%); }
+}
+@keyframes sm-squat-legs {
+	0%, 100% { transform: scaleY(1); }
+	50% { transform: scaleY(0.55); }
+}
+@keyframes sm-squat-arm-l {
+	0%, 100% { transform: rotate(8deg); }
+	50% { transform: rotate(-70deg); }
+}
+@keyframes sm-squat-arm-r {
+	0%, 100% { transform: rotate(-8deg); }
+	50% { transform: rotate(70deg); }
+}
+
+.sm-state-lift .sm-dumbbell { animation: sm-lift-dumbbell 3s ease-in-out 1; }
+.sm-state-lift .sm-smoke { animation: sm-lift-smoke 3s ease-in-out 1; }
+.sm-state-lift .sm-arm-l { animation: sm-lift-arm-l 3s ease-in-out 1; }
+.sm-state-lift .sm-arm-r { animation: sm-lift-arm-r 3s ease-in-out 1; }
+
+@keyframes sm-lift-smoke {
+	0%, 5%, 20%, 75%, 100% { opacity: 0; transform: scale(0.6); }
+	10% { opacity: 0.9; transform: scale(1.3); }
+	15% { opacity: 0; transform: scale(1.6); }
+	80% { opacity: 0.9; transform: scale(1.3); }
+	85%, 100% { opacity: 0; transform: scale(1.6); }
+}
+@keyframes sm-lift-dumbbell {
+	0%, 8% { opacity: 0; transform: translateY(0) scale(0.4); }
+	14% { opacity: 1; transform: translateY(0) scale(1); }
+	30% { transform: translateY(-25%) scale(1); }
+	45% { transform: translateY(0) scale(1); }
+	60% { transform: translateY(-25%) scale(1); }
+	75%, 82% { opacity: 1; transform: translateY(0) scale(1); }
+	90%, 100% { opacity: 0; transform: translateY(0) scale(0.4); }
+}
+@keyframes sm-lift-arm-l {
+	0%, 12% { transform: rotate(8deg); }
+	30% { transform: rotate(-100deg); }
+	45% { transform: rotate(8deg); }
+	60% { transform: rotate(-100deg); }
+	75%, 100% { transform: rotate(8deg); }
+}
+@keyframes sm-lift-arm-r {
+	0%, 12% { transform: rotate(-8deg); }
+	30% { transform: rotate(100deg); }
+	45% { transform: rotate(-8deg); }
+	60% { transform: rotate(100deg); }
+	75%, 100% { transform: rotate(-8deg); }
 }
 
 .sm-state-sleep {
