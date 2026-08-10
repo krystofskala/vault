@@ -1,6 +1,12 @@
 import { Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { CharacterWidget } from "./CharacterWidget";
-import { loadSpritePack, revokeSpritePack, type LoadedSpritePack } from "./spritePack";
+import {
+	loadSpritePack,
+	revokeSpritePack,
+	listAvailableSpritePacks,
+	type LoadedSpritePack,
+	type SpritePackInfo,
+} from "./spritePack";
 import { DEFAULT_SETTINGS, type NarutoBuddySettings, type ReactionName, type SpeechLines } from "./settings";
 import { NarutoBuddySettingTab } from "./settingsTab";
 
@@ -12,6 +18,8 @@ export default class NarutoBuddyPlugin extends Plugin {
 	private spritePack: LoadedSpritePack | null = null;
 	private modifyDebounce: number | null = null;
 	private lastSearchReactAt = 0;
+	availablePacks: SpritePackInfo[] = [];
+	availablePacksLoaded = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -19,6 +27,7 @@ export default class NarutoBuddyPlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(async () => {
 			this.createWidget();
+			await this.refreshAvailablePacks();
 			await this.reloadSpritePack();
 			this.widget?.react("wave");
 			this.registerVaultEvents();
@@ -96,6 +105,17 @@ export default class NarutoBuddyPlugin extends Plugin {
 		revokeSpritePack(this.spritePack);
 		this.spritePack = await loadSpritePack(this.app.vault, this.settings.customCharacterFolder);
 		this.widget?.setSpritePack(this.spritePack);
+	}
+
+	/** vault-relative folder this plugin's bundled/dropped-in character packs live under */
+	getCharactersDir(): string {
+		return `${this.app.vault.configDir}/plugins/${this.manifest.id}/characters`;
+	}
+
+	async refreshAvailablePacks(): Promise<SpritePackInfo[]> {
+		this.availablePacks = await listAvailableSpritePacks(this.app.vault, this.getCharactersDir());
+		this.availablePacksLoaded = true;
+		return this.availablePacks;
 	}
 
 	// ---------- vault action -> animation wiring ----------

@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, type TextComponent } from "obsidian";
 import type NarutoBuddyPlugin from "./main";
 
 export class NarutoBuddySettingTab extends PluginSettingTab {
@@ -17,8 +17,9 @@ export class NarutoBuddySettingTab extends PluginSettingTab {
 		containerEl.createEl("h2", { text: "Naruto Buddy" });
 		containerEl.createEl("p", {
 			text:
-				"A little ninja that idles on its own and reacts to what you do in the vault. " +
-				"Ships with a placeholder character - see below to drop in your own sprite pack.",
+				"A little character that idles on its own and reacts to what you do in the vault. " +
+				"Ships with a generic placeholder - pick or drop in your own sprite pack below to make it " +
+				"look like anything you want, ninja or otherwise.",
 			cls: "setting-item-description",
 		});
 
@@ -164,22 +165,69 @@ export class NarutoBuddySettingTab extends PluginSettingTab {
 			cls: "setting-item-description",
 			text:
 				"The built-in character is a generic placeholder (not Naruto artwork - that's copyrighted). " +
-				"To use real Naruto sprites, source your own images and point this at a folder containing a " +
-				"manifest.json plus the sprite strips. See characters/example-pack in this plugin's folder for the format.",
+				"It doesn't have to be Naruto, or even a ninja: drop any sprite pack's folder into " +
+				"characters/ inside this plugin's folder (each one needs a manifest.json plus its sprite " +
+				"strips - see characters/example-pack for the format) and pick it below.",
 		});
 
+		if (!this.plugin.availablePacksLoaded) {
+			this.plugin.refreshAvailablePacks().then(() => this.display());
+		}
+
+		const CUSTOM_VALUE = "__custom__";
+		const knownPaths = this.plugin.availablePacks.map((p) => p.path);
+		const dropdownValue =
+			s.customCharacterFolder === ""
+				? ""
+				: knownPaths.includes(s.customCharacterFolder)
+				? s.customCharacterFolder
+				: CUSTOM_VALUE;
+
+		let customPathText: TextComponent | undefined;
+
 		new Setting(containerEl)
-			.setName("Custom sprite pack folder")
-			.setDesc("Vault-relative path, e.g. .obsidian/plugins/naruto-buddy/characters/naruto. Leave empty for the built-in placeholder.")
-			.addText((t) =>
-				t
-					.setPlaceholder(".obsidian/plugins/naruto-buddy/characters/naruto")
+			.setName("Character pack")
+			.setDesc("Choose a discovered pack, or pick \"Custom path...\" to point at one manually below.")
+			.addDropdown((d) => {
+				d.addOption("", "Built-in placeholder (generic)");
+				for (const pack of this.plugin.availablePacks) d.addOption(pack.path, pack.label);
+				d.addOption(CUSTOM_VALUE, "Custom path...");
+				d.setValue(dropdownValue);
+				d.onChange(async (value) => {
+					if (value === CUSTOM_VALUE) {
+						this.display();
+						return;
+					}
+					s.customCharacterFolder = value;
+					customPathText?.setValue(value);
+					await this.plugin.saveSettings();
+					await this.plugin.reloadSpritePack();
+				});
+			})
+			.addExtraButton((b) =>
+				b
+					.setIcon("refresh-cw")
+					.setTooltip("Rescan characters/ for packs")
+					.onClick(async () => {
+						await this.plugin.refreshAvailablePacks();
+						this.display();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Custom pack path")
+			.setDesc(
+				"Vault-relative folder path, e.g. .obsidian/plugins/naruto-buddy/characters/my-pack. Leave empty for the built-in placeholder."
+			)
+			.addText((t) => {
+				customPathText = t;
+				t.setPlaceholder(".obsidian/plugins/naruto-buddy/characters/my-pack")
 					.setValue(s.customCharacterFolder)
 					.onChange(async (v) => {
 						s.customCharacterFolder = v.trim();
 						await this.plugin.saveSettings();
 						await this.plugin.reloadSpritePack();
-					})
-			);
+					});
+			});
 	}
 }

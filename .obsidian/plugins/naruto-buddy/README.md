@@ -12,11 +12,14 @@ from it isn't something this plugin can do. Out of the box it draws a small
 generic placeholder ninja with plain CSS shapes, so everything works
 immediately with no assets required.
 
-If you want the buddy to actually look like Naruto, source sprite sheets
-yourself (something you have the rights to use) and point the plugin at them
-as a custom sprite pack - see `characters/example-pack/README.md` for the
-exact format. The animation engine, idle behaviour, and event reactions work
-the same either way.
+The character engine isn't tied to Naruto at all - it just plays whatever
+sprite pack you give it. Drop a pack's folder (manifest.json + sprite strips)
+into `characters/` inside this plugin's folder, then pick it from the
+**Character pack** dropdown in settings - no path-typing required (there's
+also a manual path field for packs kept elsewhere). See
+`characters/example-pack/README.md` for the exact pack format. The animation
+engine, idle behaviour, and event reactions work identically no matter which
+character is loaded.
 
 ## Features
 
@@ -35,7 +38,8 @@ the same either way.
 - Click it for a quick reaction and an optional speech-bubble line.
 - Fully configurable from **Settings → Naruto Buddy**: size, idle timing,
   sleep timeout, which event reactions are on, speech bubble on/off and its
-  lines, click-through mode, and the custom sprite pack folder.
+  lines, click-through mode, and which character pack to use (auto-discovered
+  dropdown, plus a manual path field and a rescan button).
 - Two commands (Command palette): "Poke the buddy" and "Toggle buddy
   visibility".
 

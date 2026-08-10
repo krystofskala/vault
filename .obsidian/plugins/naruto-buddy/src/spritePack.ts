@@ -80,3 +80,60 @@ export function revokeSpritePack(pack: LoadedSpritePack | null): void {
 		if (url) URL.revokeObjectURL(url);
 	}
 }
+
+export interface SpritePackInfo {
+	/** vault-relative folder path */
+	path: string;
+	/** manifest.json "name", falling back to the folder name */
+	label: string;
+}
+
+/**
+ * Scans a vault-relative base folder (typically this plugin's characters/
+ * folder) for sub-folders that look like a usable sprite pack - i.e. they
+ * have a manifest.json referencing at least one image file that actually
+ * exists. Used to populate the "Character pack" picker in settings so users
+ * aren't stuck typing paths by hand.
+ */
+export async function listAvailableSpritePacks(
+	vault: Vault,
+	baseFolder: string
+): Promise<SpritePackInfo[]> {
+	const results: SpritePackInfo[] = [];
+	if (!baseFolder) return results;
+	if (!(await vault.adapter.exists(baseFolder))) return results;
+
+	let listing: { files: string[]; folders: string[] };
+	try {
+		listing = await vault.adapter.list(baseFolder);
+	} catch {
+		return results;
+	}
+
+	for (const folder of listing.folders) {
+		const manifestPath = `${folder}/manifest.json`;
+		if (!(await vault.adapter.exists(manifestPath))) continue;
+
+		try {
+			const raw = await vault.adapter.read(manifestPath);
+			const manifest: SpritePackManifest = JSON.parse(raw);
+			const defs = Object.values(manifest.animations || {});
+
+			let hasImage = false;
+			for (const def of defs) {
+				if (def && (await vault.adapter.exists(`${folder}/${def.file}`))) {
+					hasImage = true;
+					break;
+				}
+			}
+			if (!hasImage) continue;
+
+			const folderName = folder.split("/").pop() || folder;
+			results.push({ path: folder, label: manifest.name || folderName });
+		} catch {
+			continue;
+		}
+	}
+
+	return results;
+}
