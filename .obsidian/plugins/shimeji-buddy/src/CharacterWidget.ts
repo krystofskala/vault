@@ -559,7 +559,12 @@ export class CharacterWidget {
 		}
 
 		this.charEl.style.display = "none";
-		this.spriteStageEl.style.display = "";
+		// .sm-spritestage's base CSS rule is display:none (hidden until a
+		// pack actually has something to show) - clearing the inline style
+		// to "" doesn't override that, it just defers back to the stylesheet
+		// default, which is exactly the none we're trying to undo. Needs an
+		// explicit non-none value.
+		this.spriteStageEl.style.display = "block";
 		this.spriteStageEl.toggleClass("sm-facing-left", this.facingLeft);
 
 		// Frames on hand-packed sheets can vary in size (e.g. a crouch frame
