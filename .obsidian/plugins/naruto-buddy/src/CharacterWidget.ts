@@ -1,7 +1,5 @@
-import type { NarutoBuddySettings, ReactionName } from "./settings";
+import { LOOPING_REACTIONS, type NarutoBuddySettings, type ReactionName } from "./settings";
 import type { LoadedSpritePack } from "./spritePack";
-
-const LOOPING_REACTIONS: ReadonlySet<ReactionName> = new Set(["idle", "walk", "sleep"]);
 
 // How long each built-in placeholder animation runs for, in ms.
 // Must stay in sync with the keyframe durations in styles.css.
@@ -25,6 +23,7 @@ export interface CharacterWidgetCallbacks {
 export class CharacterWidget {
 	private containerEl: HTMLElement;
 	private charEl!: HTMLElement;
+	private spriteStageEl!: HTMLElement;
 	private spriteFrameEl!: HTMLElement;
 	private bubbleEl!: HTMLElement;
 
@@ -84,8 +83,13 @@ export class CharacterWidget {
 		char.createDiv({ cls: "nb-leg nb-leg-r" });
 		char.createDiv({ cls: "nb-zzz" });
 
-		// Sprite-pack frame layer, hidden unless a custom pack is active.
-		const spriteFrame = container.createDiv({ cls: "nb-spriteframe" });
+		// Sprite-pack frame layer, hidden unless a custom pack is active. The
+		// stage is sized to an animation's largest frame and stays put; the
+		// frame inside it is bottom-center anchored so frames of differing
+		// size (common on hand-packed/modular sheets) don't jitter around.
+		const spriteStage = container.createDiv({ cls: "nb-spritestage" });
+		this.spriteStageEl = spriteStage;
+		const spriteFrame = spriteStage.createDiv({ cls: "nb-spriteframe" });
 		this.spriteFrameEl = spriteFrame;
 
 		const bubble = container.createDiv({ cls: "nb-bubble" });
@@ -145,12 +149,12 @@ export class CharacterWidget {
 	private setReaction(name: ReactionName, message?: string): void {
 		this.currentReaction = name;
 
-		if (this.pack?.manifest.animations[name]) {
+		if (this.pack?.animations[name]) {
 			this.playSprite(name);
 		} else if (this.pack) {
 			// Sprite pack active but missing this specific animation: fall back
 			// to its idle frame (or the placeholder if it has none at all).
-			if (this.pack.manifest.animations.idle) this.playSprite("idle");
+			if (this.pack.animations.idle) this.playSprite("idle");
 			else this.playPlaceholder(name);
 		} else {
 			this.playPlaceholder(name);
@@ -160,7 +164,7 @@ export class CharacterWidget {
 
 		if (!LOOPING_REACTIONS.has(name)) {
 			this.clearTimer("oneShotRevertTimer");
-			const duration = this.pack?.manifest.animations[name]
+			const duration = this.pack?.animations[name]
 				? undefined // sprite one-shot completion drives the revert itself
 				: PLACEHOLDER_DURATIONS[name] || 600;
 			if (duration) {
@@ -172,46 +176,52 @@ export class CharacterWidget {
 	}
 
 	private playPlaceholder(name: ReactionName): void {
-		this.spriteFrameEl.style.display = "none";
+		this.spriteStageEl.style.display = "none";
 		this.charEl.style.display = "";
 		this.charEl.className = `nb-char nb-state-${name}${this.facingLeft ? " nb-facing-left" : ""}`;
 	}
 
 	private playSprite(name: ReactionName): void {
 		if (!this.pack) return;
-		const def = this.pack.manifest.animations[name];
-		const url = this.pack.images[name];
-		if (!def || !url) return;
+		const anim = this.pack.animations[name];
+		if (!anim || anim.frames.length === 0) return;
 
 		this.charEl.style.display = "none";
-		this.spriteFrameEl.style.display = "";
-		this.spriteFrameEl.toggleClass("nb-facing-left", this.facingLeft);
+		this.spriteStageEl.style.display = "";
+		this.spriteStageEl.toggleClass("nb-facing-left", this.facingLeft);
 
-		const { frameWidth, frameHeight } = this.pack.manifest;
-		const scale = this.settings.size / frameHeight;
-		const frameW = frameWidth * scale;
-		const frameH = frameHeight * scale;
+		// Frames on hand-packed sheets can vary in size (e.g. a crouch frame
+		// shorter than a stand frame). Scale relative to the tallest frame in
+		// this animation so the character's overall size stays consistent,
+		// and anchor each frame bottom-center within a fixed-size stage so
+		// switching frames doesn't make the whole widget jump around.
+		const maxFrameHeight = Math.max(...anim.frames.map((f) => f.h));
+		const scale = maxFrameHeight > 0 ? this.settings.size / maxFrameHeight : 1;
+		const maxFrameWidth = Math.max(...anim.frames.map((f) => f.w));
 
-		this.spriteFrameEl.style.width = `${frameW}px`;
-		this.spriteFrameEl.style.height = `${frameH}px`;
-		this.spriteFrameEl.style.backgroundImage = `url(${url})`;
-		this.spriteFrameEl.style.backgroundSize = `${frameW * def.frames}px ${frameH}px`;
+		this.spriteStageEl.style.width = `${maxFrameWidth * scale}px`;
+		this.spriteStageEl.style.height = `${maxFrameHeight * scale}px`;
+		this.spriteFrameEl.style.backgroundImage = `url(${anim.imageUrl})`;
+		this.spriteFrameEl.style.backgroundSize = `${anim.imageWidth * scale}px ${anim.imageHeight * scale}px`;
 
 		this.clearTimer("spriteFrameTimer");
 		let frame = 0;
 		const draw = () => {
-			this.spriteFrameEl.style.backgroundPositionX = `${-frame * frameW}px`;
+			const rect = anim.frames[frame];
+			this.spriteFrameEl.style.width = `${rect.w * scale}px`;
+			this.spriteFrameEl.style.height = `${rect.h * scale}px`;
+			this.spriteFrameEl.style.backgroundPosition = `${-rect.x * scale}px ${-rect.y * scale}px`;
 		};
 		draw();
 
-		if (def.frames <= 1) return;
+		if (anim.frames.length <= 1) return;
 		this.spriteFrameTimer = window.setInterval(() => {
 			frame++;
-			if (frame >= def.frames) {
-				if (def.loop) {
+			if (frame >= anim.frames.length) {
+				if (anim.loop) {
 					frame = 0;
 				} else {
-					frame = def.frames - 1;
+					frame = anim.frames.length - 1;
 					draw();
 					this.clearTimer("spriteFrameTimer");
 					if (this.currentReaction === name && !LOOPING_REACTIONS.has(name)) {
@@ -221,7 +231,7 @@ export class CharacterWidget {
 				}
 			}
 			draw();
-		}, 1000 / def.fps);
+		}, 1000 / anim.fps);
 	}
 
 	private showBubble(text: string): void {

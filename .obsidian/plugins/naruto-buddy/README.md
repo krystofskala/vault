@@ -12,14 +12,24 @@ from it isn't something this plugin can do. Out of the box it draws a small
 generic placeholder ninja with plain CSS shapes, so everything works
 immediately with no assets required.
 
-The character engine isn't tied to Naruto at all - it just plays whatever
-sprite pack you give it. Drop a pack's folder (manifest.json + sprite strips)
-into `characters/` inside this plugin's folder, then pick it from the
-**Character pack** dropdown in settings - no path-typing required (there's
-also a manual path field for packs kept elsewhere). See
-`characters/example-pack/README.md` for the exact pack format. The animation
-engine, idle behaviour, and event reactions work identically no matter which
-character is loaded.
+The character engine isn't tied to Naruto at all - it just plays whatever you
+give it. Two ways to supply a character, both in **Settings → Naruto Buddy →
+Character source**:
+
+- **Folder pack**: a folder with a `manifest.json` plus one sprite strip PNG
+  per animation (uniform frame size). Drop it into `characters/` inside this
+  plugin's folder and pick it from the dropdown - see
+  `characters/example-pack/README.md` for the format.
+- **Single spritesheet**: for sheets that *aren't* a tidy grid - frames of
+  different sizes, packed irregularly, extra stuff mixed in (exactly what
+  most fan-made/ripped sheets look like). Point at one image and slice it
+  right there in settings: drag a box around each frame directly on the
+  sheet (or type exact pixel coordinates), assign it to an animation, and
+  add it - repeat in order for every frame you need. No manifest.json, no
+  grid math.
+
+The animation engine, idle behaviour, and event reactions work identically no
+matter which one (or neither) is active.
 
 ## Features
 
@@ -38,8 +48,8 @@ character is loaded.
 - Click it for a quick reaction and an optional speech-bubble line.
 - Fully configurable from **Settings → Naruto Buddy**: size, idle timing,
   sleep timeout, which event reactions are on, speech bubble on/off and its
-  lines, click-through mode, and which character pack to use (auto-discovered
-  dropdown, plus a manual path field and a rescan button).
+  lines, click-through mode, and the character source (built-in, a folder
+  pack, or a freeform-sliced single spritesheet).
 - Two commands (Command palette): "Poke the buddy" and "Toggle buddy
   visibility".
 
@@ -65,9 +75,12 @@ Source lives in `src/`:
 - `main.ts` - plugin entry point, settings persistence, wiring vault/workspace
   events to reactions.
 - `CharacterWidget.ts` - the floating DOM widget: placeholder character
-  animation, sprite-pack playback, idle/standby brain, dragging, speech
-  bubble.
-- `spritePack.ts` - loads a custom sprite pack (manifest.json + PNG strips)
-  from a vault folder.
+  animation, sprite playback (folder pack or atlas), idle/standby brain,
+  dragging, speech bubble.
+- `spritePack.ts` - loads a folder pack (manifest.json + PNG strips) or an
+  atlas (single image + explicit per-frame rectangles) into a common
+  resolved-animation shape.
+- `AtlasSlicer.ts` - the canvas-based drag-to-select tool used in settings to
+  slice a freeform spritesheet into frames.
 - `settingsTab.ts` - the settings UI.
 - `settings.ts` - settings types and defaults.

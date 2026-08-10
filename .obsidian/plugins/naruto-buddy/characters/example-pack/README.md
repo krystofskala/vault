@@ -1,20 +1,27 @@
-# Sprite pack format
+# Folder pack format
 
 This folder is a **template**, not a ready-to-use character - it deliberately
 ships without any images, since real Naruto artwork is copyrighted and can't
 be included here. Use it as a reference for building your own pack (Naruto or
 otherwise) from sprites you have the rights to use.
 
+**Note:** this format requires every frame in a strip to be the same size,
+laid out in a neat row. If your sheet is irregular instead - frames of
+different sizes, packed by hand, extra non-sprite stuff mixed in (very
+common on fan-ripped sheets) - use **Settings → Naruto Buddy → Character
+source → Single spritesheet** instead. That mode lets you drag-select each
+frame's exact bounding box directly on the image, no uniform grid required.
+
 ## Layout
 
-A sprite pack is a folder containing:
+A folder pack is a folder containing:
 
 - `manifest.json` - describes the character and its animations (see below)
 - one PNG per animation, each a **horizontal strip** of equally-sized frames
   (frame 0 leftmost, reading left to right)
 
-Point the plugin at the folder via **Settings → Naruto Buddy → Custom sprite
-pack folder**, using a vault-relative path, e.g.:
+Point the plugin at the folder via **Settings → Naruto Buddy → Character
+source → Folder pack**, using a vault-relative path, e.g.:
 
 ```
 .obsidian/plugins/naruto-buddy/characters/naruto

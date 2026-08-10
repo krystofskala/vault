@@ -2,6 +2,7 @@ import { Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { CharacterWidget } from "./CharacterWidget";
 import {
 	loadSpritePack,
+	loadAtlasSpritePack,
 	revokeSpritePack,
 	listAvailableSpritePacks,
 	type LoadedSpritePack,
@@ -65,7 +66,12 @@ export default class NarutoBuddyPlugin extends Plugin {
 		const data = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data, {
 			speechLines: Object.assign({}, DEFAULT_SETTINGS.speechLines, data?.speechLines),
+			atlasAnimations: Object.assign({}, DEFAULT_SETTINGS.atlasAnimations, data?.atlasAnimations),
 		});
+		// upgrade path: older saved data predates characterMode and only had customCharacterFolder
+		if (!data?.characterMode && data?.customCharacterFolder) {
+			this.settings.characterMode = "pack";
+		}
 	}
 
 	async saveSettings(): Promise<void> {
@@ -102,9 +108,20 @@ export default class NarutoBuddyPlugin extends Plugin {
 	}
 
 	async reloadSpritePack(): Promise<void> {
-		revokeSpritePack(this.spritePack);
-		this.spritePack = await loadSpritePack(this.app.vault, this.settings.customCharacterFolder);
+		const previous = this.spritePack;
+		if (this.settings.characterMode === "pack") {
+			this.spritePack = await loadSpritePack(this.app.vault, this.settings.customCharacterFolder);
+		} else if (this.settings.characterMode === "atlas") {
+			this.spritePack = await loadAtlasSpritePack(
+				this.app.vault,
+				this.settings.atlasImagePath,
+				this.settings.atlasAnimations
+			);
+		} else {
+			this.spritePack = null;
+		}
 		this.widget?.setSpritePack(this.spritePack);
+		revokeSpritePack(previous);
 	}
 
 	/** vault-relative folder this plugin's bundled/dropped-in character packs live under */
