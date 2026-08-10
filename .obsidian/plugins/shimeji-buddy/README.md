@@ -23,16 +23,30 @@ equal-frame strips, large messy sheets, whatever you've got (e.g. an
 asset-pack export with a dozen separate PNGs). Build one entirely from
 **Settings → Shimeji Buddy → Character**: create it, upload images (picked
 from anywhere on your computer, multiple at once, not just the vault) or
-point at a folder you've already dropped into the vault yourself, slice
-out whichever frames you need from any of them (drag a box, or auto-generate
-an evenly-spaced strip in one click), and assign each resulting animation to
-one or more actions. No file editing required, though the character folder
-stays a plain, portable `character.json` + images if you'd rather script one
-- see `characters/example-character/README.md` for that format. The slicer
-magnifies small pixel-art sheets heavily (up to 24x) so individual frames on
-a 16x16 or 32x32 sheet are still draggable; everything you change here saves
-itself instantly to that character's `character.json` - there's no separate
-save step.
+point at a folder you've already dropped into the vault yourself, then hit
+**"Edit frames…"** on an image to open a large dedicated editing window (as
+close as a plugin can get to a separate window - Obsidian doesn't expose a
+way to pop a settings panel into its own OS window, so this is a big modal
+instead of the cramped settings-tab column). In there:
+
+- **Freeform**: drag a box around a frame, for messy/irregular sheets.
+- **Grid**: set columns/rows and click cells in the order you want them to
+  play - the click order becomes the animation's frame order, so a whole
+  walk cycle on a uniform sheet is a few clicks. The slicer also magnifies
+  small pixel-art sheets heavily (up to 24x) so individual cells on a 16x16
+  or 32x32 sheet are still clickable.
+- Every animation built from that image is listed right there too - rename
+  or delete any of them without leaving the window.
+
+Add a new empty animation any time from the **Animations** list in the main
+settings tab ("New animation" - pick a source image, it appears in the list
+immediately, ready for "Edit frames…" to fill it in), and delete one via the
+🗑 button next to its name. Trigger assignment, weight, loop/speed/enabled
+stay in that same list. No file editing required, though the character
+folder stays a plain, portable `character.json` + images if you'd rather
+script one - see `characters/example-character/README.md` for that format.
+Everything saves itself instantly to that character's `character.json` -
+there's no separate save step.
 
 The animation engine, idle behaviour, and reactions work identically whether
 the built-in placeholder or a character you've built is active.

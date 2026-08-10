@@ -744,6 +744,37 @@
 	color: var(--text-muted);
 }
 
+/* ---------- image editor modal ---------- */
+
+/* Obsidian doesn't let a plugin pop a settings panel into its own OS
+   window - this big modal is the closest equivalent, giving the slicer real
+   room instead of the cramped settings-tab column. */
+.sm-image-editor-modal {
+	width: min(1000px, 94vw);
+	max-height: 88vh;
+}
+
+.sm-image-editor-modal .sm-editor-layout {
+	display: flex;
+	gap: 20px;
+	flex-wrap: wrap;
+	align-items: flex-start;
+}
+
+.sm-image-editor-modal .sm-editor-slicer-col {
+	flex: 1 1 480px;
+	min-width: 0;
+}
+
+.sm-image-editor-modal .sm-editor-slicer-col .sm-slicer {
+	max-height: 70vh;
+}
+
+.sm-image-editor-modal .sm-editor-side-col {
+	flex: 1 1 320px;
+	min-width: 280px;
+}
+
 /* ---------- actions reference + animation library (settings tab) ---------- */
 
 .sm-trigger-list {

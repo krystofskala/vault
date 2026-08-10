@@ -1,10 +1,9 @@
 import { App, Notice, PluginSettingTab, Setting, setIcon, type DropdownComponent, type TextComponent } from "obsidian";
 import type ShimejiBuddyPlugin from "./main";
-import { AtlasSlicer } from "./AtlasSlicer";
+import { ImageEditorModal } from "./ImageEditorModal";
 import {
 	BUILTIN_TRIGGERS,
 	commandTriggerId,
-	type AtlasFrameRect,
 	type BuiltinBehaviorId,
 	type CustomAnimation,
 	type TriggerDef,
@@ -13,7 +12,6 @@ import {
 	addImageToCharacter,
 	createCharacter,
 	deleteCharacterImage,
-	generateStripFrames,
 	listCharacterImages,
 	readCharacterFile,
 	writeCharacterFile,
@@ -57,8 +55,6 @@ const BUILTIN_BEHAVIOR_LABELS: Record<BuiltinBehaviorId, string> = {
 export class ShimejiSettingTab extends PluginSettingTab {
 	plugin: ShimejiBuddyPlugin;
 
-	private slicer?: AtlasSlicer;
-	private pendingTargetAnimationId: string | null = null;
 	private frameCountEls: Record<string, HTMLElement> = {};
 
 	private creatingCharacter = false;
@@ -67,16 +63,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	private characterFileLoaded = false;
 	private characterFile: CharacterFile | null = null;
 	private characterImages: string[] = [];
-	private editingImage: string | null = null;
 
 	constructor(app: App, plugin: ShimejiBuddyPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
-	}
-
-	hide(): void {
-		this.slicer?.destroy();
-		this.slicer = undefined;
 	}
 
 	// ---------- layout helpers ----------
@@ -463,7 +453,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						s.characterMode = "character";
 						s.activeCharacterFolder = value;
 						this.characterFileLoaded = false;
-						this.editingImage = null;
 					}
 					await this.plugin.saveSettings();
 					await this.plugin.reloadSpritePack();
@@ -499,7 +488,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 							s.characterMode = "character";
 							s.activeCharacterFolder = folder;
 							this.characterFileLoaded = false;
-							this.editingImage = null;
 							this.creatingCharacter = false;
 							await this.plugin.saveSettings();
 							await this.plugin.refreshAvailableCharacters();
@@ -542,7 +530,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 							s.characterMode = "character";
 							s.activeCharacterFolder = path;
 							this.characterFileLoaded = false;
-							this.editingImage = null;
 							this.importingFolder = false;
 							await this.plugin.saveSettings();
 							await this.plugin.reloadSpritePack();
@@ -590,18 +577,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				});
 			}
 			for (const img of this.characterImages) {
-				const isEditing = this.editingImage === img;
 				new Setting(body)
 					.setName(img)
 					.addButton((b) =>
-						b
-							.setButtonText(isEditing ? "Editing" : "Slice frames")
-							.setDisabled(isEditing)
-							.onClick(async () => {
-								this.editingImage = img;
-								await this.loadSlicerImage();
-								this.display();
-							})
+						b.setButtonText("Edit frames…").onClick(() => this.openImageEditor(folder, img, null))
 					)
 					.addExtraButton((b) =>
 						b
@@ -615,7 +594,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 									);
 									await this.persistCharacterFile();
 								}
-								if (this.editingImage === img) this.editingImage = null;
 								this.characterImages = await listCharacterImages(this.app.vault, folder);
 								this.display();
 							})
@@ -630,28 +608,58 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			this.callout(
 				body,
 				"tip",
-				"Got a whole asset-pack export (several PNGs)? Select them all at once in the upload dialog, " +
-					"or skip uploading entirely and use \"Import an existing folder...\" above if you've already " +
-					"placed them in the vault yourself."
+				"\"Edit frames…\" opens a bigger dedicated window: drag a box freeform, or set a grid and click " +
+					"cells in play order - either way it also lists and manages every animation built from that " +
+					"image. Got a whole asset-pack export (several PNGs)? Select them all at once in the upload " +
+					"dialog, or use \"Import an existing folder...\" above if you've already placed them in the vault."
 			);
 		});
 
-		this.section(containerEl, "Slice frames", !!this.editingImage, (body) => {
-			if (!this.editingImage) {
-				body.createEl("p", {
-					cls: "setting-item-description",
-					text: "Pick \"Slice frames\" on an image above to start.",
-				});
-			} else {
-				this.renderSlicer(body, folder);
-			}
-		});
-
 		this.section(containerEl, "Animations", true, (body) => {
+			if (this.characterImages.length > 0) {
+				let newAnimName: TextComponent | undefined;
+				let newAnimImage: DropdownComponent | undefined;
+				new Setting(body)
+					.setName("New animation")
+					.setDesc("Adds an empty animation to the list below - open its \"Edit frames\" to slice frames for it.")
+					.addText((t) => {
+						newAnimName = t;
+						t.setPlaceholder("Name");
+					})
+					.addDropdown((d) => {
+						newAnimImage = d;
+						for (const img of this.characterImages) d.addOption(img, img);
+					})
+					.addButton((b) =>
+						b
+							.setButtonText("+ Add")
+							.setCta()
+							.onClick(async () => {
+								const sourceImage = newAnimImage?.getValue();
+								if (!sourceImage || !this.characterFile) return;
+								const anim: CustomAnimation = {
+									id: newAnimationId(),
+									name: newAnimName?.getValue().trim() || `Animation ${this.characterFile.animations.length + 1}`,
+									sourceImage,
+									triggers: ["idle"],
+									moves: true,
+									weight: 1,
+									enabled: true,
+									loop: true,
+									fps: 6,
+									frames: [],
+								};
+								this.characterFile.animations.push(anim);
+								await this.persistCharacterFile();
+								this.display();
+							})
+					);
+			}
+
 			if (this.characterFile!.animations.length === 0) {
 				body.createEl("p", {
 					cls: "setting-item-description",
-					text: "No animations yet - slice some frames above to create your first one.",
+					text: "No animations yet - add one above, or upload/edit an image first.",
 				});
 			}
 			for (const anim of this.characterFile!.animations) {
@@ -667,123 +675,55 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		});
 	}
 
-	private renderSlicer(containerEl: HTMLElement, folder: string): void {
-		containerEl.createEl("p", {
-			cls: "setting-item-description",
-			text: `Editing: ${this.editingImage}`,
+	/** Opens the big dedicated slicing window for one image - freeform drag or grid-pick, plus managing every animation built from it. */
+	private openImageEditor(folder: string, imageName: string, presetAnimationId: string | null): void {
+		const modal = new ImageEditorModal(this.app, {
+			folder,
+			imageName,
+			presetAnimationId,
+			getAnimationsForImage: () =>
+				this.characterFile?.animations.filter((a) => a.sourceImage === imageName) ?? [],
+			createAnimation: async (name) => {
+				const anim: CustomAnimation = {
+					id: newAnimationId(),
+					name: name || `Animation ${(this.characterFile?.animations.length ?? 0) + 1}`,
+					sourceImage: imageName,
+					triggers: ["idle"],
+					moves: true,
+					weight: 1,
+					enabled: true,
+					loop: true,
+					fps: 6,
+					frames: [],
+				};
+				this.characterFile?.animations.push(anim);
+				await this.persistCharacterFile();
+				return anim;
+			},
+			renameAnimation: async (id, name) => {
+				const anim = this.characterFile?.animations.find((a) => a.id === id);
+				if (!anim) return;
+				anim.name = name;
+				await this.persistCharacterFile();
+			},
+			deleteAnimation: async (id) => {
+				if (!this.characterFile) return;
+				this.characterFile.animations = this.characterFile.animations.filter((a) => a.id !== id);
+				await this.persistCharacterFile();
+			},
+			addFrames: async (id, frames) => {
+				const anim = this.characterFile?.animations.find((a) => a.id === id);
+				if (!anim) return;
+				anim.frames.push(...frames);
+				anim.enabled = true;
+				await this.persistCharacterFile();
+			},
+			loadSlicerImage: async (slicer) => {
+				await slicer.load(this.app.vault, `${folder}/${imageName}`);
+			},
+			onClosed: () => this.display(),
 		});
-		this.callout(
-			containerEl,
-			"tip",
-			"Drag a box around a frame below (or type exact coordinates), then add it to an animation - " +
-				"or, if this image is an evenly-spaced strip, skip dragging and use \"Generate strip frames\"."
-		);
-
-		const slicerHost = containerEl.createDiv();
-		if (!this.slicer) {
-			this.slicer = new AtlasSlicer(slicerHost);
-			this.loadSlicerImage();
-		} else {
-			slicerHost.appendChild(this.slicer.rootEl);
-		}
-
-		const controls = containerEl.createDiv({ cls: "sm-slicer-controls" });
-		const mkNumField = (label: string): HTMLInputElement => {
-			const wrap = controls.createDiv({ cls: "sm-slicer-field" });
-			wrap.createEl("label", { text: label });
-			return wrap.createEl("input", { type: "number", attr: { min: "0" } });
-		};
-		const xInput = mkNumField("X");
-		const yInput = mkNumField("Y");
-		const wInput = mkNumField("W");
-		const hInput = mkNumField("H");
-
-		const syncInputsFromSelection = (rect: AtlasFrameRect | null) => {
-			xInput.value = rect ? String(rect.x) : "";
-			yInput.value = rect ? String(rect.y) : "";
-			wInput.value = rect ? String(rect.w) : "";
-			hInput.value = rect ? String(rect.h) : "";
-		};
-		this.slicer.onSelectionChange(syncInputsFromSelection);
-		syncInputsFromSelection(this.slicer.getSelection());
-
-		const commitInputsToSelection = () => {
-			const x = Number(xInput.value);
-			const y = Number(yInput.value);
-			const w = Number(wInput.value);
-			const h = Number(hInput.value);
-			if ([x, y, w, h].some((n) => Number.isNaN(n))) return;
-			this.slicer?.setSelection({ x, y, w: Math.max(1, w), h: Math.max(1, h) });
-		};
-		for (const input of [xInput, yInput, wInput, hInput]) {
-			input.addEventListener("change", commitInputsToSelection);
-		}
-
-		const relevantAnims = this.characterFile?.animations.filter((a) => a.sourceImage === this.editingImage) ?? [];
-		new Setting(containerEl)
-			.setName("Add selection to")
-			.setDesc("Pick an existing animation for this image, or create a new one.")
-			.addDropdown((d) => {
-				d.addOption("__new__", "+ New animation");
-				for (const anim of relevantAnims) d.addOption(anim.id, anim.name || "(unnamed)");
-				d.setValue(this.pendingTargetAnimationId ?? "__new__");
-				d.onChange((v) => {
-					this.pendingTargetAnimationId = v === "__new__" ? null : v;
-				});
-			})
-			.addButton((b) =>
-				b
-					.setButtonText("Add frame")
-					.setCta()
-					.onClick(async () => {
-						const sel = this.slicer?.getSelection();
-						if (!sel) return;
-						await this.appendFramesToTargetAnimation(folder, [sel]);
-					})
-			);
-
-		let stripCountInput: TextComponent | undefined;
-		new Setting(containerEl)
-			.setName("Generate strip frames")
-			.setDesc("For an evenly-spaced horizontal strip: how many equal-width frames does this image contain?")
-			.addText((t) => {
-				stripCountInput = t;
-				t.setPlaceholder("e.g. 6");
-			})
-			.addButton((b) =>
-				b.setButtonText("Generate").onClick(async () => {
-					const size = this.slicer?.getNaturalSize();
-					const count = Number(stripCountInput?.getValue());
-					if (!size || !count || count < 1) return;
-					const frames = generateStripFrames(size.width, size.height, count);
-					await this.appendFramesToTargetAnimation(folder, frames);
-				})
-			);
-	}
-
-	private async appendFramesToTargetAnimation(folder: string, frames: AtlasFrameRect[]): Promise<void> {
-		if (!this.characterFile || !this.editingImage) return;
-		let anim = this.characterFile.animations.find((a) => a.id === this.pendingTargetAnimationId);
-		if (!anim || anim.sourceImage !== this.editingImage) {
-			anim = {
-				id: newAnimationId(),
-				name: `Animation ${this.characterFile.animations.length + 1}`,
-				sourceImage: this.editingImage,
-				triggers: ["idle"],
-				moves: true,
-				weight: 1,
-				enabled: true,
-				loop: true,
-				fps: 6,
-				frames: [],
-			};
-			this.characterFile.animations.push(anim);
-			this.pendingTargetAnimationId = anim.id;
-		}
-		anim.frames.push(...frames);
-		anim.enabled = true;
-		await this.persistCharacterFile();
-		this.display();
+		modal.open();
 	}
 
 	private renderCustomAnimationBlock(containerEl: HTMLElement, anim: CustomAnimation): void {
@@ -805,7 +745,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.onClick(async () => {
 						if (!this.characterFile) return;
 						this.characterFile.animations = this.characterFile.animations.filter((a) => a.id !== anim.id);
-						if (this.pendingTargetAnimationId === anim.id) this.pendingTargetAnimationId = null;
 						await this.persistCharacterFile();
 						this.display();
 					})
@@ -880,6 +819,12 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		this.frameCountEls[anim.id] = countEl;
 		this.refreshFrameCountText(anim.id);
 		framesRow
+			.addButton((b) =>
+				b.setButtonText("Edit frames…").onClick(() => {
+					const folder = this.plugin.settings.activeCharacterFolder;
+					if (folder) this.openImageEditor(folder, anim.sourceImage, anim.id);
+				})
+			)
 			.addExtraButton((b) =>
 				b
 					.setIcon("undo-2")
@@ -949,11 +894,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		await this.plugin.reloadSpritePack();
 	}
 
-	private async loadSlicerImage(): Promise<void> {
-		if (!this.slicer || !this.editingImage || !this.plugin.settings.activeCharacterFolder) return;
-		await this.slicer.load(this.app.vault, `${this.plugin.settings.activeCharacterFolder}/${this.editingImage}`);
-	}
-
 	private pickAndUploadImage(folder: string): void {
 		// Must be attached to the DOM before .click() - a detached file input's
 		// click() is unreliable in Obsidian's Electron environment. It also
@@ -981,14 +921,11 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			cleanup();
 			if (files.length === 0) return;
 			try {
-				let lastSaved: string | null = null;
 				for (const file of files) {
 					const buffer = await file.arrayBuffer();
-					lastSaved = await addImageToCharacter(this.app.vault, folder, file.name, buffer);
+					await addImageToCharacter(this.app.vault, folder, file.name, buffer);
 				}
 				this.characterImages = await listCharacterImages(this.app.vault, folder);
-				if (lastSaved) this.editingImage = lastSaved;
-				await this.loadSlicerImage();
 				this.display();
 			} catch (e) {
 				console.error("Shimeji Buddy: image upload failed", e);
