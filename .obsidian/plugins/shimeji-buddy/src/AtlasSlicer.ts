@@ -29,6 +29,7 @@ export class AtlasSlicer {
 	private selectionListener: ((rect: AtlasFrameRect | null) => void) | null = null;
 
 	private boundPointerUp = (e: PointerEvent) => this.onPointerUp(e);
+	private boundPointerCancel = (e: PointerEvent) => this.onPointerCancel(e);
 
 	constructor(parentEl: HTMLElement) {
 		this.wrapperEl = parentEl.createDiv({ cls: "sm-slicer" });
@@ -41,6 +42,7 @@ export class AtlasSlicer {
 		this.canvas.addEventListener("pointerdown", (e) => this.onPointerDown(e));
 		this.canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
 		window.addEventListener("pointerup", this.boundPointerUp);
+		window.addEventListener("pointercancel", this.boundPointerCancel);
 
 		this.showPlaceholder("No image loaded yet.");
 	}
@@ -115,6 +117,7 @@ export class AtlasSlicer {
 
 	destroy(): void {
 		window.removeEventListener("pointerup", this.boundPointerUp);
+		window.removeEventListener("pointercancel", this.boundPointerCancel);
 		this.releaseImage();
 		this.wrapperEl.remove();
 	}
@@ -162,6 +165,8 @@ export class AtlasSlicer {
 
 	private onPointerDown(e: PointerEvent): void {
 		if (!this.image) return;
+		// Stops touch from turning this drag into a page-scroll gesture.
+		e.preventDefault();
 		this.dragStartCanvas = this.canvasPoint(e);
 		this.dragMoved = false;
 		this.canvas.setPointerCapture(e.pointerId);
@@ -195,5 +200,10 @@ export class AtlasSlicer {
 		if (this.dragMoved && this.selection) {
 			this.selectionListener?.(this.selection);
 		}
+	}
+
+	/** A touch drag can be cancelled mid-gesture by the OS; abandon it without committing a selection. */
+	private onPointerCancel(_e: PointerEvent): void {
+		this.dragStartCanvas = null;
 	}
 }

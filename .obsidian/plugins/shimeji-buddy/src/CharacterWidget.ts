@@ -1,6 +1,11 @@
 import { LOOPING_REACTIONS, type ShimejiSettings, type ReactionName } from "./settings";
 import type { LoadedSpritePack } from "./spritePack";
 
+// Movement past this many px (in either axis, summed) counts as a drag
+// rather than a tap/click. Touch input is jittery, so this needs to be a
+// bit more forgiving than a mouse would need.
+const DRAG_THRESHOLD_PX = 8;
+
 // How long each built-in placeholder animation runs for, in ms.
 // Must stay in sync with the keyframe durations in styles.css.
 const PLACEHOLDER_DURATIONS: Record<ReactionName, number> = {
@@ -48,6 +53,8 @@ export class CharacterWidget {
 
 	private boundPointerMove = (e: PointerEvent) => this.onPointerMove(e);
 	private boundPointerUp = (e: PointerEvent) => this.onPointerUp(e);
+	private boundPointerCancel = (e: PointerEvent) => this.onPointerCancel(e);
+	private boundResize = () => this.onViewportResize();
 
 	constructor(settings: ShimejiSettings, callbacks: CharacterWidgetCallbacks) {
 		this.settings = settings;
@@ -57,6 +64,7 @@ export class CharacterWidget {
 		this.applyPosition(settings.posX, settings.posY);
 		this.setReaction("idle");
 		this.startSleepWatcher();
+		window.addEventListener("resize", this.boundResize);
 	}
 
 	private buildDom(): HTMLElement {
@@ -97,6 +105,9 @@ export class CharacterWidget {
 		this.bubbleEl = bubble;
 
 		container.addEventListener("pointerdown", (e) => this.onPointerDown(e));
+		container.addEventListener("pointermove", this.boundPointerMove);
+		container.addEventListener("pointerup", this.boundPointerUp);
+		container.addEventListener("pointercancel", this.boundPointerCancel);
 		container.addEventListener("contextmenu", (e) => e.preventDefault());
 
 		return container;
@@ -139,8 +150,7 @@ export class CharacterWidget {
 		this.clearTimer("oneShotRevertTimer");
 		this.clearTimer("spriteFrameTimer");
 		this.clearTimer("wanderTimer");
-		window.removeEventListener("pointermove", this.boundPointerMove);
-		window.removeEventListener("pointerup", this.boundPointerUp);
+		window.removeEventListener("resize", this.boundResize);
 		this.containerEl.remove();
 	}
 
@@ -310,21 +320,25 @@ export class CharacterWidget {
 	// ---------- dragging & click ----------
 
 	private onPointerDown(e: PointerEvent): void {
-		if (e.button !== 0) return;
+		if (e.pointerType === "mouse" && e.button !== 0) return;
+		// Stops the WebView from turning this into a page-scroll/callout gesture
+		// on touch, and captures the pointer so drag keeps tracking correctly
+		// even once the finger moves outside the widget's bounds.
+		e.preventDefault();
+		this.containerEl.setPointerCapture(e.pointerId);
+
 		this.isDragging = true;
 		this.dragMoved = false;
 		this.dragStart = { x: e.clientX, y: e.clientY };
 		const rect = this.containerEl.getBoundingClientRect();
 		this.dragPointerOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-		window.addEventListener("pointermove", this.boundPointerMove);
-		window.addEventListener("pointerup", this.boundPointerUp);
 	}
 
 	private onPointerMove(e: PointerEvent): void {
 		if (!this.isDragging) return;
 		const dx = e.clientX - this.dragStart.x;
 		const dy = e.clientY - this.dragStart.y;
-		if (Math.abs(dx) + Math.abs(dy) > 5) this.dragMoved = true;
+		if (Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD_PX) this.dragMoved = true;
 		if (!this.dragMoved) return;
 
 		const rect = this.containerEl.getBoundingClientRect();
@@ -343,8 +357,7 @@ export class CharacterWidget {
 	}
 
 	private onPointerUp(_e: PointerEvent): void {
-		window.removeEventListener("pointermove", this.boundPointerMove);
-		window.removeEventListener("pointerup", this.boundPointerUp);
+		if (!this.isDragging) return;
 		this.isDragging = false;
 
 		if (this.dragMoved) {
@@ -357,6 +370,28 @@ export class CharacterWidget {
 			const lines = this.settings.speechLines.poke;
 			const line = lines.length ? lines[Math.floor(Math.random() * lines.length)] : undefined;
 			this.setReaction("poke", line);
+		}
+	}
+
+	/** A touch drag can be cancelled mid-gesture by the OS (incoming call, edge-swipe, etc). */
+	private onPointerCancel(_e: PointerEvent): void {
+		this.isDragging = false;
+	}
+
+	/** Orientation change or an on-screen keyboard can shrink the viewport out from under a saved position. */
+	private onViewportResize(): void {
+		const rect = this.containerEl.getBoundingClientRect();
+		const maxRight = Math.max(4, window.innerWidth - rect.width - 4);
+		const maxBottom = Math.max(4, window.innerHeight - rect.height - 4);
+		const right = Math.min(Math.max(parseFloat(this.containerEl.style.right || "0"), 4), maxRight);
+		const bottom = Math.min(Math.max(parseFloat(this.containerEl.style.bottom || "0"), 4), maxBottom);
+
+		if (right !== this.settings.posX || bottom !== this.settings.posY) {
+			this.containerEl.style.right = `${right}px`;
+			this.containerEl.style.bottom = `${bottom}px`;
+			this.settings.posX = right;
+			this.settings.posY = bottom;
+			this.callbacks.onPositionChange(right, bottom);
 		}
 	}
 
