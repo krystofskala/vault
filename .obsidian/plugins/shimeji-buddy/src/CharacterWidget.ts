@@ -1,5 +1,5 @@
 import type { App } from "obsidian";
-import type { ShimejiSettings } from "./settings";
+import type { BuiltinBehaviorId, ShimejiSettings } from "./settings";
 import { pickWeighted, type LoadedSpritePack, type ResolvedAnimation } from "./spritePack";
 
 /** The built-in placeholder character's fixed set of hand-authored CSS poses. */
@@ -19,12 +19,12 @@ type BuiltinPose =
 	| "punch"
 	| "pushup"
 	| "squat"
-	| "lift";
+	| "lift"
+	| "jutsuClone"
+	| "jutsuTransform"
+	| "jutsuShuriken";
 
 const LOOPING_POSES: ReadonlySet<BuiltinPose> = new Set(["idle", "walk", "run", "jump", "sleep"]);
-
-/** Occasional idle-time exercise poses, picked instead of a plain idle bob - builtin placeholder only. */
-const WORKOUT_TRIGGERS = ["idle:punch", "idle:pushup", "idle:squat", "idle:lift"];
 
 /** Which builtin pose plays for a trigger id when no pack/atlas animation is assigned to it. Anything not listed here (e.g. a command trigger) just rests at idle. */
 const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
@@ -41,7 +41,44 @@ const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
 	"idle:pushup": "pushup",
 	"idle:squat": "squat",
 	"idle:lift": "lift",
+	"idle:jutsu-clone": "jutsuClone",
+	"idle:jutsu-transform": "jutsuTransform",
+	"idle:jutsu-shuriken": "jutsuShuriken",
 };
+
+/**
+ * Everything the builtin placeholder can do on its own while idle - a
+ * roaming gait (moves to a new spot while playing) or a one-off pose played
+ * in place - each individually enable/weight-configurable in settings
+ * (ShimejiSettings.builtinBehaviors), same pool model as a custom
+ * character's animations.
+ */
+interface BuiltinIdleBehaviorDef {
+	id: BuiltinBehaviorId;
+	pose: BuiltinPose;
+	moves: boolean;
+}
+
+const BUILTIN_IDLE_BEHAVIORS: BuiltinIdleBehaviorDef[] = [
+	{ id: "walk", pose: "walk", moves: true },
+	{ id: "run", pose: "run", moves: true },
+	{ id: "jump", pose: "jump", moves: true },
+	{ id: "punch", pose: "punch", moves: false },
+	{ id: "pushup", pose: "pushup", moves: false },
+	{ id: "squat", pose: "squat", moves: false },
+	{ id: "lift", pose: "lift", moves: false },
+	{ id: "jutsu-clone", pose: "jutsuClone", moves: false },
+	{ id: "jutsu-transform", pose: "jutsuTransform", moves: false },
+	{ id: "jutsu-shuriken", pose: "jutsuShuriken", moves: false },
+];
+
+// Chance per idle tick that the builtin placeholder does one of the
+// BUILTIN_IDLE_BEHAVIORS above instead of just a plain idle bob.
+const IDLE_BEHAVIOR_CHANCE = 0.45;
+
+// How far into the throw pose (ms) the shuriken actually leaves the hand.
+const SHURIKEN_THROW_DELAY_MS = 200;
+const SHURIKEN_FLIGHT_MS = 380;
 
 // Movement past this many px (in either axis, summed) counts as a drag
 // rather than a tap/click. Touch input is jittery, so this needs to be a
@@ -105,6 +142,9 @@ const PLACEHOLDER_DURATIONS: Record<BuiltinPose, number> = {
 	pushup: 2400,
 	squat: 2000,
 	lift: 3000,
+	jutsuClone: 1800,
+	jutsuTransform: 1800,
+	jutsuShuriken: 700,
 };
 
 /**
@@ -130,6 +170,9 @@ function getWorkspaceRegions(app: App): DOMRect[] {
 	return rects;
 }
 
+/** Which side of a patrolled region's perimeter a point currently falls on - used to orient the character so its feet face that edge. */
+type PerimeterSide = "top" | "right" | "bottom" | "left";
+
 /** A point at fractional distance `t` (wraps, can exceed [0,1)) clockwise around a region's inset perimeter, or null if the region's too small to walk. */
 function pointOnRegionPerimeter(
 	region: DOMRect,
@@ -137,7 +180,7 @@ function pointOnRegionPerimeter(
 	charHeight: number,
 	t: number,
 	margin: number
-): { left: number; top: number } | null {
+): { left: number; top: number; side: PerimeterSide } | null {
 	const left = region.left + margin;
 	const top = region.top + margin;
 	const right = region.right - margin - charWidth;
@@ -148,10 +191,24 @@ function pointOnRegionPerimeter(
 	if (perimeter <= 0) return null;
 
 	const s = (((t % 1) + 1) % 1) * perimeter;
-	if (s < topLen) return { left: left + s, top };
-	if (s < topLen + sideLen) return { left: right, top: top + (s - topLen) };
-	if (s < topLen * 2 + sideLen) return { left: right - (s - topLen - sideLen), top: bottom };
-	return { left, top: bottom - (s - topLen * 2 - sideLen) };
+	if (s < topLen) return { left: left + s, top, side: "top" };
+	if (s < topLen + sideLen) return { left: right, top: top + (s - topLen), side: "right" };
+	if (s < topLen * 2 + sideLen) return { left: right - (s - topLen - sideLen), top: bottom, side: "bottom" };
+	return { left, top: bottom - (s - topLen * 2 - sideLen), side: "left" };
+}
+
+/** CSS rotation so the character's feet point toward whichever perimeter side it's walking, like a bug crawling around a picture frame. */
+function rotationForSide(side: PerimeterSide | null): number {
+	switch (side) {
+		case "top":
+			return 180;
+		case "left":
+			return -90;
+		case "right":
+			return 90;
+		default:
+			return 0;
+	}
 }
 
 export interface CharacterWidgetCallbacks {
@@ -160,6 +217,8 @@ export interface CharacterWidgetCallbacks {
 
 export class CharacterWidget {
 	private containerEl: HTMLElement;
+	/** Rotatable wrapper around shadow/char/spritestage only - keeps edge-orientation rotation purely visual, never affecting containerEl's own layout box (position math stays simple). */
+	private visualEl!: HTMLElement;
 	private charEl!: HTMLElement;
 	private spriteStageEl!: HTMLElement;
 	private spriteFrameEl!: HTMLElement;
@@ -187,6 +246,14 @@ export class CharacterWidget {
 	private patrolRegionIndex = 0;
 	private perimeterT = Math.random();
 	private perimeterDirection: 1 | -1 = 1;
+
+	/** Last pointer position on screen, tracked for the shuriken jutsu to throw toward. */
+	private lastPointerX = window.innerWidth / 2;
+	private lastPointerY = window.innerHeight / 2;
+	private boundTrackPointer = (e: PointerEvent) => {
+		this.lastPointerX = e.clientX;
+		this.lastPointerY = e.clientY;
+	};
 
 	private lastActivity = Date.now();
 	private isDragging = false;
@@ -229,15 +296,24 @@ export class CharacterWidget {
 		this.setReaction("idle");
 		this.startSleepWatcher();
 		window.addEventListener("resize", this.boundResize);
+		window.addEventListener("pointermove", this.boundTrackPointer);
 	}
 
 	private buildDom(): HTMLElement {
 		const container = document.body.createDiv({ cls: "sm-container" });
 
-		const shadow = container.createDiv({ cls: "sm-shadow" });
+		// Everything visual lives in here rather than directly in the
+		// container, so edge-patrol orientation can rotate just this wrapper
+		// (a bug crawling around a picture frame) without ever touching
+		// containerEl's own layout box - drag/wander position math keeps
+		// reading a plain, unrotated bounding rect.
+		const visual = container.createDiv({ cls: "sm-visual" });
+		this.visualEl = visual;
+
+		const shadow = visual.createDiv({ cls: "sm-shadow" });
 		void shadow;
 
-		const char = container.createDiv({ cls: "sm-char sm-state-idle" });
+		const char = visual.createDiv({ cls: "sm-char sm-state-idle" });
 		this.charEl = char;
 
 		// Built-in placeholder character, made of plain shapes (not any
@@ -255,16 +331,21 @@ export class CharacterWidget {
 		char.createDiv({ cls: "sm-zzz" });
 		char.createDiv({ cls: "sm-smoke" });
 		char.createDiv({ cls: "sm-dumbbell" });
+		char.createDiv({ cls: "sm-clone sm-clone-l" });
+		char.createDiv({ cls: "sm-clone sm-clone-r" });
+		char.createDiv({ cls: "sm-sparkle" });
 
 		// Sprite-pack frame layer, hidden unless a custom pack is active. The
 		// stage is sized to an animation's largest frame and stays put; the
 		// frame inside it is bottom-center anchored so frames of differing
 		// size (common on hand-packed/modular sheets) don't jitter around.
-		const spriteStage = container.createDiv({ cls: "sm-spritestage" });
+		const spriteStage = visual.createDiv({ cls: "sm-spritestage" });
 		this.spriteStageEl = spriteStage;
 		const spriteFrame = spriteStage.createDiv({ cls: "sm-spriteframe" });
 		this.spriteFrameEl = spriteFrame;
 
+		// Stays outside sm-visual so it's never rotated - a sideways speech
+		// bubble would just be unreadable.
 		const bubble = container.createDiv({ cls: "sm-bubble" });
 		bubble.style.display = "none";
 		this.bubbleEl = bubble;
@@ -324,6 +405,7 @@ export class CharacterWidget {
 		this.clearTimer("spriteFrameTimer");
 		this.clearTimer("wanderTimer");
 		window.removeEventListener("resize", this.boundResize);
+		window.removeEventListener("pointermove", this.boundTrackPointer);
 		this.detachDragListeners();
 		this.stopFollowLoop();
 		this.stopFling();
@@ -335,6 +417,9 @@ export class CharacterWidget {
 	private setReaction(trigger: string, message?: string): void {
 		this.currentTrigger = trigger;
 		this.clearTimer("oneShotRevertTimer");
+		// Any discrete reaction/pose stands upright - only edge-patrol wander
+		// (which re-applies its own orientation right after this) stays rotated.
+		this.applyEdgeOrientation(null);
 
 		const pool = this.pack?.bySlot[trigger];
 		const chosen = pool && pool.length > 0 ? pickWeighted(pool) : null;
@@ -362,12 +447,41 @@ export class CharacterWidget {
 	private playBuiltinForTrigger(trigger: string): void {
 		const pose = BUILTIN_POSE_FOR_TRIGGER[trigger] ?? "idle";
 		this.playPlaceholder(pose);
+		if (pose === "jutsuShuriken") {
+			window.setTimeout(() => {
+				if (this.currentTrigger === trigger) this.throwShuriken();
+			}, SHURIKEN_THROW_DELAY_MS);
+		}
 		if (!LOOPING_POSES.has(pose)) {
 			const duration = PLACEHOLDER_DURATIONS[pose] || 600;
 			this.oneShotRevertTimer = window.setTimeout(() => {
 				if (this.currentTrigger === trigger) this.setReaction("idle");
 			}, duration);
 		}
+	}
+
+	/** Launches a small shuriken sprite from the character toward wherever the pointer last was - "Shuriken Jutsu". */
+	private throwShuriken(): void {
+		const origin = this.containerEl.getBoundingClientRect();
+		const startX = origin.left + origin.width / 2;
+		const startY = origin.top + origin.height * 0.4;
+		const dx = this.lastPointerX - startX;
+		const dy = this.lastPointerY - startY;
+
+		const shuriken = document.body.createDiv({ cls: "sm-thrown-shuriken" });
+		shuriken.style.left = `${startX}px`;
+		shuriken.style.top = `${startY}px`;
+
+		const anim = shuriken.animate(
+			[
+				{ transform: "translate(-50%, -50%) rotate(0deg)", opacity: 1 },
+				{ transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) rotate(900deg)`, opacity: 1 },
+			],
+			{ duration: SHURIKEN_FLIGHT_MS, easing: "ease-out", fill: "forwards" }
+		);
+		anim.finished
+			.catch(() => {})
+			.finally(() => shuriken.remove());
 	}
 
 	private playPlaceholder(pose: BuiltinPose): void {
@@ -459,25 +573,44 @@ export class CharacterWidget {
 		if (this.isDragging || this.isFlinging) return;
 		if (this.currentTrigger !== "idle") return;
 
-		if (this.settings.wanderEnabled && Math.random() < 0.35) {
-			this.wander();
+		if (this.pack) {
+			if (this.settings.wanderEnabled && Math.random() < 0.35) {
+				this.wander();
+				return;
+			}
+			this.setReaction("idle");
 			return;
 		}
-		if (!this.pack && Math.random() < 0.25) {
-			// A quick workout break - builtin placeholder only (a custom
-			// character can still opt in by assigning its own animation to
-			// one of these same trigger ids, e.g. "idle:lift").
-			const trigger = WORKOUT_TRIGGERS[Math.floor(Math.random() * WORKOUT_TRIGGERS.length)];
-			this.setReaction(trigger);
-			return;
+
+		// Builtin placeholder: pick from the user's configured pool of idle
+		// behaviors (settings.builtinBehaviors) - gaits that roam, or poses
+		// (workouts, jutsus) played in place. Roaming gaits are only offered
+		// while "Wander" itself is on; everything else is independent of it.
+		if (Math.random() < IDLE_BEHAVIOR_CHANCE) {
+			const behavior = this.pickBuiltinIdleBehavior();
+			if (behavior) {
+				if (behavior.moves) {
+					this.wander(behavior);
+				} else {
+					this.setReaction(`idle:${behavior.id}`);
+				}
+				return;
+			}
 		}
 		// Nudge the placeholder animation to replay its idle keyframe (also
-		// picks a fresh random blink phase via CSS restart), or re-roll the
-		// pack's idle pool for variety.
+		// picks a fresh random blink phase via CSS restart).
 		this.setReaction("idle");
 	}
 
-	private wander(): void {
+	private pickBuiltinIdleBehavior(): BuiltinIdleBehaviorDef | null {
+		const candidates = BUILTIN_IDLE_BEHAVIORS.filter((b) => {
+			if (b.moves && !this.settings.wanderEnabled) return false;
+			return this.settings.builtinBehaviors[b.id]?.enabled !== false;
+		}).map((b) => ({ ...b, weight: Math.max(0, this.settings.builtinBehaviors[b.id]?.weight ?? 1) }));
+		return pickWeighted(candidates);
+	}
+
+	private wander(builtinBehavior?: BuiltinIdleBehaviorDef): void {
 		let speed: number;
 		let render: () => void;
 
@@ -491,9 +624,8 @@ export class CharacterWidget {
 				this.playResolvedAnimation(chosen, () => {});
 			};
 		} else {
-			const gaits: BuiltinPose[] = ["walk", "run", "jump"];
-			const pose = gaits[Math.floor(Math.random() * gaits.length)];
-			speed = GAIT_SPEED_PX_PER_SEC[pose as "walk" | "run" | "jump"];
+			const pose = builtinBehavior?.pose ?? "walk";
+			speed = GAIT_SPEED_PX_PER_SEC[pose as "walk" | "run" | "jump"] ?? GAIT_SPEED_PX_PER_SEC.walk;
 			render = () => {
 				this.currentTrigger = "idle";
 				this.playPlaceholder(pose);
@@ -501,7 +633,7 @@ export class CharacterWidget {
 		}
 
 		const rect = this.containerEl.getBoundingClientRect();
-		const { newRight, newBottom } = this.pickWanderDestination(rect);
+		const { newRight, newBottom, edgeSide } = this.pickWanderDestination(rect);
 
 		const currentRight = window.innerWidth - rect.right;
 		const currentBottom = window.innerHeight - rect.bottom;
@@ -514,6 +646,7 @@ export class CharacterWidget {
 		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / speed) * 1000));
 
 		render();
+		this.applyEdgeOrientation(edgeSide);
 		this.containerEl.addClass("sm-tween");
 		this.containerEl.style.transitionDuration = `${duration}ms`;
 		this.containerEl.style.right = `${newRight}px`;
@@ -526,12 +659,23 @@ export class CharacterWidget {
 			this.settings.posX = newRight;
 			this.settings.posY = newBottom;
 			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
-			if (this.currentTrigger === "idle") this.setReaction("idle");
+			if (this.currentTrigger === "idle") {
+				this.setReaction("idle"); // resets orientation to upright...
+				this.applyEdgeOrientation(edgeSide); // ...so re-apply it: still resting on the edge.
+			}
 		}, duration);
 	}
 
+	/** Rotates sm-visual so the character's feet face whichever perimeter side it's on, or upright (null) otherwise. */
+	private applyEdgeOrientation(side: PerimeterSide | null): void {
+		const deg = rotationForSide(side);
+		this.visualEl.style.transform = deg ? `rotate(${deg}deg)` : "";
+	}
+
 	/** Anywhere on screen by default, or patrolling the sidebar/main-area boundaries when "stick to edges" is on. */
-	private pickWanderDestination(rect: DOMRect): { newRight: number; newBottom: number } {
+	private pickWanderDestination(
+		rect: DOMRect
+	): { newRight: number; newBottom: number; edgeSide: PerimeterSide | null } {
 		const margin = 8;
 
 		if (this.settings.roamStickToEdges) {
@@ -551,12 +695,13 @@ export class CharacterWidget {
 					margin
 				);
 				if (point) {
-					return this.clampDestination(
+					const dest = this.clampDestination(
 						window.innerWidth - point.left - rect.width,
 						window.innerHeight - point.top - rect.height,
 						rect,
 						margin
 					);
+					return { ...dest, edgeSide: point.side };
 				}
 			}
 			// No usable region (e.g. window too small) - fall through to free roam this tick.
@@ -567,6 +712,7 @@ export class CharacterWidget {
 		return {
 			newRight: margin + Math.random() * (maxRight - margin),
 			newBottom: margin + Math.random() * (maxBottom - margin),
+			edgeSide: null,
 		};
 	}
 
@@ -610,6 +756,7 @@ export class CharacterWidget {
 		this.containerEl.removeClass("sm-tween");
 		this.containerEl.style.transitionDuration = "";
 		this.stopFling();
+		this.applyEdgeOrientation(null);
 
 		this.isDragging = true;
 		this.dragMoved = false;

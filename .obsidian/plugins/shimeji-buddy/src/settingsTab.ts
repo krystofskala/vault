@@ -5,6 +5,7 @@ import {
 	BUILTIN_TRIGGERS,
 	commandTriggerId,
 	type AtlasFrameRect,
+	type BuiltinBehaviorId,
 	type CustomAnimation,
 	type TriggerDef,
 } from "./settings";
@@ -26,6 +27,32 @@ function newAnimationId(): string {
 
 const NEW_CHARACTER_VALUE = "__new_character__";
 const IMPORT_FOLDER_VALUE = "__import_folder__";
+
+/** Display order + labels for the builtin placeholder's configurable idle behaviors. */
+const BUILTIN_BEHAVIOR_ORDER: BuiltinBehaviorId[] = [
+	"walk",
+	"run",
+	"jump",
+	"punch",
+	"pushup",
+	"squat",
+	"lift",
+	"jutsu-clone",
+	"jutsu-transform",
+	"jutsu-shuriken",
+];
+const BUILTIN_BEHAVIOR_LABELS: Record<BuiltinBehaviorId, string> = {
+	walk: "Walk around",
+	run: "Run around",
+	jump: "Jump around",
+	punch: "Shadow-boxing",
+	pushup: "Push-ups",
+	squat: "Squats",
+	lift: "Dumbbell lift",
+	"jutsu-clone": "Multiplication Jutsu",
+	"jutsu-transform": "Transformation Jutsu",
+	"jutsu-shuriken": "Shuriken Jutsu (throws at your pointer)",
+};
 
 export class ShimejiSettingTab extends PluginSettingTab {
 	plugin: ShimejiBuddyPlugin;
@@ -200,27 +227,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			});
 
 			new Setting(body)
-				.setName("Wander")
-				.setDesc("Let the buddy occasionally run to a new spot on its own instead of just idling in place.")
-				.addToggle((t) =>
-					t.setValue(s.wanderEnabled).onChange(async (v) => {
-						s.wanderEnabled = v;
+				.setName("Roam style")
+				.setDesc("Whether the buddy occasionally moves to a new spot on its own instead of just idling in place, and how.")
+				.addDropdown((d) => {
+					d.addOption("off", "Off - stay in place");
+					d.addOption("anywhere", "Anywhere on screen");
+					d.addOption("edges", "Along window edges");
+					d.setValue(!s.wanderEnabled ? "off" : s.roamStickToEdges ? "edges" : "anywhere");
+					d.onChange(async (value) => {
+						s.wanderEnabled = value !== "off";
+						s.roamStickToEdges = value === "edges";
 						await this.plugin.saveSettings();
-					})
-				);
-
-			new Setting(body)
-				.setName("Stick to window edges")
-				.setDesc(
-					"Patrol the edges of the sidebar(s) and main editor area instead of picking anywhere on " +
-						"screen - climbing along the sides rather than crossing open space."
-				)
-				.addToggle((t) =>
-					t.setValue(s.roamStickToEdges).onChange(async (v) => {
-						s.roamStickToEdges = v;
-						await this.plugin.saveSettings();
-					})
-				);
+					});
+				});
 
 			new Setting(body)
 				.setName("Fall asleep after")
@@ -239,9 +258,49 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				body,
 				"tip",
 				"Min/max set the random range between decisions - e.g. 8/20 means it acts every 8 to 20 " +
-					"seconds. \"Stick to window edges\" tracks the sidebar and main-area boundaries live, so " +
-					"resizing or toggling a sidebar mid-patrol is fine."
+					"seconds. \"Along window edges\" tracks the sidebar and main-area boundaries live (and " +
+					"rotates the buddy so its feet face whichever edge it's on), so resizing or toggling a " +
+					"sidebar mid-patrol is fine."
 			);
+
+			if (s.characterMode === "builtin") {
+				this.section(body, "Idle behaviors (builtin placeholder)", false, (behaviorsBody) => {
+					behaviorsBody.createEl("p", {
+						cls: "setting-item-description",
+						text:
+							"What the builtin placeholder can do on its own while idle - gaits it roams with (only " +
+							"offered while \"Roam style\" above isn't Off) and one-off poses it plays in place. " +
+							"Toggle any of these off, or raise/lower a weight to make it more or less likely " +
+							"relative to the others (weight 2 is twice as likely as weight 1).",
+					});
+					for (const id of BUILTIN_BEHAVIOR_ORDER) {
+						const cfg = s.builtinBehaviors[id];
+						new Setting(behaviorsBody)
+							.setName(BUILTIN_BEHAVIOR_LABELS[id])
+							.addToggle((t) =>
+								t
+									.setTooltip("Enabled")
+									.setValue(cfg.enabled)
+									.onChange(async (v) => {
+										cfg.enabled = v;
+										await this.plugin.saveSettings();
+									})
+							)
+							.addText((t) =>
+								t
+									.setPlaceholder("weight")
+									.setValue(String(cfg.weight))
+									.onChange(async (v) => {
+										const n = Number(v);
+										if (!Number.isNaN(n) && n >= 0) {
+											cfg.weight = n;
+											await this.plugin.saveSettings();
+										}
+									})
+							);
+					}
+				});
+			}
 		});
 
 		this.section(containerEl, "React to vault actions", false, (body) => {
@@ -287,6 +346,12 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					"folder that can hold as many images as you want (clean strips or messy full sheets); slice " +
 					"whichever frames you need out of any of them, right here.",
 			});
+			this.callout(
+				body,
+				"info",
+				"Everything below saves itself the moment you change it - straight to that character's " +
+					"character.json in your vault. There's no separate save button or step."
+			);
 
 			this.renderCharacterPicker(body);
 
@@ -809,43 +874,12 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				})
 			);
 
-		const playbackRow = new Setting(wrap).setName("Playback");
-		playbackRow.descEl.empty();
-		const countEl = playbackRow.descEl.createSpan({ cls: "sm-frame-count" });
+		const framesRow = new Setting(wrap).setName("Frames");
+		framesRow.descEl.empty();
+		const countEl = framesRow.descEl.createSpan({ cls: "sm-frame-count" });
 		this.frameCountEls[anim.id] = countEl;
 		this.refreshFrameCountText(anim.id);
-
-		playbackRow
-			.addToggle((t) =>
-				t
-					.setTooltip("Enabled")
-					.setValue(anim.enabled)
-					.onChange(async (v) => {
-						anim.enabled = v;
-						await this.persistCharacterFile();
-					})
-			)
-			.addText((t) =>
-				t
-					.setPlaceholder("fps")
-					.setValue(String(anim.fps))
-					.onChange(async (v) => {
-						const n = Number(v);
-						if (!Number.isNaN(n) && n > 0) {
-							anim.fps = n;
-							await this.persistCharacterFile();
-						}
-					})
-			)
-			.addToggle((t) =>
-				t
-					.setTooltip("Loop")
-					.setValue(anim.loop)
-					.onChange(async (v) => {
-						anim.loop = v;
-						await this.persistCharacterFile();
-					})
-			)
+		framesRow
 			.addExtraButton((b) =>
 				b
 					.setIcon("undo-2")
@@ -865,6 +899,39 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						await this.persistCharacterFile();
 						this.refreshFrameCountText(anim.id);
 					})
+			);
+
+		new Setting(wrap)
+			.setName("Enabled")
+			.setDesc("Off skips this animation entirely - it's never picked for any of its actions, but stays here for later.")
+			.addToggle((t) =>
+				t.setValue(anim.enabled).onChange(async (v) => {
+					anim.enabled = v;
+					await this.persistCharacterFile();
+				})
+			);
+
+		new Setting(wrap)
+			.setName("Loop")
+			.setDesc("On: repeats from the first frame until the trigger ends. Off: plays once and holds the last frame.")
+			.addToggle((t) =>
+				t.setValue(anim.loop).onChange(async (v) => {
+					anim.loop = v;
+					await this.persistCharacterFile();
+				})
+			);
+
+		new Setting(wrap)
+			.setName("Speed")
+			.setDesc("Frames per second.")
+			.addText((t) =>
+				t.setValue(String(anim.fps)).onChange(async (v) => {
+					const n = Number(v);
+					if (!Number.isNaN(n) && n > 0) {
+						anim.fps = n;
+						await this.persistCharacterFile();
+					}
+				})
 			);
 	}
 

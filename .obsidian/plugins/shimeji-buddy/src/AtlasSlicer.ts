@@ -2,8 +2,12 @@ import type { Vault } from "obsidian";
 import type { AtlasFrameRect } from "./settings";
 import { loadImageForSlicing } from "./spritePack";
 
-const MAX_DISPLAY_WIDTH = 460;
-const MAX_UPSCALE = 3;
+const MAX_DISPLAY_WIDTH = 640;
+// Small pixel-art sheets (16x16, 32x32...) need heavy magnification just to
+// be clickable at all - a 16px-wide image at the old 3x cap was a 48px
+// canvas, far too small to drag a meaningful selection on.
+const MIN_DISPLAY_WIDTH = 320;
+const MAX_UPSCALE = 24;
 const MIN_DRAG_PX = 2;
 
 /**
@@ -81,8 +85,10 @@ export class AtlasSlicer {
 		this.naturalWidth = loaded.width;
 		this.naturalHeight = loaded.height;
 
-		let scale = MAX_DISPLAY_WIDTH / this.naturalWidth;
-		scale = Math.min(scale, MAX_UPSCALE);
+		let scale = Math.min(MAX_DISPLAY_WIDTH / this.naturalWidth, MAX_UPSCALE);
+		if (this.naturalWidth * scale < MIN_DISPLAY_WIDTH) {
+			scale = Math.min(MAX_UPSCALE, MIN_DISPLAY_WIDTH / this.naturalWidth);
+		}
 		scale = Math.max(scale, 0.05);
 		this.scale = scale;
 
@@ -160,11 +166,20 @@ export class AtlasSlicer {
 		}
 	}
 
+	/**
+	 * Maps a pointer event to canvas-internal pixel coordinates. Goes through
+	 * the displayed-vs-internal-size ratio rather than assuming they match
+	 * 1:1 - if the canvas is ever rendered smaller than its pixel resolution
+	 * (e.g. a global `canvas { max-width: 100% }` rule from the host app),
+	 * clicks would otherwise land on the wrong spot entirely.
+	 */
 	private canvasPoint(e: PointerEvent): { x: number; y: number } {
 		const rect = this.canvas.getBoundingClientRect();
+		const scaleX = rect.width > 0 ? this.canvas.width / rect.width : 1;
+		const scaleY = rect.height > 0 ? this.canvas.height / rect.height : 1;
 		return {
-			x: Math.max(0, Math.min(e.clientX - rect.left, this.canvas.width)),
-			y: Math.max(0, Math.min(e.clientY - rect.top, this.canvas.height)),
+			x: Math.max(0, Math.min((e.clientX - rect.left) * scaleX, this.canvas.width)),
+			y: Math.max(0, Math.min((e.clientY - rect.top) * scaleY, this.canvas.height)),
 		};
 	}
 

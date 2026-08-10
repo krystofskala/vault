@@ -28,7 +28,11 @@ out whichever frames you need from any of them (drag a box, or auto-generate
 an evenly-spaced strip in one click), and assign each resulting animation to
 one or more actions. No file editing required, though the character folder
 stays a plain, portable `character.json` + images if you'd rather script one
-- see `characters/example-character/README.md` for that format.
+- see `characters/example-character/README.md` for that format. The slicer
+magnifies small pixel-art sheets heavily (up to 24x) so individual frames on
+a 16x16 or 32x32 sheet are still draggable; everything you change here saves
+itself instantly to that character's `character.json` - there's no separate
+save step.
 
 The animation engine, idle behaviour, and reactions work identically whether
 the built-in placeholder or a character you've built is active.
@@ -60,15 +64,19 @@ get picked based on how you've been treating the buddy.
 
 - **Standby brain**: on a randomized timer, the buddy decides for itself
   whether to idle in place or roam - travel time scales with distance so it
-  doesn't teleport or crawl. With the built-in placeholder it picks between a
-  walk/run/jump gait; with a custom animation library, it draws from
-  whatever you've built (see "Actions and the animation library" above).
-  Roaming is either anywhere on screen, or - with "Stick to window edges" on
-  - patrolling the live boundaries of the sidebar(s) and main editor area,
-  hopping between them over time rather than crossing open space. The
-  built-in placeholder also occasionally takes an idle workout break -
-  punches, push-ups, squats, or a dumbbell that appears/disappears in a puff
-  of smoke to be lifted.
+  doesn't teleport or crawl. With a custom animation library it draws from
+  whatever you've built (see "Actions and the animation library" above); with
+  the built-in placeholder it picks from a configurable pool of gaits and
+  poses (Settings → Standby behaviour → Idle behaviors) - walk/run/jump,
+  workout breaks (punches, push-ups, squats, a dumbbell lift with a
+  puff-of-smoke prop), and three jutsus: **Multiplication Jutsu** (a couple
+  of clone silhouettes pop in), **Transformation Jutsu** (a smoke puff and a
+  sparkle-glam flourish), and **Shuriken Jutsu** (throws a shuriken at
+  wherever your pointer last was). Each is individually enable/weight-able.
+  "Roam style" picks anywhere-on-screen or patrolling the live boundaries of
+  the sidebar(s)/main editor area - on the edges, the buddy rotates so its
+  feet face the boundary it's walking, like a bug crawling around a picture
+  frame.
 - **Reacts to what you do** - opening/creating/deleting/renaming/editing a
   note, the search pane opening, being poked, falling asleep, and any
   Obsidian command you name (see below) - each with the built-in placeholder

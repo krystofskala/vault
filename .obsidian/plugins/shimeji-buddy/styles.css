@@ -33,6 +33,17 @@
 	pointer-events: none;
 }
 
+/* Holds shadow/char/spritestage only (not the speech bubble) so edge-patrol
+   rotation ("feet face the edge") can turn just this, without ever touching
+   sm-container's own layout box - drag/wander position math stays simple. */
+.sm-visual {
+	order: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	transition: transform 0.35s ease;
+}
+
 .sm-shadow {
 	width: calc(var(--sm-size, 96px) * 0.55);
 	height: calc(var(--sm-size, 96px) * 0.12);
@@ -219,6 +230,79 @@
 	right: calc(var(--sm-size, 96px) * -0.02);
 }
 
+/* Two flat silhouette clones for "Multiplication Jutsu" - simplified shapes, not a copy of the real character art. */
+.sm-clone {
+	position: absolute;
+	bottom: 0;
+	width: calc(var(--sm-size, 96px) * 0.5);
+	height: calc(var(--sm-size, 96px) * 0.82);
+	opacity: 0;
+	z-index: 4;
+	pointer-events: none;
+}
+.sm-clone::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 50%;
+	width: calc(var(--sm-size, 96px) * 0.32);
+	height: calc(var(--sm-size, 96px) * 0.32);
+	margin-left: calc(var(--sm-size, 96px) * -0.16);
+	border-radius: 50%;
+	background: rgba(79, 168, 255, 0.55);
+}
+.sm-clone::after {
+	content: "";
+	position: absolute;
+	bottom: 0;
+	left: 50%;
+	width: calc(var(--sm-size, 96px) * 0.4);
+	height: calc(var(--sm-size, 96px) * 0.5);
+	margin-left: calc(var(--sm-size, 96px) * -0.2);
+	border-radius: calc(var(--sm-size, 96px) * 0.14);
+	background: rgba(79, 168, 255, 0.45);
+}
+.sm-clone-l {
+	left: calc(var(--sm-size, 96px) * -0.55);
+}
+.sm-clone-r {
+	right: calc(var(--sm-size, 96px) * -0.55);
+}
+
+/* A little sparkle burst for "Transformation Jutsu" - a comedic glam-puff gag, not any specific character. */
+.sm-sparkle {
+	position: absolute;
+	top: calc(var(--sm-size, 96px) * 0.1);
+	left: 50%;
+	width: 6px;
+	height: 6px;
+	margin-left: -3px;
+	border-radius: 50%;
+	background: #ffd76b;
+	opacity: 0;
+	box-shadow:
+		calc(var(--sm-size, 96px) * 0.32) calc(var(--sm-size, 96px) * 0.05) 0 -1px #ffd76b,
+		calc(var(--sm-size, 96px) * -0.3) calc(var(--sm-size, 96px) * 0.15) 0 0 #ff9bd2,
+		calc(var(--sm-size, 96px) * 0.22) calc(var(--sm-size, 96px) * 0.35) 0 1px #7fd8ff,
+		calc(var(--sm-size, 96px) * -0.22) calc(var(--sm-size, 96px) * 0.4) 0 -1px #ffd76b;
+	z-index: 6;
+	pointer-events: none;
+}
+
+/* Spawned on document.body (not inside the character) since it flies across
+   the whole viewport toward the pointer for "Shuriken Jutsu" - animated
+   directly via the Web Animations API in CharacterWidget, not a keyframe. */
+.sm-thrown-shuriken {
+	position: fixed;
+	width: 16px;
+	height: 16px;
+	background: #cfd4da;
+	clip-path: polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%);
+	box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+	z-index: 80;
+	pointer-events: none;
+}
+
 /* ---------- state animations ---------- */
 
 @keyframes sm-bob {
@@ -399,6 +483,74 @@
 	75%, 100% { transform: rotate(-8deg); }
 }
 
+/* ---------- jutsus (builtin placeholder only) ---------- */
+
+.sm-state-jutsuClone .sm-arm-l { animation: sm-clone-arm-l 1.8s ease-in-out 1; }
+.sm-state-jutsuClone .sm-arm-r { animation: sm-clone-arm-r 1.8s ease-in-out 1; }
+.sm-state-jutsuClone .sm-clone-l { animation: sm-clone-pop-l 1.8s ease-in-out 1; }
+.sm-state-jutsuClone .sm-clone-r { animation: sm-clone-pop-r 1.8s ease-in-out 1; }
+
+@keyframes sm-clone-arm-l {
+	0%, 100% { transform: rotate(8deg); }
+	15%, 35% { transform: rotate(-40deg); }
+}
+@keyframes sm-clone-arm-r {
+	0%, 100% { transform: rotate(-8deg); }
+	15%, 35% { transform: rotate(40deg); }
+}
+@keyframes sm-clone-pop-l {
+	0%, 20% { opacity: 0; transform: scale(0.4) translateX(20%); }
+	32%, 80% { opacity: 0.9; transform: scale(1) translateX(0); }
+	95%, 100% { opacity: 0; transform: scale(0.6) translateX(15%); }
+}
+@keyframes sm-clone-pop-r {
+	0%, 20% { opacity: 0; transform: scale(0.4) translateX(-20%); }
+	32%, 80% { opacity: 0.9; transform: scale(1) translateX(0); }
+	95%, 100% { opacity: 0; transform: scale(0.6) translateX(-15%); }
+}
+
+.sm-state-jutsuTransform {
+	animation: sm-transform-body 1.8s ease-in-out 1;
+}
+.sm-state-jutsuTransform .sm-smoke { animation: sm-transform-smoke 1.8s ease-in-out 1; }
+.sm-state-jutsuTransform .sm-sparkle { animation: sm-transform-sparkle 1.8s ease-in-out 1; }
+
+@keyframes sm-transform-body {
+	0%, 30% { transform: scale(1); filter: none; }
+	45% { transform: scale(1.08); filter: hue-rotate(60deg) saturate(1.6); }
+	60% { transform: scale(0.96); filter: hue-rotate(-40deg) saturate(1.4); }
+	75% { transform: scale(1.04); filter: hue-rotate(20deg); }
+	90%, 100% { transform: scale(1); filter: none; }
+}
+@keyframes sm-transform-smoke {
+	0%, 20%, 85%, 100% { opacity: 0; transform: scale(0.7); }
+	35% { opacity: 1; transform: scale(1.8); }
+	55% { opacity: 0.8; transform: scale(2); }
+	75% { opacity: 0; transform: scale(2.2); }
+}
+@keyframes sm-transform-sparkle {
+	0%, 25%, 90%, 100% { opacity: 0; transform: scale(0.6) rotate(0deg); }
+	40% { opacity: 1; transform: scale(1.2) rotate(45deg); }
+	65% { opacity: 1; transform: scale(1) rotate(90deg); }
+	80% { opacity: 0; transform: scale(0.8) rotate(120deg); }
+}
+
+.sm-state-jutsuShuriken {
+	animation: sm-shuriken-body 0.7s ease-out 1;
+}
+.sm-state-jutsuShuriken .sm-arm-r { animation: sm-shuriken-arm 0.7s ease-out 1; }
+
+@keyframes sm-shuriken-body {
+	0%, 100% { transform: rotate(0deg); }
+	30% { transform: rotate(-10deg); }
+	55% { transform: rotate(6deg); }
+}
+@keyframes sm-shuriken-arm {
+	0%, 15% { transform: rotate(-8deg) scaleY(1); }
+	30% { transform: rotate(-140deg) scaleY(1.1); }
+	55%, 100% { transform: rotate(60deg) scaleY(1); }
+}
+
 .sm-state-sleep {
 	animation: sm-sleep-bob 3.2s ease-in-out infinite;
 }
@@ -548,10 +700,16 @@
 
 .sm-slicer canvas {
 	display: block;
+	/* Obsidian's own base styles put max-width: 100% on every canvas/img,
+	   which shrinks this one to fit the settings pane - decoupling what's
+	   displayed from its actual pixel size and breaking click coordinates.
+	   Overriding it back to none keeps display size == internal resolution. */
+	max-width: none;
 	touch-action: none;
 	-webkit-touch-callout: none;
 	-webkit-user-select: none;
 	user-select: none;
+	image-rendering: pixelated;
 }
 
 .sm-slicer-placeholder {

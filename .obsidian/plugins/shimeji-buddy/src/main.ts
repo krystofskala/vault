@@ -7,7 +7,13 @@ import {
 	type LoadedSpritePack,
 	type CharacterInfo,
 } from "./spritePack";
-import { DEFAULT_SETTINGS, commandTriggerId, type ShimejiSettings, type SpeechLines } from "./settings";
+import {
+	DEFAULT_SETTINGS,
+	DEFAULT_BUILTIN_BEHAVIORS,
+	commandTriggerId,
+	type ShimejiSettings,
+	type SpeechLines,
+} from "./settings";
 import { ShimejiSettingTab } from "./settingsTab";
 
 const MODIFY_DEBOUNCE_MS = 1500;
@@ -82,6 +88,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data, {
 			speechLines: Object.assign({}, DEFAULT_SETTINGS.speechLines, data?.speechLines),
 			commandTriggers: data?.commandTriggers ?? [],
+			builtinBehaviors: Object.assign({}, DEFAULT_BUILTIN_BEHAVIORS, data?.builtinBehaviors),
 		});
 	}
 
