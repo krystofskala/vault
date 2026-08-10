@@ -66,11 +66,15 @@ export class ImageEditorModal extends Modal {
 		const modeRow = new Setting(sideCol).setName("Mode");
 		let colsInput: HTMLInputElement;
 		let rowsInput: HTMLInputElement;
+		let gapXInput: HTMLInputElement;
+		let gapYInput: HTMLInputElement;
 		const gridFieldsWrap = sideCol.createDiv({ cls: "sm-slicer-controls" });
 		const applyGrid = () => {
 			const cols = Number(colsInput.value);
 			const rows = Number(rowsInput.value);
-			if (cols > 0 && rows > 0) this.slicer.setGrid(cols, rows);
+			const gapX = Math.max(0, Number(gapXInput.value) || 0);
+			const gapY = Math.max(0, Number(gapYInput.value) || 0);
+			if (cols > 0 && rows > 0) this.slicer.setGrid(cols, rows, gapX, gapY);
 		};
 		modeRow.addDropdown((d) => {
 			d.addOption("freeform", "Freeform (drag a box)");
@@ -82,18 +86,26 @@ export class ImageEditorModal extends Modal {
 				else this.slicer.setGrid(0, 0);
 			});
 		});
-		const mkGridField = (label: string, defaultValue: string): HTMLInputElement => {
+		const mkGridField = (label: string, defaultValue: string, min: string): HTMLInputElement => {
 			const wrap = gridFieldsWrap.createDiv({ cls: "sm-slicer-field" });
 			wrap.createEl("label", { text: label });
-			const input = wrap.createEl("input", { type: "number", attr: { min: "1" } });
+			const input = wrap.createEl("input", { type: "number", attr: { min } });
 			input.value = defaultValue;
 			input.addEventListener("change", applyGrid);
 			return input;
 		};
-		colsInput = mkGridField("Columns", "4");
-		rowsInput = mkGridField("Rows", "4");
+		colsInput = mkGridField("Columns", "4", "1");
+		rowsInput = mkGridField("Rows", "4", "1");
+		gapXInput = mkGridField("Gap X (px)", "0", "0");
+		gapYInput = mkGridField("Gap Y (px)", "0", "0");
 		gridFieldsWrap.createEl("button", { text: "Apply grid", cls: "mod-cta" }).addEventListener("click", applyGrid);
 		gridFieldsWrap.style.display = "none";
+		gridFieldsWrap.createEl("p", {
+			cls: "setting-item-description",
+			text:
+				"If the sheet has padding between frames, set Gap X/Y to that padding's width in source-image " +
+				"pixels - it's excluded from each cell, shown as a shaded red band on the grid.",
+		});
 
 		this.cellCountEl = sideCol.createEl("p", { cls: "setting-item-description" });
 		this.slicer.onCellSelectionChange((count) => {

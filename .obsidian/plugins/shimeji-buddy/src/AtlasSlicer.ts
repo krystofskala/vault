@@ -35,6 +35,9 @@ export class AtlasSlicer {
 	/** 0 = grid mode off (freeform drag-select instead). */
 	private gridCols = 0;
 	private gridRows = 0;
+	/** Padding between cells, in source-image pixels - e.g. a sheet exported with a gutter around each frame. */
+	private gridGapX = 0;
+	private gridGapY = 0;
 	/** Cell indices (row * gridCols + col), in click order - that order becomes frame order. */
 	private selectedCells: number[] = [];
 
@@ -112,6 +115,8 @@ export class AtlasSlicer {
 
 		this.gridCols = 0;
 		this.gridRows = 0;
+		this.gridGapX = 0;
+		this.gridGapY = 0;
 		this.selectedCells = [];
 		this.setSelection(null);
 		this.redraw();
@@ -128,10 +133,19 @@ export class AtlasSlicer {
 		return this.image ? { width: this.naturalWidth, height: this.naturalHeight } : null;
 	}
 
-	/** Turns on grid-pick mode: an evenly-spaced cols x rows grid is overlaid, and clicking cells (in any order) picks them out as frames, in click order. Pass 0 for either to turn it back off (freeform drag-select). */
-	setGrid(cols: number, rows: number): void {
+	/**
+	 * Turns on grid-pick mode: a cols x rows grid is overlaid, and clicking
+	 * cells (in any order) picks them out as frames, in click order. Pass 0
+	 * for cols/rows to turn it back off (freeform drag-select).
+	 * gapX/gapY are the padding between cells in source-image pixels, for
+	 * sheets exported with a gutter around each frame - cells are sized to
+	 * exclude it, so a picked frame is just the sprite, not the gap.
+	 */
+	setGrid(cols: number, rows: number, gapX = 0, gapY = 0): void {
 		this.gridCols = Math.max(0, Math.floor(cols));
 		this.gridRows = Math.max(0, Math.floor(rows));
+		this.gridGapX = Math.max(0, gapX);
+		this.gridGapY = Math.max(0, gapY);
 		this.selectedCells = [];
 		this.setSelection(null);
 		this.notifyCellSelection();
@@ -151,18 +165,37 @@ export class AtlasSlicer {
 	/** Selected grid cells' rects, in the order they were clicked - that order becomes the animation's frame order. */
 	getSelectedCellRects(): AtlasFrameRect[] {
 		if (!this.isGridMode() || !this.image) return [];
-		const cellW = this.naturalWidth / this.gridCols;
-		const cellH = this.naturalHeight / this.gridRows;
+		const { cellW, cellH } = this.gridCellSizeNatural();
 		return this.selectedCells.map((i) => {
 			const col = i % this.gridCols;
 			const row = Math.floor(i / this.gridCols);
 			return {
-				x: Math.round(col * cellW),
-				y: Math.round(row * cellH),
+				x: Math.round(col * (cellW + this.gridGapX)),
+				y: Math.round(row * (cellH + this.gridGapY)),
 				w: Math.max(1, Math.round(cellW)),
 				h: Math.max(1, Math.round(cellH)),
 			};
 		});
+	}
+
+	/** Cell size in source-image pixels, with gaps already subtracted out. */
+	private gridCellSizeNatural(): { cellW: number; cellH: number } {
+		return {
+			cellW: Math.max(1, (this.naturalWidth - this.gridGapX * (this.gridCols - 1)) / this.gridCols),
+			cellH: Math.max(1, (this.naturalHeight - this.gridGapY * (this.gridRows - 1)) / this.gridRows),
+		};
+	}
+
+	/** Same as gridCellSizeNatural(), scaled to canvas display pixels - for drawing/hit-testing. */
+	private gridCellSizeCanvas(): { cellW: number; cellH: number; gapX: number; gapY: number } {
+		const gapX = this.gridGapX * this.scale;
+		const gapY = this.gridGapY * this.scale;
+		return {
+			cellW: Math.max(1, (this.canvas.width - gapX * (this.gridCols - 1)) / this.gridCols),
+			cellH: Math.max(1, (this.canvas.height - gapY * (this.gridRows - 1)) / this.gridRows),
+			gapX,
+			gapY,
+		};
 	}
 
 	private notifyCellSelection(): void {
@@ -229,8 +262,7 @@ export class AtlasSlicer {
 	}
 
 	private drawGrid(): void {
-		const cellW = this.canvas.width / this.gridCols;
-		const cellH = this.canvas.height / this.gridRows;
+		const { cellW, cellH, gapX, gapY } = this.gridCellSizeCanvas();
 
 		// Highlighted, numbered fills for already-picked cells - the number is
 		// the frame order they'll be added to the animation in.
@@ -240,8 +272,8 @@ export class AtlasSlicer {
 		this.selectedCells.forEach((cellIndex, order) => {
 			const col = cellIndex % this.gridCols;
 			const row = Math.floor(cellIndex / this.gridCols);
-			const x = col * cellW;
-			const y = row * cellH;
+			const x = col * (cellW + gapX);
+			const y = row * (cellH + gapY);
 			this.ctx.fillStyle = "rgba(80, 160, 255, 0.35)";
 			this.ctx.fillRect(x, y, cellW, cellH);
 			this.ctx.fillStyle = "#ffffff";
@@ -251,28 +283,47 @@ export class AtlasSlicer {
 			this.ctx.fillText(String(order + 1), x + cellW / 2, y + cellH / 2);
 		});
 
-		// Grid lines on top.
+		if (gapX > 0.5 || gapY > 0.5) {
+			// A real gutter: shade the excluded padding band itself, so it's
+			// obvious at a glance that it's being left out of the frame.
+			this.ctx.fillStyle = "rgba(255, 70, 70, 0.4)";
+			for (let c = 0; c < this.gridCols - 1; c++) {
+				if (gapX <= 0.5) continue;
+				this.ctx.fillRect(c * (cellW + gapX) + cellW, 0, gapX, this.canvas.height);
+			}
+			for (let r = 0; r < this.gridRows - 1; r++) {
+				if (gapY <= 0.5) continue;
+				this.ctx.fillRect(0, r * (cellH + gapY) + cellH, this.canvas.width, gapY);
+			}
+		}
+
+		// Cell outlines on top.
 		this.ctx.strokeStyle = "rgba(79, 168, 255, 0.7)";
 		this.ctx.lineWidth = 1;
 		this.ctx.beginPath();
-		for (let c = 0; c <= this.gridCols; c++) {
-			const x = Math.round(c * cellW) + 0.5;
-			this.ctx.moveTo(x, 0);
-			this.ctx.lineTo(x, this.canvas.height);
+		for (let c = 0; c < this.gridCols; c++) {
+			const x0 = Math.round(c * (cellW + gapX)) + 0.5;
+			const x1 = Math.round(c * (cellW + gapX) + cellW) + 0.5;
+			this.ctx.moveTo(x0, 0);
+			this.ctx.lineTo(x0, this.canvas.height);
+			this.ctx.moveTo(x1, 0);
+			this.ctx.lineTo(x1, this.canvas.height);
 		}
-		for (let r = 0; r <= this.gridRows; r++) {
-			const y = Math.round(r * cellH) + 0.5;
-			this.ctx.moveTo(0, y);
-			this.ctx.lineTo(this.canvas.width, y);
+		for (let r = 0; r < this.gridRows; r++) {
+			const y0 = Math.round(r * (cellH + gapY)) + 0.5;
+			const y1 = Math.round(r * (cellH + gapY) + cellH) + 0.5;
+			this.ctx.moveTo(0, y0);
+			this.ctx.lineTo(this.canvas.width, y0);
+			this.ctx.moveTo(0, y1);
+			this.ctx.lineTo(this.canvas.width, y1);
 		}
 		this.ctx.stroke();
 	}
 
 	private cellAt(p: { x: number; y: number }): number {
-		const cellW = this.canvas.width / this.gridCols;
-		const cellH = this.canvas.height / this.gridRows;
-		const col = Math.min(this.gridCols - 1, Math.max(0, Math.floor(p.x / cellW)));
-		const row = Math.min(this.gridRows - 1, Math.max(0, Math.floor(p.y / cellH)));
+		const { cellW, cellH, gapX, gapY } = this.gridCellSizeCanvas();
+		const col = Math.min(this.gridCols - 1, Math.max(0, Math.floor(p.x / (cellW + gapX))));
+		const row = Math.min(this.gridRows - 1, Math.max(0, Math.floor(p.y / (cellH + gapY))));
 		return row * this.gridCols + col;
 	}
 
