@@ -617,10 +617,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					);
 			}
 
-			new Setting(body)
+			const uploadSetting = new Setting(body)
 				.setName("Upload image")
-				.setDesc("Pick PNGs/JPGs/GIFs/WebPs from anywhere on your computer, one or several at once - copied into this character's folder.")
-				.addButton((b) => b.setButtonText("Upload…").onClick(() => this.pickAndUploadImage(folder)));
+				.setDesc("Pick PNGs/JPGs/GIFs/WebPs from anywhere on your computer, one or several at once - copied into this character's folder.");
+			this.renderUploadControl(uploadSetting.controlEl, folder);
 
 			this.callout(
 				body,
@@ -911,31 +911,27 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		await this.plugin.reloadSpritePack();
 	}
 
-	private pickAndUploadImage(folder: string): void {
-		// Must be attached to the DOM before .click() - a detached file input's
-		// click() is unreliable in Obsidian's Electron environment. It also
-		// needs to be visually-hidden rather than display:none - some Chromium
-		// versions don't run the native file dialog for fully-hidden elements,
-		// even when they're in the DOM, so this positions it off-screen instead.
-		const input = document.createElement("input");
+	/**
+	 * A JS-triggered .click() on a detached/invisible file input has proven
+	 * unreliable across Electron/Chromium versions (this is the third fix
+	 * attempted for that same class of bug). A <label for="..."> wrapping a
+	 * real, always-present <input type=file> sidesteps it entirely - the
+	 * browser forwards a genuine click from the visible label to the input
+	 * natively, no synthetic .click() involved, so there's nothing left to
+	 * be unreliable. The input is visually hidden (not display:none, which
+	 * some engines also refuse to open a dialog for) via the standard
+	 * clip-based "hidden but still real" technique.
+	 */
+	private renderUploadControl(containerEl: HTMLElement, folder: string): void {
+		const label = containerEl.createEl("label", { cls: "sm-upload-label mod-cta", text: "Upload…" });
+		const input = label.createEl("input", { cls: "sm-visually-hidden-input" });
 		input.type = "file";
 		input.accept = "image/png,image/jpeg,image/gif,image/webp";
 		input.multiple = true;
-		Object.assign(input.style, {
-			position: "fixed",
-			top: "-1000px",
-			left: "-1000px",
-			width: "1px",
-			height: "1px",
-			opacity: "0",
-		});
-		document.body.appendChild(input);
-
-		const cleanup = () => input.remove();
 
 		input.onchange = async () => {
 			const files = Array.from(input.files ?? []);
-			cleanup();
+			input.value = "";
 			if (files.length === 0) return;
 			try {
 				for (const file of files) {
@@ -949,8 +945,5 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				new Notice(`Couldn't add that image: ${e instanceof Error ? e.message : String(e)}`);
 			}
 		};
-		// Some Electron/Chromium versions support the "cancel" event on file inputs; clean up if so, harmless no-op otherwise.
-		input.addEventListener("cancel", cleanup);
-		input.click();
 	}
 }
