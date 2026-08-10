@@ -48,6 +48,16 @@ const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
 // bit more forgiving than a mouse would need.
 const DRAG_THRESHOLD_PX = 8;
 
+// Dragging doesn't snap straight to the pointer - it eases toward it each
+// frame (a "leash"), so the further behind it's fallen, the faster it
+// catches up. Releasing mid-motion launches it with that same momentum.
+const FOLLOW_RATE_PER_SEC = 9; // higher = tighter leash, lower = more lag
+const FLING_FRICTION_PER_SEC = 2.2; // exponential air-drag on released velocity
+const FLING_MIN_SPEED_PX_S = 40; // below this, just stop and settle
+const FLING_MAX_LAUNCH_SPEED_PX_S = 4500; // caps an absurd pointer-jump launch
+const FLING_MAX_DURATION_MS = 4000; // safety cap so it can't fly forever
+const FLING_BOUNCE_DAMPING = 0.45; // speed kept after bouncing off a screen edge
+
 // The "size" setting is a base value tuned against a roughly desktop-sized
 // window; actual rendered size scales with the viewport's smaller dimension
 // (vmin) relative to this reference, so the same setting looks proportionate
@@ -180,10 +190,28 @@ export class CharacterWidget {
 
 	private lastActivity = Date.now();
 	private isDragging = false;
+	private isFlinging = false;
 	private dragMoved = false;
 	private dragPointerType = "mouse";
 	private dragStart = { x: 0, y: 0 };
 	private dragPointerOffset = { x: 0, y: 0 };
+	private dragRectWidth = 0;
+	private dragRectHeight = 0;
+
+	// Leash-follow state, in the same right/bottom px space as the container's
+	// own position - the pointer sets a target, these track where the
+	// character actually is each frame (which lags behind while dragging and
+	// keeps moving under its own velocity during a fling).
+	private followRight = 0;
+	private followBottom = 0;
+	private dragTargetRight = 0;
+	private dragTargetBottom = 0;
+	private velocityRight = 0;
+	private velocityBottom = 0;
+	private followRafId: number | null = null;
+	private flingRafId: number | null = null;
+	private lastFrameTime = 0;
+	private flingStartTime = 0;
 
 	private boundPointerMove = (e: PointerEvent) => this.onPointerMove(e);
 	private boundPointerUp = (e: PointerEvent) => this.onPointerUp(e);
@@ -297,6 +325,8 @@ export class CharacterWidget {
 		this.clearTimer("wanderTimer");
 		window.removeEventListener("resize", this.boundResize);
 		this.detachDragListeners();
+		this.stopFollowLoop();
+		this.stopFling();
 		this.containerEl.remove();
 	}
 
@@ -423,9 +453,10 @@ export class CharacterWidget {
 	private idleTick(): void {
 		this.scheduleNextIdleTick();
 		// Never let the standby brain grab position/pose while the user has
-		// their hands on the character - it was fighting an active drag for
-		// control of style.right/bottom.
-		if (this.isDragging) return;
+		// their hands on the character, or while it's still flying from a
+		// throw - it was fighting an active drag for control of
+		// style.right/bottom.
+		if (this.isDragging || this.isFlinging) return;
 		if (this.currentTrigger !== "idle") return;
 
 		if (this.settings.wanderEnabled && Math.random() < 0.35) {
@@ -573,12 +604,12 @@ export class CharacterWidget {
 		// Stops the WebView from turning this into a page-scroll/callout gesture on touch.
 		e.preventDefault();
 
-		// A roam in progress (or one that just finished) can leave a transition
-		// on right/bottom - clear it so manual dragging always tracks the
-		// pointer instantly instead of gliding toward it.
+		// Grabbing mid-flight (or mid-roam) cancels whatever was moving it and
+		// picks up dragging from exactly where it is right now.
 		this.clearTimer("wanderTimer");
 		this.containerEl.removeClass("sm-tween");
 		this.containerEl.style.transitionDuration = "";
+		this.stopFling();
 
 		this.isDragging = true;
 		this.dragMoved = false;
@@ -586,6 +617,14 @@ export class CharacterWidget {
 		this.dragStart = { x: e.clientX, y: e.clientY };
 		const rect = this.containerEl.getBoundingClientRect();
 		this.dragPointerOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+		this.dragRectWidth = rect.width;
+		this.dragRectHeight = rect.height;
+		this.followRight = window.innerWidth - rect.right;
+		this.followBottom = window.innerHeight - rect.bottom;
+		this.dragTargetRight = this.followRight;
+		this.dragTargetBottom = this.followBottom;
+		this.velocityRight = 0;
+		this.velocityBottom = 0;
 
 		// Added/removed per gesture (rather than always-on with pointer capture)
 		// so a mouse drag tracks the cursor as directly and immediately as
@@ -593,6 +632,7 @@ export class CharacterWidget {
 		window.addEventListener("pointermove", this.boundPointerMove);
 		window.addEventListener("pointerup", this.boundPointerUp);
 		window.addEventListener("pointercancel", this.boundPointerCancel);
+		this.startFollowLoop();
 	}
 
 	private onPointerMove(e: PointerEvent): void {
@@ -605,19 +645,13 @@ export class CharacterWidget {
 		if (Math.abs(dx) + Math.abs(dy) > threshold) this.dragMoved = true;
 		if (!this.dragMoved) return;
 
-		const rect = this.containerEl.getBoundingClientRect();
+		// Just updates where the leash is pulling toward - the follow loop
+		// (rAF) is what actually moves the character each frame, easing
+		// toward this target rather than snapping straight to it.
 		const left = e.clientX - this.dragPointerOffset.x;
 		const top = e.clientY - this.dragPointerOffset.y;
-		const right = Math.min(
-			Math.max(window.innerWidth - left - rect.width, 4),
-			window.innerWidth - rect.width - 4
-		);
-		const bottom = Math.min(
-			Math.max(window.innerHeight - top - rect.height, 4),
-			window.innerHeight - rect.height - 4
-		);
-		this.containerEl.style.right = `${right}px`;
-		this.containerEl.style.bottom = `${bottom}px`;
+		this.dragTargetRight = window.innerWidth - left - this.dragRectWidth;
+		this.dragTargetBottom = window.innerHeight - top - this.dragRectHeight;
 	}
 
 	private onPointerUp(_e: PointerEvent): void {
@@ -626,10 +660,7 @@ export class CharacterWidget {
 		this.isDragging = false;
 
 		if (this.dragMoved) {
-			const style = this.containerEl.style;
-			this.settings.posX = parseFloat(style.right || "0");
-			this.settings.posY = parseFloat(style.bottom || "0");
-			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
+			this.startFling();
 		} else {
 			this.lastActivity = Date.now();
 			const lines = this.settings.speechLines.poke;
@@ -648,6 +679,125 @@ export class CharacterWidget {
 		window.removeEventListener("pointermove", this.boundPointerMove);
 		window.removeEventListener("pointerup", this.boundPointerUp);
 		window.removeEventListener("pointercancel", this.boundPointerCancel);
+	}
+
+	/** Eases followRight/Bottom toward dragTargetRight/Bottom every frame while dragging - the "leash" feel. */
+	private startFollowLoop(): void {
+		if (this.followRafId !== null) return;
+		this.lastFrameTime = performance.now();
+		const step = (now: number) => {
+			if (!this.isDragging) {
+				this.followRafId = null;
+				return;
+			}
+			const dt = Math.min((now - this.lastFrameTime) / 1000, 0.05);
+			this.lastFrameTime = now;
+
+			const factor = 1 - Math.exp(-FOLLOW_RATE_PER_SEC * dt);
+			const prevRight = this.followRight;
+			const prevBottom = this.followBottom;
+			this.followRight += (this.dragTargetRight - this.followRight) * factor;
+			this.followBottom += (this.dragTargetBottom - this.followBottom) * factor;
+			if (dt > 0) {
+				this.velocityRight = (this.followRight - prevRight) / dt;
+				this.velocityBottom = (this.followBottom - prevBottom) / dt;
+			}
+			if (Math.abs(this.followRight - prevRight) > 0.3) this.facingLeft = this.followRight > prevRight;
+
+			this.renderFollowPosition();
+			this.followRafId = window.requestAnimationFrame(step);
+		};
+		this.followRafId = window.requestAnimationFrame(step);
+	}
+
+	private stopFollowLoop(): void {
+		if (this.followRafId !== null) window.cancelAnimationFrame(this.followRafId);
+		this.followRafId = null;
+	}
+
+	/** Clamps followRight/Bottom to stay on screen and writes it to the container's style. */
+	private renderFollowPosition(): void {
+		const margin = 4;
+		const maxRight = Math.max(margin, window.innerWidth - this.dragRectWidth - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - this.dragRectHeight - margin);
+		this.followRight = Math.min(Math.max(this.followRight, margin), maxRight);
+		this.followBottom = Math.min(Math.max(this.followBottom, margin), maxBottom);
+		this.containerEl.style.right = `${this.followRight}px`;
+		this.containerEl.style.bottom = `${this.followBottom}px`;
+	}
+
+	/** Launches the character with the velocity it was dragging at when released - a flick sends it flying. */
+	private startFling(): void {
+		this.stopFollowLoop();
+		const speed = Math.hypot(this.velocityRight, this.velocityBottom);
+		if (speed < FLING_MIN_SPEED_PX_S) {
+			this.settlePosition();
+			return;
+		}
+		if (speed > FLING_MAX_LAUNCH_SPEED_PX_S) {
+			const scale = FLING_MAX_LAUNCH_SPEED_PX_S / speed;
+			this.velocityRight *= scale;
+			this.velocityBottom *= scale;
+		}
+
+		this.isFlinging = true;
+		if (!this.pack) this.playPlaceholder("jump");
+		this.flingStartTime = performance.now();
+		this.lastFrameTime = this.flingStartTime;
+		const step = (now: number) => {
+			const dt = Math.min((now - this.lastFrameTime) / 1000, 0.05);
+			this.lastFrameTime = now;
+
+			this.followRight += this.velocityRight * dt;
+			this.followBottom += this.velocityBottom * dt;
+			const decay = Math.exp(-FLING_FRICTION_PER_SEC * dt);
+			this.velocityRight *= decay;
+			this.velocityBottom *= decay;
+
+			const margin = 4;
+			const maxRight = Math.max(margin, window.innerWidth - this.dragRectWidth - margin);
+			const maxBottom = Math.max(margin, window.innerHeight - this.dragRectHeight - margin);
+			if (this.followRight < margin) {
+				this.followRight = margin;
+				this.velocityRight *= -FLING_BOUNCE_DAMPING;
+			} else if (this.followRight > maxRight) {
+				this.followRight = maxRight;
+				this.velocityRight *= -FLING_BOUNCE_DAMPING;
+			}
+			if (this.followBottom < margin) {
+				this.followBottom = margin;
+				this.velocityBottom *= -FLING_BOUNCE_DAMPING;
+			} else if (this.followBottom > maxBottom) {
+				this.followBottom = maxBottom;
+				this.velocityBottom *= -FLING_BOUNCE_DAMPING;
+			}
+			this.containerEl.style.right = `${this.followRight}px`;
+			this.containerEl.style.bottom = `${this.followBottom}px`;
+
+			const curSpeed = Math.hypot(this.velocityRight, this.velocityBottom);
+			const elapsed = now - this.flingStartTime;
+			if (curSpeed < FLING_MIN_SPEED_PX_S || elapsed > FLING_MAX_DURATION_MS) {
+				this.flingRafId = null;
+				this.isFlinging = false;
+				this.settlePosition();
+				if (this.currentTrigger === "idle") this.setReaction("idle");
+				return;
+			}
+			this.flingRafId = window.requestAnimationFrame(step);
+		};
+		this.flingRafId = window.requestAnimationFrame(step);
+	}
+
+	private stopFling(): void {
+		if (this.flingRafId !== null) window.cancelAnimationFrame(this.flingRafId);
+		this.flingRafId = null;
+		this.isFlinging = false;
+	}
+
+	private settlePosition(): void {
+		this.settings.posX = this.followRight;
+		this.settings.posY = this.followBottom;
+		this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
 	}
 
 	/** Orientation change, window resize, or an on-screen keyboard popping up: rescale and re-clamp position. */

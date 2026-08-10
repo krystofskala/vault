@@ -75,8 +75,12 @@ get picked based on how you've been treating the buddy.
   pose by default, or whatever you've assigned in your own library.
 - Falls asleep after a configurable period of vault inactivity, wakes back up
   on the next action or click.
-- Draggable - click and drag to move it anywhere; position is remembered.
-  Rescales and re-clamps on rotation/resize so it can't end up off-screen.
+- **Draggable on a leash** - click and drag to move it anywhere; it eases
+  toward the pointer rather than snapping to it, so the further behind it's
+  fallen the faster it catches up. Release mid-motion and it flies off with
+  that momentum, bouncing off the screen edges until it runs out of speed.
+  Position is remembered, and it rescales/re-clamps on rotation/resize so it
+  can't end up off-screen.
 - Click it for a quick reaction and an optional speech-bubble line.
 - **Responsive size**: the size setting is a baseline that scales with the
   screen's smaller dimension, so it looks proportionate on a phone, a tablet,
