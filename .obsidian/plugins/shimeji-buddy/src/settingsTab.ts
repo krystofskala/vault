@@ -191,6 +191,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					})
 				);
 
+			new Setting(body)
+				.setName("Click counter mode")
+				.setDesc(
+					"While on, clicking the buddy tallies clicks (shown as a speech-bubble count) and hops it to " +
+						"a new nearby spot each time, instead of the normal poke reaction. Assign a hotkey to " +
+						"\"Toggle click counter mode\" (Settings → Hotkeys) to flip it on/off without opening settings."
+				)
+				.addToggle((t) =>
+					t.setValue(s.clickCounterEnabled).onChange(async (v) => {
+						await this.plugin.setClickCounterEnabled(v);
+					})
+				);
+
 			this.callout(
 				body,
 				"tip",
@@ -232,8 +245,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				});
 
 			new Setting(body)
-				.setName("Fall asleep after")
-				.setDesc("Minutes of no vault activity before the buddy dozes off.")
+				.setName("Bored / asleep after")
+				.setDesc("Minutes of no vault activity before the buddy gets bored and dozes off.")
 				.addText((t) =>
 					t.setValue(String(s.sleepAfterMinutes)).onChange(async (v) => {
 						const n = Number(v);
@@ -250,7 +263,11 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				"Min/max set the random range between decisions - e.g. 8/20 means it acts every 8 to 20 " +
 					"seconds. \"Along window edges\" tracks the sidebar and main-area boundaries live (and " +
 					"rotates the buddy so its feet face whichever edge it's on), so resizing or toggling a " +
-					"sidebar mid-patrol is fine."
+					"sidebar mid-patrol is fine. The buddy also has a mood, always on in the background: " +
+					"energetic \"Happy\" from recent typing/vault activity, \"Bored\" once it's been quiet for " +
+					"the duration above, \"Angry\" if you poke or throw it too much too fast, and \"Normal\" the " +
+					"rest of the time. Each has its own entry in \"Actions Shimeji can react to\" if you want to " +
+					"assign a custom character's own animation to a mood."
 			);
 
 			if (s.characterMode === "builtin") {

@@ -70,6 +70,12 @@ export default class ShimejiBuddyPlugin extends Plugin {
 				editor.replaceSelection(lines.join("\n") + "\n");
 			},
 		});
+
+		this.addCommand({
+			id: "shimeji-buddy-toggle-click-counter",
+			name: "Toggle click counter mode",
+			callback: () => this.setClickCounterEnabled(!this.settings.clickCounterEnabled),
+		});
 	}
 
 	onunload(): void {
@@ -123,6 +129,13 @@ export default class ShimejiBuddyPlugin extends Plugin {
 
 	applyLiveSettings(): void {
 		this.widget?.updateSettings(this.settings);
+	}
+
+	/** Also used by the settings-tab toggle, not just the command, so both routes reset the tally and confirm the new state the same way. */
+	async setClickCounterEnabled(enabled: boolean): Promise<void> {
+		this.settings.clickCounterEnabled = enabled;
+		await this.saveSettings();
+		this.widget?.setClickCounterMode(enabled);
 	}
 
 	// ---------- mobile: touch only in reading view ----------

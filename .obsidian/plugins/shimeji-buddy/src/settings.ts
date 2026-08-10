@@ -27,7 +27,10 @@ export const BUILTIN_TRIGGERS: TriggerDef[] = [
 	{ id: "note:edit", label: "Editing / typing in a note" },
 	{ id: "search:open", label: "Opening the search pane" },
 	{ id: "poke", label: "Clicking / poking the buddy" },
-	{ id: "sleep", label: "Falling asleep (long inactivity)" },
+	{ id: "sleep", label: "Falling asleep (long inactivity) - the \"Bored\" mood's look" },
+	{ id: "mood:happy", label: "Mood: Happy (energetic - recent typing/vault activity)" },
+	{ id: "mood:bored", label: "Mood: Bored (long inactivity)" },
+	{ id: "mood:angry", label: "Mood: Angry (poked or thrown too much, too fast)" },
 ];
 
 /** A user-added trigger tied to a specific Obsidian command id, so any command (yours or another plugin's) can be reacted to without hand-listing them. */
@@ -135,6 +138,8 @@ export interface ShimejiSettings {
 	clickThrough: boolean;
 	/** Mobile only: only draggable/pokeable while the active note is in reading view, to avoid misclicks while typing. */
 	mobileReadingViewOnly: boolean;
+	/** While on, clicking the buddy counts clicks and hops it to a new spot each time, instead of the normal poke reaction. Toggle here or via the "Toggle click counter mode" command (bind a hotkey in Settings -> Hotkeys). */
+	clickCounterEnabled: boolean;
 
 	characterMode: CharacterMode;
 
@@ -175,6 +180,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	speechLines: DEFAULT_SPEECH_LINES,
 	clickThrough: false,
 	mobileReadingViewOnly: true,
+	clickCounterEnabled: false,
 
 	characterMode: "builtin",
 	activeCharacterFolder: "",

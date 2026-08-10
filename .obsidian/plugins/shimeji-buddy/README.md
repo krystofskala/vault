@@ -70,9 +70,25 @@ walk or run cycle) or to just play in place (like resting), so a single pool
 can mix "walks around," "sits and looks around," "stretches," whatever you
 build, each with its own odds.
 
+## Mood
+
+Always running in the background, recomputed every few seconds from how
+you've been treating the buddy - it's just which trigger id "idle" resolves
+to, so a custom character can assign its own animation to any of these the
+same way it would to plain "idle" (see "Actions Shimeji can react to"):
+
+- **Happy** - energetic, from typing or otherwise using the vault recently.
+  Runs the standby brain faster (acts sooner) too.
+- **Bored** - long inactivity; this is what the old standalone "falling
+  asleep" state is now, folded into the mood system (any character.json
+  built before moods existed that already used the `sleep` trigger id still
+  works). Runs the standby brain slower.
+- **Angry** - poked or thrown too much, too fast (5+ within 15 seconds).
+- **Normal** - the rest of the time, between the happy window and the bored
+  threshold.
+
 *Planned, not built yet:* scripted/idle speech lines beyond the current
-simple per-action text pool, and a mood system that shifts which animations
-get picked based on how you've been treating the buddy.
+simple per-action text pool.
 
 ## Features
 
@@ -95,8 +111,13 @@ get picked based on how you've been treating the buddy.
   note, the search pane opening, being poked, falling asleep, and any
   Obsidian command you name (see below) - each with the built-in placeholder
   pose by default, or whatever you've assigned in your own library.
-- Falls asleep after a configurable period of vault inactivity, wakes back up
-  on the next action or click.
+- Gets bored and falls asleep after a configurable period of vault
+  inactivity (see "Mood" above), wakes back up on the next action or click.
+- **Click counter mode** (Settings → General, or the "Toggle click counter
+  mode" command - bind it a hotkey in Settings → Hotkeys for a quick
+  on/off): while on, clicking the buddy tallies a running count in a
+  speech bubble and hops it to a new nearby spot each click, instead of the
+  normal poke reaction.
 - **Draggable on a leash** - click and drag to move it anywhere; it eases
   toward the pointer rather than snapping to it, so the further behind it's
   fallen the faster it catches up. Release mid-motion and it flies off with

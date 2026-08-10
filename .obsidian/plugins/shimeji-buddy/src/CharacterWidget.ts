@@ -1,4 +1,4 @@
-import type { App } from "obsidian";
+import { Notice, type App } from "obsidian";
 import type { BuiltinBehaviorId, ShimejiSettings } from "./settings";
 import { pickWeighted, type LoadedSpritePack, type ResolvedAnimation } from "./spritePack";
 
@@ -22,9 +22,11 @@ type BuiltinPose =
 	| "lift"
 	| "jutsuClone"
 	| "jutsuTransform"
-	| "jutsuShuriken";
+	| "jutsuShuriken"
+	| "happy"
+	| "angry";
 
-const LOOPING_POSES: ReadonlySet<BuiltinPose> = new Set(["idle", "walk", "run", "jump", "sleep"]);
+const LOOPING_POSES: ReadonlySet<BuiltinPose> = new Set(["idle", "walk", "run", "jump", "sleep", "happy", "angry"]);
 
 /** Which builtin pose plays for a trigger id when no pack/atlas animation is assigned to it. Anything not listed here (e.g. a command trigger) just rests at idle. */
 const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
@@ -44,7 +46,27 @@ const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
 	"idle:jutsu-clone": "jutsuClone",
 	"idle:jutsu-transform": "jutsuTransform",
 	"idle:jutsu-shuriken": "jutsuShuriken",
+	"mood:happy": "happy",
+	"mood:bored": "sleep",
+	"mood:angry": "angry",
 };
+
+/**
+ * Four moods, recomputed periodically from recent activity - not a builtin
+ * concept, just which "resting" trigger id idle time resolves to (a custom
+ * character can assign its own animation to any mood:* trigger the same way
+ * it assigns one to "idle"). "normal" resolves to plain "idle" rather than
+ * its own trigger id - there's nothing to distinguish it from idle.
+ */
+type MoodId = "normal" | "happy" | "bored" | "angry";
+
+const HAPPY_ACTIVITY_WINDOW_MS = 20_000; // real vault activity within this long ago still counts as "happy"
+const ANGRY_WINDOW_MS = 15_000; // pokes/throws are counted within this recent window
+const ANGRY_THRESHOLD = 5; // this many within the window -> angry
+const MOOD_CHECK_INTERVAL_MS = 5_000;
+
+// "happy" runs the idle brain faster (energetic); "bored" slower (sluggish).
+const MOOD_IDLE_INTERVAL_FACTOR: Record<MoodId, number> = { happy: 0.5, bored: 1.6, angry: 1, normal: 1 };
 
 /**
  * Everything the builtin placeholder can do on its own while idle - a
@@ -94,6 +116,11 @@ const FLING_MIN_SPEED_PX_S = 40; // below this, just stop and settle
 const FLING_MAX_LAUNCH_SPEED_PX_S = 4500; // caps an absurd pointer-jump launch
 const FLING_MAX_DURATION_MS = 4000; // safety cap so it can't fly forever
 const FLING_BOUNCE_DAMPING = 0.45; // speed kept after bouncing off a screen edge
+
+// Click counter mode: each click hops to a new nearby spot and tallies up,
+// instead of the normal poke reaction.
+const CLICK_COUNTER_HOP_RANGE_PX = 220;
+const CLICK_COUNTER_HOP_DURATION_MS = 260;
 
 // The "size" setting is a base value tuned against a roughly desktop-sized
 // window; actual rendered size scales with the viewport's smaller dimension
@@ -145,6 +172,8 @@ const PLACEHOLDER_DURATIONS: Record<BuiltinPose, number> = {
 	jutsuClone: 1800,
 	jutsuTransform: 1800,
 	jutsuShuriken: 700,
+	happy: 0,
+	angry: 0,
 };
 
 /**
@@ -234,7 +263,7 @@ export class CharacterWidget {
 	private facingLeft = false;
 
 	private idleTimer: number | null = null;
-	private sleepCheckTimer: number | null = null;
+	private moodCheckTimer: number | null = null;
 	private oneShotRevertTimer: number | null = null;
 	private spriteFrameTimer: number | null = null;
 	private wanderTimer: number | null = null;
@@ -254,6 +283,13 @@ export class CharacterWidget {
 		this.lastPointerX = e.clientX;
 		this.lastPointerY = e.clientY;
 	};
+
+	/** Recomputed every MOOD_CHECK_INTERVAL_MS from recent activity/provocations - see recomputeMood(). */
+	private currentMood: MoodId = "normal";
+	private recentProvocations: number[] = [];
+
+	private clickCounterCount = 0;
+	private isClickHopping = false;
 
 	private lastActivity = Date.now();
 	private isDragging = false;
@@ -294,7 +330,7 @@ export class CharacterWidget {
 		this.applySize(settings.size);
 		this.applyPosition(settings.posX, settings.posY);
 		this.setReaction("idle");
-		this.startSleepWatcher();
+		this.startMoodWatcher();
 		window.addEventListener("resize", this.boundResize);
 		window.addEventListener("pointermove", this.boundTrackPointer);
 	}
@@ -400,7 +436,7 @@ export class CharacterWidget {
 
 	destroy(): void {
 		this.clearTimer("idleTimer");
-		this.clearTimer("sleepCheckTimer");
+		this.clearTimer("moodCheckTimer");
 		this.clearTimer("oneShotRevertTimer");
 		this.clearTimer("spriteFrameTimer");
 		this.clearTimer("wanderTimer");
@@ -421,7 +457,13 @@ export class CharacterWidget {
 		// (which re-applies its own orientation right after this) stays rotated.
 		this.applyEdgeOrientation(null);
 
-		const pool = this.pack?.bySlot[trigger];
+		// Resting ("idle") is the one trigger mood gets a say in - it decides
+		// which flavor of "idle" actually plays. currentTrigger itself stays
+		// plain "idle" throughout, so everything that checks for it (idle
+		// tick, drag/fling guards, wake-on-interaction) keeps working.
+		const lookupTrigger = trigger === "idle" ? this.moodLookupTrigger() : trigger;
+
+		const pool = this.pack?.bySlot[lookupTrigger];
 		const chosen = pool && pool.length > 0 ? pickWeighted(pool) : null;
 
 		if (chosen) {
@@ -435,12 +477,24 @@ export class CharacterWidget {
 			const restingIdle = idlePool.filter((c) => !c.moves);
 			const idleChosen = pickWeighted(restingIdle.length > 0 ? restingIdle : idlePool);
 			if (idleChosen) this.playResolvedAnimation(idleChosen, () => {});
-			else this.playBuiltinForTrigger(trigger);
+			else this.playBuiltinForTrigger(lookupTrigger);
 		} else {
-			this.playBuiltinForTrigger(trigger);
+			this.playBuiltinForTrigger(lookupTrigger);
 		}
 
 		if (message && this.settings.speechBubbleEnabled) this.showBubble(message);
+	}
+
+	/** Which trigger id "idle" actually resolves to, based on the current mood - "normal" is just plain "idle". */
+	private moodLookupTrigger(): string {
+		if (this.currentMood === "normal") return "idle";
+		const id = `mood:${this.currentMood}`;
+		// "bored" keeps backward compatibility with the older standalone
+		// "sleep" trigger id, for any character.json built before moods existed.
+		if (this.currentMood === "bored" && !this.pack?.bySlot[id]?.length && this.pack?.bySlot.sleep?.length) {
+			return "sleep";
+		}
+		return id;
 	}
 
 	/** Renders the trigger's built-in placeholder pose and, unless it loops, schedules the revert to idle. */
@@ -560,17 +614,18 @@ export class CharacterWidget {
 		const { idleMinSeconds, idleMaxSeconds } = this.settings;
 		const min = Math.max(2, idleMinSeconds);
 		const max = Math.max(min + 1, idleMaxSeconds);
-		const delay = (min + Math.random() * (max - min)) * 1000;
+		// Happy = energetic (acts sooner), bored = sluggish (acts later).
+		const delay = (min + Math.random() * (max - min)) * 1000 * MOOD_IDLE_INTERVAL_FACTOR[this.currentMood];
 		this.idleTimer = window.setTimeout(() => this.idleTick(), delay);
 	}
 
 	private idleTick(): void {
 		this.scheduleNextIdleTick();
 		// Never let the standby brain grab position/pose while the user has
-		// their hands on the character, or while it's still flying from a
-		// throw - it was fighting an active drag for control of
-		// style.right/bottom.
-		if (this.isDragging || this.isFlinging) return;
+		// their hands on the character, while it's still flying from a
+		// throw, or mid click-counter hop - it was fighting an active drag
+		// for control of style.right/bottom.
+		if (this.isDragging || this.isFlinging || this.isClickHopping) return;
 		if (this.currentTrigger !== "idle") return;
 
 		if (this.pack) {
@@ -732,15 +787,102 @@ export class CharacterWidget {
 
 	// ---------- sleep watcher ----------
 
-	private startSleepWatcher(): void {
-		this.clearTimer("sleepCheckTimer");
-		this.sleepCheckTimer = window.setInterval(() => {
-			if (this.currentTrigger !== "idle") return;
-			const idleMs = Date.now() - this.lastActivity;
-			if (idleMs > this.settings.sleepAfterMinutes * 60_000) {
-				this.setReaction("sleep");
-			}
-		}, 15_000);
+	private startMoodWatcher(): void {
+		this.clearTimer("moodCheckTimer");
+		this.moodCheckTimer = window.setInterval(() => this.recomputeMood(), MOOD_CHECK_INTERVAL_MS);
+	}
+
+	/**
+	 * Four moods, from how the buddy's been treated: "angry" (poked/thrown
+	 * too much too fast) beats "happy" (recent real vault activity - typing,
+	 * opening notes, etc), which beats "bored" (long inactivity - the old
+	 * standalone "asleep" state, now just what bored looks like), which
+	 * falls back to plain "normal". Only actually changes the displayed pose
+	 * when resting (currentTrigger === "idle") and not mid-drag/fling/hop,
+	 * so it never fights the user for control the way idle wander used to.
+	 */
+	private recomputeMood(): void {
+		const now = Date.now();
+		this.recentProvocations = this.recentProvocations.filter((t) => now - t < ANGRY_WINDOW_MS);
+
+		let mood: MoodId;
+		if (this.recentProvocations.length >= ANGRY_THRESHOLD) mood = "angry";
+		else if (now - this.lastActivity < HAPPY_ACTIVITY_WINDOW_MS) mood = "happy";
+		else if (now - this.lastActivity > this.settings.sleepAfterMinutes * 60_000) mood = "bored";
+		else mood = "normal";
+
+		if (mood === this.currentMood) return;
+		this.currentMood = mood;
+		if (this.currentTrigger === "idle" && !this.isDragging && !this.isFlinging && !this.isClickHopping) {
+			this.setReaction("idle");
+		}
+	}
+
+	/** A poke or a real throw counts toward "angry" - a gentle reposition drag doesn't. */
+	private registerProvocation(): void {
+		this.recentProvocations.push(Date.now());
+		this.recomputeMood();
+	}
+
+	// ---------- click counter mode ----------
+
+	/** Turning it on/off (from settings or the "Toggle click counter mode" command) resets the tally and confirms the new state. */
+	setClickCounterMode(enabled: boolean): void {
+		if (enabled) {
+			this.clickCounterCount = 0;
+			new Notice("Click counter started - click the buddy to count.");
+		} else if (this.clickCounterCount > 0) {
+			new Notice(`Click counter: ${this.clickCounterCount} click${this.clickCounterCount === 1 ? "" : "s"}.`);
+		}
+	}
+
+	private registerClickCounterClick(): void {
+		this.clickCounterCount++;
+		if (this.settings.speechBubbleEnabled) this.showBubble(`Clicks: ${this.clickCounterCount}`);
+		this.clickCounterHop();
+	}
+
+	/** A quick hop to a new nearby spot - "shimeji moves as you click" while counter mode is on, instead of the normal in-place poke reaction. */
+	private clickCounterHop(): void {
+		this.clearTimer("wanderTimer");
+		this.containerEl.removeClass("sm-tween");
+		this.containerEl.style.transitionDuration = "";
+		this.stopFling();
+		this.applyEdgeOrientation(null);
+
+		const rect = this.containerEl.getBoundingClientRect();
+		const margin = 8;
+		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+		const currentRight = window.innerWidth - rect.right;
+		const currentBottom = window.innerHeight - rect.bottom;
+		const newRight = Math.min(
+			Math.max(currentRight + (Math.random() * 2 - 1) * CLICK_COUNTER_HOP_RANGE_PX, margin),
+			maxRight
+		);
+		const newBottom = Math.min(
+			Math.max(currentBottom + (Math.random() * 2 - 1) * CLICK_COUNTER_HOP_RANGE_PX, margin),
+			maxBottom
+		);
+		if (Math.abs(newRight - currentRight) > 1) this.facingLeft = newRight > currentRight;
+
+		this.isClickHopping = true;
+		if (!this.pack) this.playPlaceholder("jump");
+		this.containerEl.addClass("sm-tween");
+		this.containerEl.style.transitionDuration = `${CLICK_COUNTER_HOP_DURATION_MS}ms`;
+		this.containerEl.style.right = `${newRight}px`;
+		this.containerEl.style.bottom = `${newBottom}px`;
+
+		this.clearTimer("wanderTimer");
+		this.wanderTimer = window.setTimeout(() => {
+			this.containerEl.removeClass("sm-tween");
+			this.containerEl.style.transitionDuration = "";
+			this.isClickHopping = false;
+			this.settings.posX = newRight;
+			this.settings.posY = newBottom;
+			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
+			if (this.currentTrigger === "idle") this.setReaction("idle");
+		}, CLICK_COUNTER_HOP_DURATION_MS);
 	}
 
 	// ---------- dragging & click ----------
@@ -756,6 +898,7 @@ export class CharacterWidget {
 		this.containerEl.removeClass("sm-tween");
 		this.containerEl.style.transitionDuration = "";
 		this.stopFling();
+		this.isClickHopping = false;
 		this.applyEdgeOrientation(null);
 
 		this.isDragging = true;
@@ -810,9 +953,14 @@ export class CharacterWidget {
 			this.startFling();
 		} else {
 			this.lastActivity = Date.now();
-			const lines = this.settings.speechLines.poke;
-			const line = lines.length ? lines[Math.floor(Math.random() * lines.length)] : undefined;
-			this.setReaction("poke", line);
+			if (this.settings.clickCounterEnabled) {
+				this.registerClickCounterClick();
+			} else {
+				const lines = this.settings.speechLines.poke;
+				const line = lines.length ? lines[Math.floor(Math.random() * lines.length)] : undefined;
+				this.setReaction("poke", line);
+				this.registerProvocation();
+			}
 		}
 	}
 
@@ -886,6 +1034,7 @@ export class CharacterWidget {
 			this.velocityRight *= scale;
 			this.velocityBottom *= scale;
 		}
+		this.registerProvocation(); // a real throw, not just a gentle reposition drag
 
 		this.isFlinging = true;
 		if (!this.pack) this.playPlaceholder("jump");
@@ -981,7 +1130,7 @@ export class CharacterWidget {
 	}
 
 	private clearTimer(
-		name: "idleTimer" | "sleepCheckTimer" | "oneShotRevertTimer" | "spriteFrameTimer" | "wanderTimer"
+		name: "idleTimer" | "moodCheckTimer" | "oneShotRevertTimer" | "spriteFrameTimer" | "wanderTimer"
 	): void {
 		const id = this[name];
 		if (id !== null) {
