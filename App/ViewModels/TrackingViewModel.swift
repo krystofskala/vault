@@ -11,10 +11,13 @@ final class TrackingViewModel: ObservableObject {
     @Published private(set) var districtCoverage: [String: Double] = [:]
     @Published private(set) var isTracking = false
     @Published private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    @Published private(set) var lastLocation: Coordinate?
+    @Published private(set) var suggestions: [UnwalkedSuggestion] = []
 
     private let coverageStore: CoverageStore
     private let matcher: MapMatcher
     private let locationTracker: LocationTracker
+    private let motionMonitor = WalkingActivityMonitor()
     private let persistence: CoveragePersistence
     private var cancellables: Set<AnyCancellable> = []
 
@@ -51,7 +54,15 @@ final class TrackingViewModel: ObservableObject {
         else {
             return StreetGraph(segments: [:])
         }
-        return graph
+
+        guard
+            let districtsURL = Bundle.main.url(forResource: "prague_districts", withExtension: "json"),
+            let districtsData = try? Data(contentsOf: districtsURL),
+            let boundaries = try? DistrictTagger.loadBoundaries(fromOverpassJSON: districtsData)
+        else {
+            return graph
+        }
+        return DistrictTagger.tag(graph: graph, with: boundaries)
     }
 
     func requestPermission() {
@@ -61,18 +72,24 @@ final class TrackingViewModel: ObservableObject {
     func toggleTracking() {
         if locationTracker.isTracking {
             locationTracker.stopTracking()
+            motionMonitor.stop()
         } else {
             locationTracker.startTracking()
+            motionMonitor.start()
         }
         isTracking = locationTracker.isTracking
     }
 
-    func nearestUnwalked(from location: Coordinate, limit: Int = 20) -> [UnwalkedSuggestion] {
-        RouteSuggester.nearestUnwalked(from: location, graph: graph, coverage: coverageStore, limit: limit)
+    func refreshSuggestions(limit: Int = 20) {
+        guard let lastLocation else { return }
+        suggestions = RouteSuggester.nearestUnwalked(from: lastLocation, graph: graph, coverage: coverageStore, limit: limit)
     }
 
     private func handle(location: CLLocation) {
         let coord = Coordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
+        lastLocation = coord
+
+        guard motionMonitor.isLikelyWalking else { return }
         guard let match = matcher.match(coord) else { return }
 
         coverageStore.recordPass(segmentID: match.segmentID)

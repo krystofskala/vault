@@ -1,0 +1,24 @@
+{
+  "_comment": "DEMO FIXTURE ONLY. A single rectangular boundary covering the demo streets in prague_streets.json, standing in for a real cadastral district. Replace with real data from Scripts/fetch_prague_districts.sh.",
+  "elements": [
+    {
+      "type": "relation",
+      "id": 9001,
+      "tags": { "name": "Malá Strana (demo)" },
+      "members": [
+        {
+          "type": "way",
+          "ref": 9101,
+          "role": "outer",
+          "geometry": [
+            { "lat": 50.084, "lon": 14.399 },
+            { "lat": 50.084, "lon": 14.409 },
+            { "lat": 50.092, "lon": 14.409 },
+            { "lat": 50.092, "lon": 14.399 },
+            { "lat": 50.084, "lon": 14.399 }
+          ]
+        }
+      ]
+    }
+  ]
+}

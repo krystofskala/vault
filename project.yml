@@ -22,6 +22,7 @@ targets:
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: "Prague Street Tracker uses your location to record which streets you've walked. Your location data is stored only on this device and is never sent anywhere."
         NSLocationAlwaysAndWhenInUseUsageDescription: "Prague Street Tracker needs background location access to keep tracking the streets you walk while your phone is locked or you're using another app. Your location data is stored only on this device and is never sent anywhere."
+        NSMotionUsageDescription: "Prague Street Tracker uses motion data to tell walking apart from driving or cycling, so rides don't get logged as walked streets."
         UIBackgroundModes:
           - location
     settings:

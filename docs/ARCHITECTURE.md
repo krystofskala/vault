@@ -11,14 +11,18 @@ Packages/StreetTrackerCore/   Pure Swift, no Apple frameworks. Testable
   MapMatcher.swift               Snaps a GPS fix to the nearest segment
   CoverageStore.swift            Tracks pass counts, computes coverage %
   RouteSuggester.swift           Nearest-unwalked-street suggestions
+  RingAssembler.swift            Stitches boundary way fragments into closed rings
+  DistrictTagger.swift           Point-in-polygon tags segments with a cadastral district
 
 App/                           SwiftUI + MapKit + CoreLocation. Thin glue
                                over StreetTrackerCore; no domain logic here.
-  Location/LocationTracker.swift    CLLocationManager wrapper (background config)
+  Location/LocationTracker.swift        CLLocationManager wrapper (background config)
+  Location/WalkingActivityMonitor.swift Core Motion filter (skip car/bike fixes)
   Persistence/CoveragePersistence.swift   Local JSON file, on-device only
   ViewModels/TrackingViewModel.swift      Wires location -> matcher -> coverage -> disk
   Views/MapView.swift                     MKMapView bridge, renders polylines by pass count
   Views/ContentView.swift                 Main screen
+  Views/SuggestionsView.swift             Nearest-unwalked-streets sheet
 ```
 
 The split matters because `StreetTrackerCore` can be unit tested in
@@ -62,20 +66,35 @@ graph preprocessing step in `OSMLoader`, not a change to `MapMatcher` or
 
 Coverage is computed as **length-weighted fraction walked**, not
 segment-count fraction — a 300m street contributes more to "% walked" than
-a 30m alley. District coverage requires each `StreetSegment.district` to be
-populated; the current `OSMLoader` leaves it `nil` (Overpass doesn't tag
-ways with cadastral district directly). Options to populate it:
+a 30m alley.
 
-- Query each of Prague's ~112 cadastral areas as a separate Overpass `area`
-  and tag segments accordingly at fetch time (cleanest, more Overpass calls).
-- Do a point-in-polygon check against a Prague cadastral-boundary GeoJSON
-  (available from Prague's open data portal) as a local post-processing
-  step after loading the graph.
+District coverage requires each `StreetSegment.district` to be populated.
+`OSMLoader` itself always leaves it `nil` (Overpass doesn't tag ways with
+cadastral district directly); `TrackingViewModel.loadBundledGraph()` fills
+it in as a second pass by loading `App/Resources/prague_districts.json`
+(fetched via `Scripts/fetch_prague_districts.sh`) and running
+`DistrictTagger.tag`. That pulls Prague's cadastral areas as OSM
+administrative boundary relations (`admin_level=9`), reassembles their
+member ways into closed rings with `RingAssembler` (boundaries are usually
+split across several way fragments in mixed order/direction), and does a
+ray-casting point-in-polygon test using each segment's midpoint as its
+representative location. If `prague_districts.json` isn't present, the app
+still works — every segment's `district` just stays `nil` and coverage
+reports as "Unknown".
+
+Known gap: `RingAssembler` only looks at `role: "outer"` members and drops
+any way fragment it can't close into a ring, rather than reporting the
+failure. For Prague's cadastral relations (simple polygons, not the
+multi-ring/enclave shapes some country-level boundaries have) this should
+be fine; if a specific district silently doesn't get tagged, this is the
+first place to check.
 
 ## Route suggestion
 
 `RouteSuggester.nearestUnwalked` returns the nearest *unwalked segments* to
-a location, not a turn-by-turn route. Actually generating an efficient
+a location, not a turn-by-turn route — surfaced in the app via the "Suggest
+nearby streets" button (`SuggestionsView`), using the most recent GPS fix as
+the origin. Actually generating an efficient
 covering route is the **route inspection / "Chinese Postman" problem**:
 find the shortest walk that traverses every unwalked edge. Solving that
 well needs:
@@ -104,9 +123,12 @@ the only file that touches disk, so this is a contained change.
   gaps in tracked streets after long backgrounded stretches and tune
   `distanceFilter` / consider `CLLocationManager`'s deferred updates if
   battery drain is too aggressive.
-- **Activity filtering**: Core Motion (`CMMotionActivityManager`) isn't
-  wired in yet. Without it, a bus or car ride will "complete" streets you
-  didn't walk. Worth adding before relying on the data for real.
+- **Activity filtering**: `WalkingActivityMonitor` skips recording a fix
+  while Core Motion confidently reports automotive/cycling activity.
+  Low-confidence and unavailable readings fall through to "keep tracking" -
+  test that this isn't too permissive (e.g. a slow-moving car in traffic
+  might read as ambiguous) or too aggressive (rejecting real walking near
+  a road) on an actual device; simulator activity data is unreliable.
 - **App Store review**: apps requesting "Always" location access need to
   justify it clearly in the review notes and in the usage-description
   strings (already drafted in `project.yml`) — background fitness tracking

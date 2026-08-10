@@ -3,6 +3,7 @@ import CoreLocation
 
 struct ContentView: View {
     @StateObject private var viewModel = TrackingViewModel()
+    @State private var showingSuggestions = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -31,6 +32,13 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Button("Suggest nearby streets") {
+                    viewModel.refreshSuggestions()
+                    showingSuggestions = true
+                }
+                .disabled(viewModel.lastLocation == nil)
+                .font(.caption)
             }
             .padding()
             .background(.ultraThinMaterial)
@@ -39,6 +47,9 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.requestPermission()
+        }
+        .sheet(isPresented: $showingSuggestions) {
+            SuggestionsView(suggestions: viewModel.suggestions)
         }
     }
 
