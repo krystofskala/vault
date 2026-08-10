@@ -422,6 +422,10 @@ export class CharacterWidget {
 
 	private idleTick(): void {
 		this.scheduleNextIdleTick();
+		// Never let the standby brain grab position/pose while the user has
+		// their hands on the character - it was fighting an active drag for
+		// control of style.right/bottom.
+		if (this.isDragging) return;
 		if (this.currentTrigger !== "idle") return;
 
 		if (this.settings.wanderEnabled && Math.random() < 0.35) {
