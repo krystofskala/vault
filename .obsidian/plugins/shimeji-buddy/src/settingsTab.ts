@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, type DropdownComponent, type TextComponent } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, type DropdownComponent, type TextComponent } from "obsidian";
 import type ShimejiBuddyPlugin from "./main";
 import { AtlasSlicer } from "./AtlasSlicer";
 import {
@@ -25,6 +25,7 @@ function newAnimationId(): string {
 }
 
 const NEW_CHARACTER_VALUE = "__new_character__";
+const IMPORT_FOLDER_VALUE = "__import_folder__";
 
 export class ShimejiSettingTab extends PluginSettingTab {
 	plugin: ShimejiBuddyPlugin;
@@ -34,6 +35,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	private frameCountEls: Record<string, HTMLElement> = {};
 
 	private creatingCharacter = false;
+	private importingFolder = false;
 	private loadedCharacterFolder: string | null = null;
 	private characterFileLoaded = false;
 	private characterFile: CharacterFile | null = null;
@@ -315,12 +317,18 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				d.addOption("builtin", "Built-in placeholder (generic)");
 				for (const c of this.plugin.availableCharacters) d.addOption(c.path, c.label);
 				d.addOption(NEW_CHARACTER_VALUE, "+ New character...");
+				d.addOption(IMPORT_FOLDER_VALUE, "Import an existing folder...");
 				d.setValue(
 					s.characterMode === "character" && s.activeCharacterFolder ? s.activeCharacterFolder : "builtin"
 				);
 				d.onChange(async (value) => {
 					if (value === NEW_CHARACTER_VALUE) {
 						this.creatingCharacter = true;
+						this.display();
+						return;
+					}
+					if (value === IMPORT_FOLDER_VALUE) {
+						this.importingFolder = true;
 						this.display();
 						return;
 					}
@@ -377,6 +385,48 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				.addExtraButton((b) =>
 					b.setIcon("x").setTooltip("Cancel").onClick(() => {
 						this.creatingCharacter = false;
+						this.display();
+					})
+				);
+		}
+
+		if (this.importingFolder) {
+			let pathInput: TextComponent | undefined;
+			new Setting(containerEl)
+				.setName("Folder to import")
+				.setDesc(
+					"Vault-relative path to a folder that already has your images in it - e.g. one you " +
+						"copied in with your file manager, or dragged into Obsidian. Any PNGs already there " +
+						"become sliceable immediately; nothing is moved or copied."
+				)
+				.addText((t) => {
+					pathInput = t;
+					t.setPlaceholder("Assets/MyCharacter");
+				})
+				.addButton((b) =>
+					b
+						.setButtonText("Use this folder")
+						.setCta()
+						.onClick(async () => {
+							const path = pathInput?.getValue().trim();
+							if (!path) return;
+							if (!(await this.app.vault.adapter.exists(path))) {
+								new Notice(`Folder "${path}" wasn't found in this vault.`);
+								return;
+							}
+							s.characterMode = "character";
+							s.activeCharacterFolder = path;
+							this.characterFileLoaded = false;
+							this.editingImage = null;
+							this.importingFolder = false;
+							await this.plugin.saveSettings();
+							await this.plugin.reloadSpritePack();
+							this.display();
+						})
+				)
+				.addExtraButton((b) =>
+					b.setIcon("x").setTooltip("Cancel").onClick(() => {
+						this.importingFolder = false;
 						this.display();
 					})
 				);
@@ -754,19 +804,34 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	}
 
 	private pickAndUploadImage(folder: string): void {
+		// Must be attached to the DOM before .click() - a detached file input's
+		// click() is unreliable (often a silent no-op) in Obsidian's Electron/
+		// WebView environment.
 		const input = document.createElement("input");
 		input.type = "file";
 		input.accept = "image/png,image/jpeg,image/gif,image/webp";
+		input.multiple = true;
+		input.style.display = "none";
+		document.body.appendChild(input);
+
+		const cleanup = () => input.remove();
+
 		input.onchange = async () => {
-			const file = input.files?.[0];
-			if (!file) return;
-			const buffer = await file.arrayBuffer();
-			const savedName = await addImageToCharacter(this.app.vault, folder, file.name, buffer);
+			const files = Array.from(input.files ?? []);
+			cleanup();
+			if (files.length === 0) return;
+			let lastSaved: string | null = null;
+			for (const file of files) {
+				const buffer = await file.arrayBuffer();
+				lastSaved = await addImageToCharacter(this.app.vault, folder, file.name, buffer);
+			}
 			this.characterImages = await listCharacterImages(this.app.vault, folder);
-			this.editingImage = savedName;
+			if (lastSaved) this.editingImage = lastSaved;
 			await this.loadSlicerImage();
 			this.display();
 		};
+		// Some Electron/Chromium versions support the "cancel" event on file inputs; clean up if so, harmless no-op otherwise.
+		input.addEventListener("cancel", cleanup);
 		input.click();
 	}
 }

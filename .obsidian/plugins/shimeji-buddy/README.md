@@ -19,9 +19,11 @@ this plugin doesn't fetch, bundle, or redistribute any character's artwork
 itself.
 
 A character is one folder that can hold as many images as you want - clean
-equal-frame strips, large messy sheets, whatever you've got. Build one
-entirely from **Settings → Shimeji Buddy → Character**: create it, upload
-images (picked from anywhere on your computer, not just the vault), slice
+equal-frame strips, large messy sheets, whatever you've got (e.g. an
+asset-pack export with a dozen separate PNGs). Build one entirely from
+**Settings → Shimeji Buddy → Character**: create it, upload images (picked
+from anywhere on your computer, multiple at once, not just the vault) or
+point at a folder you've already dropped into the vault yourself, slice
 out whichever frames you need from any of them (drag a box, or auto-generate
 an evenly-spaced strip in one click), and assign each resulting animation to
 one or more actions. No file editing required, though the character folder

@@ -412,6 +412,7 @@ export class CharacterWidget {
 		this.clearTimer("wanderTimer");
 		this.wanderTimer = window.setTimeout(() => {
 			this.containerEl.removeClass("sm-tween");
+			this.containerEl.style.transitionDuration = "";
 			this.settings.posX = newRight;
 			this.settings.posY = newBottom;
 			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
@@ -441,6 +442,13 @@ export class CharacterWidget {
 		// even once the finger moves outside the widget's bounds.
 		e.preventDefault();
 		this.containerEl.setPointerCapture(e.pointerId);
+
+		// A roam in progress (or one that just finished) can leave a transition
+		// on right/bottom - clear it so manual dragging always tracks the
+		// pointer instantly instead of gliding toward it.
+		this.clearTimer("wanderTimer");
+		this.containerEl.removeClass("sm-tween");
+		this.containerEl.style.transitionDuration = "";
 
 		this.isDragging = true;
 		this.dragMoved = false;
