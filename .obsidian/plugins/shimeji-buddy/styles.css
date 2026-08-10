@@ -480,3 +480,85 @@
 .sm-chip-remove:hover {
 	color: var(--text-error, #e06c75);
 }
+
+/* ---------- collapsible settings sections + callouts ---------- */
+
+.sm-section {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	margin: 12px 0;
+	padding: 0 12px 10px;
+	background: var(--background-secondary);
+}
+
+.sm-section .sm-section {
+	background: var(--background-primary);
+}
+
+.sm-section-title {
+	cursor: pointer;
+	padding: 10px 0;
+	font-weight: 600;
+	font-size: 1.02em;
+	list-style: none;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	user-select: none;
+}
+
+.sm-section-title::-webkit-details-marker {
+	display: none;
+}
+
+.sm-section-title::before {
+	content: "▸";
+	display: inline-block;
+	font-size: 0.85em;
+	color: var(--text-muted);
+	transition: transform 0.12s ease;
+}
+
+.sm-section[open] > .sm-section-title::before {
+	transform: rotate(90deg);
+}
+
+.sm-section-body {
+	padding-top: 2px;
+}
+
+.sm-callout {
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
+	padding: 8px 10px;
+	border-radius: 4px;
+	margin: 10px 0 6px;
+	font-size: 12.5px;
+	line-height: 1.45;
+	border-left: 3px solid var(--color-accent, #7b6cd9);
+	background: var(--background-modifier-hover);
+	color: var(--text-muted);
+}
+
+.sm-callout-icon {
+	flex-shrink: 0;
+	margin-top: 1px;
+	color: var(--color-accent, #7b6cd9);
+}
+
+.sm-callout-warning {
+	border-left-color: var(--text-error, #e06c75);
+}
+
+.sm-callout-warning .sm-callout-icon {
+	color: var(--text-error, #e06c75);
+}
+
+.sm-callout-info {
+	border-left-color: var(--text-muted, #888);
+}
+
+.sm-callout-info .sm-callout-icon {
+	color: var(--text-muted, #888);
+}

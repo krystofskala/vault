@@ -81,6 +81,48 @@ const PLACEHOLDER_DURATIONS: Record<BuiltinPose, number> = {
 	poke: 400,
 };
 
+/**
+ * The workspace's major regions, outermost-in: the left sidebar, the main
+ * editor area, and the right sidebar (whichever of these are currently
+ * visible - closing a sidebar removes it). Queried fresh each time, so it
+ * always reflects the current layout without needing to watch for changes.
+ */
+function getWorkspaceRegions(): DOMRect[] {
+	const selectors = [".workspace-split.mod-left-split", ".workspace-split.mod-root", ".workspace-split.mod-right-split"];
+	const rects: DOMRect[] = [];
+	for (const selector of selectors) {
+		const el = document.querySelector(selector);
+		if (!el) continue;
+		const r = el.getBoundingClientRect();
+		if (r.width > 40 && r.height > 40) rects.push(r);
+	}
+	return rects;
+}
+
+/** A point at fractional distance `t` (wraps, can exceed [0,1)) clockwise around a region's inset perimeter, or null if the region's too small to walk. */
+function pointOnRegionPerimeter(
+	region: DOMRect,
+	charWidth: number,
+	charHeight: number,
+	t: number,
+	margin: number
+): { left: number; top: number } | null {
+	const left = region.left + margin;
+	const top = region.top + margin;
+	const right = region.right - margin - charWidth;
+	const bottom = region.bottom - margin - charHeight;
+	const topLen = Math.max(0, right - left);
+	const sideLen = Math.max(0, bottom - top);
+	const perimeter = 2 * topLen + 2 * sideLen;
+	if (perimeter <= 0) return null;
+
+	const s = (((t % 1) + 1) % 1) * perimeter;
+	if (s < topLen) return { left: left + s, top };
+	if (s < topLen + sideLen) return { left: right, top: top + (s - topLen) };
+	if (s < topLen * 2 + sideLen) return { left: right - (s - topLen - sideLen), top: bottom };
+	return { left, top: bottom - (s - topLen * 2 - sideLen) };
+}
+
 export interface CharacterWidgetCallbacks {
 	onPositionChange: (posX: number, posY: number) => void;
 }
@@ -108,6 +150,11 @@ export class CharacterWidget {
 
 	/** Forces click-through regardless of the user's own setting - e.g. mobile edit-view lockout. */
 	private autoClickThrough = false;
+
+	/** State for "stick to window edges" roaming - which workspace region is being patrolled and how far around its perimeter. */
+	private patrolRegionIndex = 0;
+	private perimeterT = Math.random();
+	private perimeterDirection: 1 | -1 = 1;
 
 	private lastActivity = Date.now();
 	private isDragging = false;
@@ -387,14 +434,10 @@ export class CharacterWidget {
 		}
 
 		const rect = this.containerEl.getBoundingClientRect();
-		const margin = 8;
-		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
-		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+		const { newRight, newBottom } = this.pickWanderDestination(rect);
 
 		const currentRight = window.innerWidth - rect.right;
 		const currentBottom = window.innerHeight - rect.bottom;
-		const newRight = margin + Math.random() * (maxRight - margin);
-		const newBottom = margin + Math.random() * (maxBottom - margin);
 
 		const dx = newRight - currentRight;
 		const dy = newBottom - currentBottom;
@@ -418,6 +461,60 @@ export class CharacterWidget {
 			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
 			if (this.currentTrigger === "idle") this.setReaction("idle");
 		}, duration);
+	}
+
+	/** Anywhere on screen by default, or patrolling the sidebar/main-area boundaries when "stick to edges" is on. */
+	private pickWanderDestination(rect: DOMRect): { newRight: number; newBottom: number } {
+		const margin = 8;
+
+		if (this.settings.roamStickToEdges) {
+			const regions = getWorkspaceRegions();
+			if (regions.length > 0) {
+				if (this.patrolRegionIndex >= regions.length || Math.random() < 0.2) {
+					this.patrolRegionIndex = Math.floor(Math.random() * regions.length);
+				}
+				if (Math.random() < 0.15) this.perimeterDirection = this.perimeterDirection === 1 ? -1 : 1;
+				this.perimeterT += this.perimeterDirection * (0.05 + Math.random() * 0.1);
+
+				const point = pointOnRegionPerimeter(
+					regions[this.patrolRegionIndex],
+					rect.width,
+					rect.height,
+					this.perimeterT,
+					margin
+				);
+				if (point) {
+					return this.clampDestination(
+						window.innerWidth - point.left - rect.width,
+						window.innerHeight - point.top - rect.height,
+						rect,
+						margin
+					);
+				}
+			}
+			// No usable region (e.g. window too small) - fall through to free roam this tick.
+		}
+
+		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+		return {
+			newRight: margin + Math.random() * (maxRight - margin),
+			newBottom: margin + Math.random() * (maxBottom - margin),
+		};
+	}
+
+	private clampDestination(
+		right: number,
+		bottom: number,
+		rect: DOMRect,
+		margin: number
+	): { newRight: number; newBottom: number } {
+		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+		return {
+			newRight: Math.min(Math.max(right, margin), maxRight),
+			newBottom: Math.min(Math.max(bottom, margin), maxBottom),
+		};
 	}
 
 	// ---------- sleep watcher ----------

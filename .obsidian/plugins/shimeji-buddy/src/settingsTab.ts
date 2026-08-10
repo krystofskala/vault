@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting, type DropdownComponent, type TextComponent } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, setIcon, type DropdownComponent, type TextComponent } from "obsidian";
 import type ShimejiBuddyPlugin from "./main";
 import { AtlasSlicer } from "./AtlasSlicer";
 import {
@@ -52,174 +52,29 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		this.slicer = undefined;
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-		const s = this.plugin.settings;
+	// ---------- layout helpers ----------
 
-		containerEl.createEl("h2", { text: "Shimeji Buddy" });
-		containerEl.createEl("p", {
-			text:
-				"A little character that idles on its own and reacts to what you do in the vault. " +
-				"Ships with a generic placeholder - build your own character below to make it look like " +
-				"anything you want.",
-			cls: "setting-item-description",
-		});
+	/** A native collapsible section, so a long settings page stays easy to scan. */
+	private section(
+		containerEl: HTMLElement,
+		title: string,
+		defaultOpen: boolean,
+		render: (body: HTMLElement) => void
+	): HTMLElement {
+		const details = containerEl.createEl("details", { cls: "sm-section" });
+		if (defaultOpen) details.setAttr("open", "");
+		details.createEl("summary", { text: title, cls: "sm-section-title" });
+		const body = details.createDiv({ cls: "sm-section-body" });
+		render(body);
+		return body;
+	}
 
-		new Setting(containerEl)
-			.setName("Enable buddy")
-			.setDesc("Show or hide the character entirely.")
-			.addToggle((t) =>
-				t.setValue(s.enabled).onChange(async (v) => {
-					s.enabled = v;
-					await this.plugin.saveSettings();
-					this.plugin.applyVisibility();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName("Size")
-			.setDesc("Base height of the character - scales automatically to stay proportionate on smaller or larger screens.")
-			.addSlider((sl) =>
-				sl
-					.setLimits(48, 240, 4)
-					.setValue(s.size)
-					.setDynamicTooltip()
-					.onChange(async (v) => {
-						s.size = v;
-						await this.plugin.saveSettings();
-						this.plugin.applyLiveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Reset position")
-			.setDesc("Puts the buddy back in the bottom-right corner.")
-			.addButton((b) =>
-				b.setButtonText("Reset").onClick(async () => {
-					s.posX = 24;
-					s.posY = 24;
-					await this.plugin.saveSettings();
-					this.plugin.recreateWidget();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName("Click-through")
-			.setDesc("Let clicks pass through the buddy to whatever is underneath it (disables dragging and poking).")
-			.addToggle((t) =>
-				t.setValue(s.clickThrough).onChange(async (v) => {
-					s.clickThrough = v;
-					await this.plugin.saveSettings();
-					this.plugin.applyLiveSettings();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName("Restrict touch to reading view (mobile)")
-			.setDesc(
-				"On the mobile app, only let you drag or poke the buddy while the open note is in reading " +
-					"view - avoids misclicks while typing on a small screen. It keeps animating and reacting " +
-					"to what you do either way, it just won't respond to touch in edit view. No effect on " +
-					"desktop; safe to set up here even if you're configuring from a computer."
-			)
-			.addToggle((t) =>
-				t.setValue(s.mobileReadingViewOnly).onChange(async (v) => {
-					s.mobileReadingViewOnly = v;
-					await this.plugin.saveSettings();
-					this.plugin.updateMobileInteractivity();
-				})
-			);
-
-		containerEl.createEl("h3", { text: "Standby behaviour" });
-
-		const idleRow = new Setting(containerEl)
-			.setName("Idle interval")
-			.setDesc("How often the buddy decides on its own what to do next while nothing is happening.");
-		const idleFields = idleRow.controlEl.createDiv({ cls: "sm-slicer-controls" });
-		this.mkLabeledNumber(idleFields, "Min sec", s.idleMinSeconds, async (n) => {
-			s.idleMinSeconds = n;
-			await this.plugin.saveSettings();
-			this.plugin.applyLiveSettings();
-		});
-		this.mkLabeledNumber(idleFields, "Max sec", s.idleMaxSeconds, async (n) => {
-			s.idleMaxSeconds = n;
-			await this.plugin.saveSettings();
-			this.plugin.applyLiveSettings();
-		});
-
-		new Setting(containerEl)
-			.setName("Wander")
-			.setDesc("Let the buddy occasionally run to a random spot anywhere on the screen on its own.")
-			.addToggle((t) =>
-				t.setValue(s.wanderEnabled).onChange(async (v) => {
-					s.wanderEnabled = v;
-					await this.plugin.saveSettings();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName("Fall asleep after")
-			.setDesc("Minutes of no vault activity before the buddy dozes off.")
-			.addText((t) =>
-				t.setValue(String(s.sleepAfterMinutes)).onChange(async (v) => {
-					const n = Number(v);
-					if (!Number.isNaN(n) && n > 0) {
-						s.sleepAfterMinutes = n;
-						await this.plugin.saveSettings();
-					}
-				})
-			);
-
-		containerEl.createEl("h3", { text: "React to vault actions" });
-
-		const reactionToggle = (name: string, desc: string, key: keyof typeof s) => {
-			new Setting(containerEl)
-				.setName(name)
-				.setDesc(desc)
-				.addToggle((t) =>
-					t.setValue(s[key] as boolean).onChange(async (v) => {
-						(s[key] as boolean) = v;
-						await this.plugin.saveSettings();
-					})
-				);
-		};
-
-		reactionToggle("Opening a note", "Greet you when you open a file.", "reactToOpen");
-		reactionToggle("Creating a note", "Cheer when a new file is created.", "reactToCreate");
-		reactionToggle("Deleting a note", "React sadly when a file is deleted.", "reactToDelete");
-		reactionToggle("Editing a note", "Nod along while you're editing (debounced).", "reactToModify");
-		reactionToggle("Renaming a note", "Look surprised when a file is renamed.", "reactToRename");
-		reactionToggle("Searching", "Look thoughtful while the search pane is open.", "reactToSearch");
-
-		this.renderActionsSection(containerEl);
-
-		containerEl.createEl("h3", { text: "Speech bubble" });
-
-		new Setting(containerEl)
-			.setName("Enable speech bubble")
-			.setDesc("Show a short line of text above the buddy's head for reactions.")
-			.addToggle((t) =>
-				t.setValue(s.speechBubbleEnabled).onChange(async (v) => {
-					s.speechBubbleEnabled = v;
-					await this.plugin.saveSettings();
-				})
-			);
-
-		containerEl.createEl("h3", { text: "Character" });
-		containerEl.createEl("p", {
-			cls: "setting-item-description",
-			text:
-				"The built-in character is a generic placeholder. Build your own instead: a character is a " +
-				"folder that can hold as many images as you want (clean strips or messy full sheets); slice " +
-				"whichever frames you need out of any of them, right here.",
-		});
-
-		this.renderCharacterPicker(containerEl);
-
-		if (s.characterMode === "character" && s.activeCharacterFolder) {
-			this.renderCharacterEditor(containerEl);
-		}
+	/** A small inline callout for advice that doesn't belong in a setting's own description. */
+	private callout(containerEl: HTMLElement, kind: "tip" | "warning" | "info", text: string): void {
+		const el = containerEl.createDiv({ cls: `sm-callout sm-callout-${kind}` });
+		const icon = el.createSpan({ cls: "sm-callout-icon" });
+		setIcon(icon, kind === "tip" ? "lightbulb" : kind === "warning" ? "alert-triangle" : "info");
+		el.createDiv({ cls: "sm-callout-text", text });
 	}
 
 	private mkLabeledNumber(
@@ -239,6 +94,208 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		return input;
 	}
 
+	// ---------- main layout ----------
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+		const s = this.plugin.settings;
+
+		containerEl.createEl("h2", { text: "Shimeji Buddy" });
+		containerEl.createEl("p", {
+			text:
+				"A little character that idles on its own and reacts to what you do in the vault. " +
+				"Ships with a generic placeholder - build your own character below to make it look like " +
+				"anything you want.",
+			cls: "setting-item-description",
+		});
+
+		this.section(containerEl, "General", true, (body) => {
+			new Setting(body)
+				.setName("Enable buddy")
+				.setDesc("Show or hide the character entirely.")
+				.addToggle((t) =>
+					t.setValue(s.enabled).onChange(async (v) => {
+						s.enabled = v;
+						await this.plugin.saveSettings();
+						this.plugin.applyVisibility();
+					})
+				);
+
+			new Setting(body)
+				.setName("Size")
+				.setDesc("Base height of the character - scales automatically to stay proportionate on smaller or larger screens.")
+				.addSlider((sl) =>
+					sl
+						.setLimits(48, 240, 4)
+						.setValue(s.size)
+						.setDynamicTooltip()
+						.onChange(async (v) => {
+							s.size = v;
+							await this.plugin.saveSettings();
+							this.plugin.applyLiveSettings();
+						})
+				);
+
+			new Setting(body)
+				.setName("Reset position")
+				.setDesc("Puts the buddy back in the bottom-right corner.")
+				.addButton((b) =>
+					b.setButtonText("Reset").onClick(async () => {
+						s.posX = 24;
+						s.posY = 24;
+						await this.plugin.saveSettings();
+						this.plugin.recreateWidget();
+					})
+				);
+
+			new Setting(body)
+				.setName("Click-through")
+				.setDesc("Let clicks pass through the buddy to whatever is underneath it (disables dragging and poking).")
+				.addToggle((t) =>
+					t.setValue(s.clickThrough).onChange(async (v) => {
+						s.clickThrough = v;
+						await this.plugin.saveSettings();
+						this.plugin.applyLiveSettings();
+					})
+				);
+
+			new Setting(body)
+				.setName("Restrict touch to reading view (mobile)")
+				.setDesc(
+					"On the mobile app, only let you drag or poke the buddy while the open note is in reading " +
+						"view - it still animates and reacts either way, it just won't take touch input in edit view."
+				)
+				.addToggle((t) =>
+					t.setValue(s.mobileReadingViewOnly).onChange(async (v) => {
+						s.mobileReadingViewOnly = v;
+						await this.plugin.saveSettings();
+						this.plugin.updateMobileInteractivity();
+					})
+				);
+
+			this.callout(
+				body,
+				"tip",
+				"\"Size\" is a baseline, not a fixed pixel count - the buddy scales itself to stay a " +
+					"sensible size whether Obsidian's on a phone or an ultrawide monitor. This setting is safe " +
+					"to configure on desktop even if you mainly use the vault on mobile."
+			);
+		});
+
+		this.section(containerEl, "Standby behaviour", true, (body) => {
+			const idleRow = new Setting(body)
+				.setName("Idle interval")
+				.setDesc("How often the buddy decides on its own what to do next while nothing is happening.");
+			const idleFields = idleRow.controlEl.createDiv({ cls: "sm-slicer-controls" });
+			this.mkLabeledNumber(idleFields, "Min sec", s.idleMinSeconds, async (n) => {
+				s.idleMinSeconds = n;
+				await this.plugin.saveSettings();
+				this.plugin.applyLiveSettings();
+			});
+			this.mkLabeledNumber(idleFields, "Max sec", s.idleMaxSeconds, async (n) => {
+				s.idleMaxSeconds = n;
+				await this.plugin.saveSettings();
+				this.plugin.applyLiveSettings();
+			});
+
+			new Setting(body)
+				.setName("Wander")
+				.setDesc("Let the buddy occasionally run to a new spot on its own instead of just idling in place.")
+				.addToggle((t) =>
+					t.setValue(s.wanderEnabled).onChange(async (v) => {
+						s.wanderEnabled = v;
+						await this.plugin.saveSettings();
+					})
+				);
+
+			new Setting(body)
+				.setName("Stick to window edges")
+				.setDesc(
+					"Patrol the edges of the sidebar(s) and main editor area instead of picking anywhere on " +
+						"screen - climbing along the sides rather than crossing open space."
+				)
+				.addToggle((t) =>
+					t.setValue(s.roamStickToEdges).onChange(async (v) => {
+						s.roamStickToEdges = v;
+						await this.plugin.saveSettings();
+					})
+				);
+
+			new Setting(body)
+				.setName("Fall asleep after")
+				.setDesc("Minutes of no vault activity before the buddy dozes off.")
+				.addText((t) =>
+					t.setValue(String(s.sleepAfterMinutes)).onChange(async (v) => {
+						const n = Number(v);
+						if (!Number.isNaN(n) && n > 0) {
+							s.sleepAfterMinutes = n;
+							await this.plugin.saveSettings();
+						}
+					})
+				);
+
+			this.callout(
+				body,
+				"tip",
+				"Min/max set the random range between decisions - e.g. 8/20 means it acts every 8 to 20 " +
+					"seconds. \"Stick to window edges\" tracks the sidebar and main-area boundaries live, so " +
+					"resizing or toggling a sidebar mid-patrol is fine."
+			);
+		});
+
+		this.section(containerEl, "React to vault actions", false, (body) => {
+			const reactionToggle = (name: string, desc: string, key: keyof typeof s) => {
+				new Setting(body)
+					.setName(name)
+					.setDesc(desc)
+					.addToggle((t) =>
+						t.setValue(s[key] as boolean).onChange(async (v) => {
+							(s[key] as boolean) = v;
+							await this.plugin.saveSettings();
+						})
+					);
+			};
+
+			reactionToggle("Opening a note", "Greet you when you open a file.", "reactToOpen");
+			reactionToggle("Creating a note", "Cheer when a new file is created.", "reactToCreate");
+			reactionToggle("Deleting a note", "React sadly when a file is deleted.", "reactToDelete");
+			reactionToggle("Editing a note", "Nod along while you're editing (debounced).", "reactToModify");
+			reactionToggle("Renaming a note", "Look surprised when a file is renamed.", "reactToRename");
+			reactionToggle("Searching", "Look thoughtful while the search pane is open.", "reactToSearch");
+		});
+
+		this.section(containerEl, "Actions Shimeji can react to", false, (body) => this.renderActionsSection(body));
+
+		this.section(containerEl, "Speech bubble", false, (body) => {
+			new Setting(body)
+				.setName("Enable speech bubble")
+				.setDesc("Show a short line of text above the buddy's head for reactions.")
+				.addToggle((t) =>
+					t.setValue(s.speechBubbleEnabled).onChange(async (v) => {
+						s.speechBubbleEnabled = v;
+						await this.plugin.saveSettings();
+					})
+				);
+		});
+
+		this.section(containerEl, "Character", true, (body) => {
+			body.createEl("p", {
+				cls: "setting-item-description",
+				text:
+					"The built-in character is a generic placeholder. Build your own instead: a character is a " +
+					"folder that can hold as many images as you want (clean strips or messy full sheets); slice " +
+					"whichever frames you need out of any of them, right here.",
+			});
+
+			this.renderCharacterPicker(body);
+
+			if (s.characterMode === "character" && s.activeCharacterFolder) {
+				this.renderCharacterEditor(body);
+			}
+		});
+	}
+
 	// ---------- actions reference + command triggers ----------
 
 	private allKnownTriggers(): TriggerDef[] {
@@ -252,15 +309,18 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	private renderActionsSection(containerEl: HTMLElement): void {
 		const s = this.plugin.settings;
 
-		containerEl.createEl("h3", { text: "Actions Shimeji can react to" });
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
-			text:
-				"Every one of these is assignable to an animation down in the Character section. Built-in " +
-				"ones are wired to real events already. For anything else - any Obsidian command, yours or " +
-				"another plugin's - run \"Shimeji Buddy: List all command IDs into current note\" from the " +
-				"command palette to paste every command's id into your note, then add the one you want below.",
+			text: "Every one of these is assignable to an animation down in the Character section.",
 		});
+		this.callout(
+			containerEl,
+			"tip",
+			"Built-in ones are already wired to real events. For anything else - any Obsidian command, " +
+				"yours or another plugin's - run \"Shimeji Buddy: List all command IDs into current note\" " +
+				"from the command palette to paste every command's id into your note, then add the one you " +
+				"want below."
+		);
 
 		const list = containerEl.createEl("ul", { cls: "sm-trigger-list" });
 		for (const t of BUILTIN_TRIGGERS) {
@@ -457,78 +517,102 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			return;
 		}
 
-		containerEl.createEl("h4", { text: "Images" });
-		if (this.characterImages.length === 0) {
-			containerEl.createEl("p", {
-				cls: "setting-item-description",
-				text: "No images yet - upload one to get started (a clean strip, a messy full sheet, whatever).",
-			});
-		}
-		for (const img of this.characterImages) {
-			const isEditing = this.editingImage === img;
-			new Setting(containerEl)
-				.setName(img)
-				.addButton((b) =>
-					b
-						.setButtonText(isEditing ? "Editing" : "Slice frames")
-						.setDisabled(isEditing)
-						.onClick(async () => {
-							this.editingImage = img;
-							await this.loadSlicerImage();
-							this.display();
-						})
-				)
-				.addExtraButton((b) =>
-					b
-						.setIcon("trash-2")
-						.setTooltip("Delete image (and any animations using it)")
-						.onClick(async () => {
-							await deleteCharacterImage(this.app.vault, folder, img);
-							if (this.characterFile) {
-								this.characterFile.animations = this.characterFile.animations.filter(
-									(a) => a.sourceImage !== img
-								);
-								await this.persistCharacterFile();
-							}
-							if (this.editingImage === img) this.editingImage = null;
-							this.characterImages = await listCharacterImages(this.app.vault, folder);
-							this.display();
-						})
-				);
-		}
+		this.section(containerEl, "Images", true, (body) => {
+			if (this.characterImages.length === 0) {
+				body.createEl("p", {
+					cls: "setting-item-description",
+					text: "No images yet - upload one to get started (a clean strip, a messy full sheet, whatever).",
+				});
+			}
+			for (const img of this.characterImages) {
+				const isEditing = this.editingImage === img;
+				new Setting(body)
+					.setName(img)
+					.addButton((b) =>
+						b
+							.setButtonText(isEditing ? "Editing" : "Slice frames")
+							.setDisabled(isEditing)
+							.onClick(async () => {
+								this.editingImage = img;
+								await this.loadSlicerImage();
+								this.display();
+							})
+					)
+					.addExtraButton((b) =>
+						b
+							.setIcon("trash-2")
+							.setTooltip("Delete image (and any animations using it)")
+							.onClick(async () => {
+								await deleteCharacterImage(this.app.vault, folder, img);
+								if (this.characterFile) {
+									this.characterFile.animations = this.characterFile.animations.filter(
+										(a) => a.sourceImage !== img
+									);
+									await this.persistCharacterFile();
+								}
+								if (this.editingImage === img) this.editingImage = null;
+								this.characterImages = await listCharacterImages(this.app.vault, folder);
+								this.display();
+							})
+					);
+			}
 
-		new Setting(containerEl)
-			.setName("Upload image")
-			.setDesc("Pick a PNG (or JPG/GIF/WebP) from anywhere on your computer - it's copied into this character's folder.")
-			.addButton((b) => b.setButtonText("Upload…").onClick(() => this.pickAndUploadImage(folder)));
+			new Setting(body)
+				.setName("Upload image")
+				.setDesc("Pick PNGs/JPGs/GIFs/WebPs from anywhere on your computer, one or several at once - copied into this character's folder.")
+				.addButton((b) => b.setButtonText("Upload…").onClick(() => this.pickAndUploadImage(folder)));
 
-		containerEl.createEl("h4", { text: "Slice frames" });
-		if (!this.editingImage) {
-			containerEl.createEl("p", {
-				cls: "setting-item-description",
-				text: "Pick \"Slice frames\" on an image above to start.",
-			});
-		} else {
-			this.renderSlicer(containerEl, folder);
-		}
+			this.callout(
+				body,
+				"tip",
+				"Got a whole asset-pack export (several PNGs)? Select them all at once in the upload dialog, " +
+					"or skip uploading entirely and use \"Import an existing folder...\" above if you've already " +
+					"placed them in the vault yourself."
+			);
+		});
 
-		containerEl.createEl("h4", { text: "Animations" });
-		if (this.characterFile.animations.length === 0) {
-			containerEl.createEl("p", {
-				cls: "setting-item-description",
-				text: "No animations yet - slice some frames above to create your first one.",
-			});
-		}
-		for (const anim of this.characterFile.animations) {
-			this.renderCustomAnimationBlock(containerEl, anim);
-		}
+		this.section(containerEl, "Slice frames", !!this.editingImage, (body) => {
+			if (!this.editingImage) {
+				body.createEl("p", {
+					cls: "setting-item-description",
+					text: "Pick \"Slice frames\" on an image above to start.",
+				});
+			} else {
+				this.renderSlicer(body, folder);
+			}
+		});
+
+		this.section(containerEl, "Animations", true, (body) => {
+			if (this.characterFile!.animations.length === 0) {
+				body.createEl("p", {
+					cls: "setting-item-description",
+					text: "No animations yet - slice some frames above to create your first one.",
+				});
+			}
+			for (const anim of this.characterFile!.animations) {
+				this.renderCustomAnimationBlock(body, anim);
+			}
+			this.callout(
+				body,
+				"warning",
+				"An animation with no actions assigned (see its trigger chips) never plays - it just sits " +
+					"here unused. Assign it to at least one action, including \"Idle / standby / roaming\" if " +
+					"you want it in the standby rotation."
+			);
+		});
 	}
 
 	private renderSlicer(containerEl: HTMLElement, folder: string): void {
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
-			text: `Editing: ${this.editingImage}. Drag a box around a frame (or type exact coordinates), then add it to an animation - or use "Generate strip frames" below if this image is an evenly-spaced strip.`,
+			text: `Editing: ${this.editingImage}`,
 		});
+		this.callout(
+			containerEl,
+			"tip",
+			"Drag a box around a frame below (or type exact coordinates), then add it to an animation - " +
+				"or, if this image is an evenly-spaced strip, skip dragging and use \"Generate strip frames\"."
+		);
 
 		const slicerHost = containerEl.createDiv();
 		if (!this.slicer) {

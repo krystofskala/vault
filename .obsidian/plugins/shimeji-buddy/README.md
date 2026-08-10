@@ -59,11 +59,13 @@ get picked based on how you've been treating the buddy.
 ## Features
 
 - **Standby brain**: on a randomized timer, the buddy decides for itself
-  whether to idle in place or roam to a random spot anywhere on screen -
-  travel time scales with distance so it doesn't teleport or crawl. With the
-  built-in placeholder it picks between a walk/run/jump gait; with a custom
-  animation library, it draws from whatever you've built (see "Actions and
-  the animation library" above).
+  whether to idle in place or roam - travel time scales with distance so it
+  doesn't teleport or crawl. With the built-in placeholder it picks between a
+  walk/run/jump gait; with a custom animation library, it draws from
+  whatever you've built (see "Actions and the animation library" above).
+  Roaming is either anywhere on screen, or - with "Stick to window edges" on
+  - patrolling the live boundaries of the sidebar(s) and main editor area,
+  hopping between them over time rather than crossing open space.
 - **Reacts to what you do** - opening/creating/deleting/renaming/editing a
   note, the search pane opening, being poked, falling asleep, and any
   Obsidian command you name (see below) - each with the built-in placeholder
@@ -80,10 +82,10 @@ get picked based on how you've been treating the buddy.
   restricted to reading view only (on by default), so it's not competing
   with your thumb while you're typing - the buddy still animates and reacts
   in edit view, it just won't take touch input there.
-- Fully configurable from **Settings → Shimeji Buddy**: size, idle timing,
-  sleep timeout, which event reactions are on, speech bubble on/off and its
-  lines, click-through mode, mobile touch restriction, and building/managing
-  your own character.
+- Settings is organized into collapsible sections (General, Standby
+  behaviour, React to vault actions, Actions reference, Speech bubble,
+  Character) with inline tips/warnings, so it stays easy to navigate as it
+  grows.
 - Three commands (Command palette): "Poke the buddy", "Toggle buddy
   visibility", and "List all command IDs into current note" (browse every
   Obsidian command id, to add one as a custom trigger).

@@ -90,6 +90,8 @@ export interface ShimejiSettings {
 	reactToRename: boolean;
 	reactToSearch: boolean;
 	wanderEnabled: boolean;
+	/** Roam by patrolling the sidebar/main-editor-area boundaries instead of picking anywhere on screen. */
+	roamStickToEdges: boolean;
 	speechBubbleEnabled: boolean;
 	speechLines: SpeechLines;
 	clickThrough: boolean;
@@ -129,6 +131,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	reactToRename: true,
 	reactToSearch: true,
 	wanderEnabled: true,
+	roamStickToEdges: false,
 	speechBubbleEnabled: true,
 	speechLines: DEFAULT_SPEECH_LINES,
 	clickThrough: false,
