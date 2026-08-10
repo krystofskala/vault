@@ -545,7 +545,18 @@ export class CharacterWidget {
 	}
 
 	private playResolvedAnimation(anim: ResolvedAnimation, onComplete: () => void): void {
-		if (anim.frames.length === 0) return;
+		// No frames, or a degenerate (zero-size) crop rect, means there's
+		// nothing to actually draw - fall back to the builtin placeholder
+		// instead of leaving the widget stuck with the sprite stage hidden
+		// and the placeholder body already hidden too (i.e. nothing visible
+		// at all except the shadow).
+		const maxFrameHeight = Math.max(0, ...anim.frames.map((f) => f.h));
+		const maxFrameWidth = Math.max(0, ...anim.frames.map((f) => f.w));
+		if (anim.frames.length === 0 || maxFrameHeight === 0 || maxFrameWidth === 0) {
+			console.warn("Shimeji Buddy: animation has no usable frames, falling back to the placeholder", anim);
+			this.playPlaceholder("idle");
+			return;
+		}
 
 		this.charEl.style.display = "none";
 		this.spriteStageEl.style.display = "";
@@ -556,10 +567,8 @@ export class CharacterWidget {
 		// this animation so the character's overall size stays consistent,
 		// and anchor each frame bottom-center within a fixed-size stage so
 		// switching frames doesn't make the whole widget jump around.
-		const maxFrameHeight = Math.max(...anim.frames.map((f) => f.h));
 		const renderedSize = computeResponsiveSize(this.settings.size);
-		const scale = maxFrameHeight > 0 ? renderedSize / maxFrameHeight : 1;
-		const maxFrameWidth = Math.max(...anim.frames.map((f) => f.w));
+		const scale = renderedSize / maxFrameHeight;
 
 		this.spriteStageEl.style.width = `${maxFrameWidth * scale}px`;
 		this.spriteStageEl.style.height = `${maxFrameHeight * scale}px`;

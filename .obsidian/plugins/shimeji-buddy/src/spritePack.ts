@@ -40,9 +40,22 @@ function getImageDimensions(url: string): Promise<{ width: number; height: numbe
 	});
 }
 
+const MIME_BY_EXTENSION: Record<string, string> = {
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	gif: "image/gif",
+	webp: "image/webp",
+};
+
+function mimeTypeForPath(path: string): string {
+	const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+	return MIME_BY_EXTENSION[ext] ?? "image/png";
+}
+
 async function blobUrlForVaultFile(vault: Vault, path: string): Promise<string> {
 	const bin = await vault.adapter.readBinary(path);
-	const blob = new Blob([bin], { type: "image/png" });
+	const blob = new Blob([bin], { type: mimeTypeForPath(path) });
 	return URL.createObjectURL(blob);
 }
 
