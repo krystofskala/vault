@@ -1,0 +1,10 @@
+{
+	"id": "naruto-buddy",
+	"name": "Naruto Buddy",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "A little animated ninja buddy that lives in your vault, idles on its own, and reacts to what you do (open, create, edit, delete, search...). Ships with a placeholder character and supports drop-in custom sprite packs (e.g. your own Naruto sprites).",
+	"author": "krystofskala",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}

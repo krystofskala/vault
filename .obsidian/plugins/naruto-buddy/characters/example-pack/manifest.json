@@ -1,0 +1,17 @@
+{
+	"name": "Example / template pack",
+	"frameWidth": 128,
+	"frameHeight": 128,
+	"animations": {
+		"idle": { "file": "idle.png", "frames": 4, "fps": 4, "loop": true },
+		"walk": { "file": "walk.png", "frames": 6, "fps": 8, "loop": true },
+		"sleep": { "file": "sleep.png", "frames": 2, "fps": 1, "loop": true },
+		"wave": { "file": "wave.png", "frames": 5, "fps": 8, "loop": false },
+		"cheer": { "file": "cheer.png", "frames": 6, "fps": 10, "loop": false },
+		"poof": { "file": "poof.png", "frames": 6, "fps": 12, "loop": false },
+		"nod": { "file": "nod.png", "frames": 4, "fps": 8, "loop": false },
+		"surprised": { "file": "surprised.png", "frames": 3, "fps": 8, "loop": false },
+		"think": { "file": "think.png", "frames": 4, "fps": 6, "loop": false },
+		"poke": { "file": "poke.png", "frames": 3, "fps": 10, "loop": false }
+	}
+}

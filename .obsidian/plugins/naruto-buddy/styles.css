@@ -1,0 +1,327 @@
+/* Naruto Buddy - desktop-mascot style vault companion.
+   The shapes below are a generic placeholder character (not Naruto artwork).
+   Swap in a custom sprite pack via the settings tab for a real character. */
+
+.nb-container {
+	position: fixed;
+	right: 24px;
+	bottom: 24px;
+	z-index: var(--layer-popover, 70);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	width: calc(var(--nb-size, 96px) * 0.9);
+	cursor: grab;
+	user-select: none;
+	touch-action: none;
+}
+
+.nb-container:active {
+	cursor: grabbing;
+}
+
+.nb-container.nb-tween {
+	transition: right 1.6s ease, bottom 1.6s ease;
+}
+
+.nb-container.nb-clickthrough {
+	pointer-events: none;
+}
+
+.nb-shadow {
+	width: calc(var(--nb-size, 96px) * 0.55);
+	height: calc(var(--nb-size, 96px) * 0.12);
+	background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0) 75%);
+	border-radius: 50%;
+	margin-top: calc(var(--nb-size, 96px) * -0.06);
+	order: 2;
+}
+
+/* ---------- built-in placeholder character ---------- */
+
+.nb-char {
+	position: relative;
+	width: 100%;
+	height: var(--nb-size, 96px);
+	order: 1;
+	transform-origin: 50% 100%;
+	animation: nb-bob 2.6s ease-in-out infinite;
+}
+
+.nb-char.nb-facing-left {
+	transform: scaleX(-1);
+}
+
+.nb-head {
+	position: absolute;
+	top: 0;
+	left: 50%;
+	width: calc(var(--nb-size, 96px) * 0.44);
+	height: calc(var(--nb-size, 96px) * 0.44);
+	margin-left: calc(var(--nb-size, 96px) * -0.22);
+	background: #f4c397;
+	border-radius: 50%;
+	box-shadow: inset 0 -6px 0 -2px rgba(0, 0, 0, 0.06);
+}
+
+.nb-headband {
+	position: absolute;
+	top: calc(var(--nb-size, 96px) * 0.1);
+	left: 50%;
+	width: calc(var(--nb-size, 96px) * 0.56);
+	height: calc(var(--nb-size, 96px) * 0.09);
+	margin-left: calc(var(--nb-size, 96px) * -0.28);
+	background: #2b5fa8;
+	border-radius: 3px;
+	z-index: 2;
+}
+
+.nb-headband-strap {
+	position: absolute;
+	top: calc(var(--nb-size, 96px) * 0.13);
+	left: 50%;
+	width: calc(var(--nb-size, 96px) * 0.14);
+	height: calc(var(--nb-size, 96px) * 0.05);
+	margin-left: calc(var(--nb-size, 96px) * -0.07);
+	background: #c7cdd4;
+	border-radius: 2px;
+	z-index: 3;
+}
+
+.nb-eye {
+	position: absolute;
+	top: calc(var(--nb-size, 96px) * 0.24);
+	width: calc(var(--nb-size, 96px) * 0.055);
+	height: calc(var(--nb-size, 96px) * 0.07);
+	background: #2b2b2b;
+	border-radius: 50%;
+	transition: transform 0.15s ease;
+	animation: nb-blink 4.6s ease-in-out infinite;
+}
+
+.nb-eye-l {
+	left: calc(var(--nb-size, 96px) * 0.13);
+}
+
+.nb-eye-r {
+	right: calc(var(--nb-size, 96px) * 0.13);
+}
+
+.nb-torso {
+	position: absolute;
+	top: calc(var(--nb-size, 96px) * 0.42);
+	left: 50%;
+	width: calc(var(--nb-size, 96px) * 0.52);
+	height: calc(var(--nb-size, 96px) * 0.4);
+	margin-left: calc(var(--nb-size, 96px) * -0.26);
+	background: #e8752c;
+	border-radius: calc(var(--nb-size, 96px) * 0.16) calc(var(--nb-size, 96px) * 0.16) calc(var(--nb-size, 96px) * 0.08) calc(var(--nb-size, 96px) * 0.08);
+}
+
+.nb-arm {
+	position: absolute;
+	top: calc(var(--nb-size, 96px) * 0.46);
+	width: calc(var(--nb-size, 96px) * 0.15);
+	height: calc(var(--nb-size, 96px) * 0.32);
+	background: #e8752c;
+	border-radius: 999px;
+	transform-origin: top center;
+	transition: transform 0.2s ease;
+}
+
+.nb-arm-l {
+	left: calc(var(--nb-size, 96px) * 0.04);
+	transform: rotate(8deg);
+}
+
+.nb-arm-r {
+	right: calc(var(--nb-size, 96px) * 0.04);
+	transform: rotate(-8deg);
+}
+
+.nb-leg {
+	position: absolute;
+	bottom: 0;
+	width: calc(var(--nb-size, 96px) * 0.17);
+	height: calc(var(--nb-size, 96px) * 0.22);
+	background: #33465e;
+	border-radius: 6px;
+	transform-origin: top center;
+}
+
+.nb-leg-l {
+	left: calc(var(--nb-size, 96px) * 0.2);
+}
+
+.nb-leg-r {
+	right: calc(var(--nb-size, 96px) * 0.2);
+}
+
+.nb-zzz {
+	position: absolute;
+	top: calc(var(--nb-size, 96px) * -0.12);
+	right: calc(var(--nb-size, 96px) * -0.05);
+	font: 700 calc(var(--nb-size, 96px) * 0.16) / 1 sans-serif;
+	color: var(--text-muted, #888);
+	opacity: 0;
+}
+
+/* ---------- state animations ---------- */
+
+@keyframes nb-bob {
+	0%, 100% { transform: translateY(0); }
+	50% { transform: translateY(-4%); }
+}
+
+@keyframes nb-blink {
+	0%, 92%, 100% { transform: scaleY(1); }
+	96% { transform: scaleY(0.1); }
+}
+
+.nb-state-idle .nb-char,
+.nb-char.nb-state-idle {
+	animation: nb-bob 2.6s ease-in-out infinite;
+}
+
+.nb-state-walk {
+	animation: nb-walk-bob 0.5s ease-in-out infinite;
+}
+.nb-state-walk .nb-leg-l { animation: nb-step 0.5s ease-in-out infinite; }
+.nb-state-walk .nb-leg-r { animation: nb-step 0.5s ease-in-out infinite reverse; }
+
+@keyframes nb-walk-bob {
+	0%, 100% { transform: translateY(0); }
+	50% { transform: translateY(-6%); }
+}
+@keyframes nb-step {
+	0%, 100% { transform: rotate(22deg); }
+	50% { transform: rotate(-22deg); }
+}
+
+.nb-state-sleep {
+	animation: nb-sleep-bob 3.2s ease-in-out infinite;
+}
+.nb-state-sleep .nb-eye { transform: scaleY(0.1); animation: none; }
+.nb-state-sleep .nb-zzz { animation: nb-zzz-float 2.4s ease-in infinite; }
+
+@keyframes nb-sleep-bob {
+	0%, 100% { transform: translateY(0) rotate(0deg); }
+	50% { transform: translateY(-2%) rotate(-2deg); }
+}
+@keyframes nb-zzz-float {
+	0% { opacity: 0; transform: translateY(0) scale(0.8); }
+	30% { opacity: 1; }
+	100% { opacity: 0; transform: translateY(-140%) scale(1.15); }
+}
+
+.nb-state-wave { animation: nb-wave-body 0.9s ease-in-out 1; }
+.nb-state-wave .nb-arm-r { animation: nb-wave-arm 0.9s ease-in-out 1; }
+@keyframes nb-wave-body {
+	0%, 100% { transform: rotate(0deg); }
+	50% { transform: rotate(2deg); }
+}
+@keyframes nb-wave-arm {
+	0%, 100% { transform: rotate(-8deg); }
+	25% { transform: rotate(-150deg); }
+	50% { transform: rotate(-110deg); }
+	75% { transform: rotate(-150deg); }
+}
+
+.nb-state-cheer { animation: nb-cheer-jump 0.8s ease-in-out 1; }
+.nb-state-cheer .nb-arm-l { animation: nb-cheer-arm 0.8s ease-in-out 1; }
+.nb-state-cheer .nb-arm-r { animation: nb-cheer-arm 0.8s ease-in-out 1; }
+@keyframes nb-cheer-jump {
+	0%, 100% { transform: translateY(0); }
+	30% { transform: translateY(-22%); }
+	55% { transform: translateY(0); }
+	70% { transform: translateY(-8%); }
+}
+@keyframes nb-cheer-arm {
+	0%, 100% { transform: rotate(8deg); }
+	30% { transform: rotate(-170deg); }
+}
+
+.nb-state-poof { animation: nb-poof 0.7s ease-in 1; }
+@keyframes nb-poof {
+	0% { transform: scale(1) rotate(0deg); opacity: 1; }
+	60% { transform: scale(0.55) rotate(12deg); opacity: 0.35; }
+	100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+.nb-state-nod { animation: nb-nod 0.6s ease-in-out 1; }
+@keyframes nb-nod {
+	0%, 100% { transform: rotate(0deg); }
+	40% { transform: rotate(10deg); }
+	70% { transform: rotate(-4deg); }
+}
+
+.nb-state-surprised { animation: nb-surprised 0.5s ease-out 1; }
+.nb-state-surprised .nb-eye { transform: scaleY(1.6); }
+@keyframes nb-surprised {
+	0% { transform: scale(1); }
+	40% { transform: scale(1.18); }
+	100% { transform: scale(1); }
+}
+
+.nb-state-think { animation: nb-think-tilt 1.1s ease-in-out 1; }
+.nb-state-think .nb-arm-r { animation: nb-think-arm 1.1s ease-in-out 1; }
+@keyframes nb-think-tilt {
+	0%, 100% { transform: rotate(0deg); }
+	30%, 80% { transform: rotate(-6deg); }
+}
+@keyframes nb-think-arm {
+	0%, 100% { transform: rotate(-8deg); }
+	30%, 80% { transform: rotate(-120deg); }
+}
+
+.nb-state-poke { animation: nb-poke 0.4s ease-in-out 1; }
+@keyframes nb-poke {
+	0%, 100% { transform: scale(1, 1); }
+	40% { transform: scale(1.12, 0.85); }
+	70% { transform: scale(0.95, 1.08); }
+}
+
+/* ---------- sprite pack mode ---------- */
+
+.nb-spriteframe {
+	display: none;
+	order: 1;
+	background-repeat: no-repeat;
+	image-rendering: pixelated;
+}
+
+.nb-spriteframe.nb-facing-left {
+	transform: scaleX(-1);
+}
+
+/* ---------- speech bubble ---------- */
+
+.nb-bubble {
+	order: 0;
+	position: relative;
+	max-width: 170px;
+	margin-bottom: 6px;
+	padding: 6px 10px;
+	background: var(--background-primary, #fff);
+	color: var(--text-normal, #222);
+	border: 1px solid var(--background-modifier-border, #ccc);
+	border-radius: 10px;
+	box-shadow: var(--shadow-s, 0 1px 3px rgba(0, 0, 0, 0.15));
+	font-size: 12px;
+	line-height: 1.3;
+	text-align: center;
+}
+
+.nb-bubble::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	bottom: -6px;
+	width: 10px;
+	height: 10px;
+	margin-left: -5px;
+	background: var(--background-primary, #fff);
+	border-right: 1px solid var(--background-modifier-border, #ccc);
+	border-bottom: 1px solid var(--background-modifier-border, #ccc);
+	transform: rotate(45deg);
+}
