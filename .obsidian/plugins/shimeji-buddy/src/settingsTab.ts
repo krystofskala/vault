@@ -23,6 +23,13 @@ function newAnimationId(): string {
 	return `anim-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/** A stable accent color per animation id, so each one is visually distinct in a long list without needing a fixed palette. */
+function colorForAnimId(id: string): string {
+	let hash = 0;
+	for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+	return `hsl(${hash % 360}, 65%, 55%)`;
+}
+
 const NEW_CHARACTER_VALUE = "__new_character__";
 const IMPORT_FOLDER_VALUE = "__import_folder__";
 
@@ -56,6 +63,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	plugin: ShimejiBuddyPlugin;
 
 	private frameCountEls: Record<string, HTMLElement> = {};
+	/** Animations the user has explicitly collapsed - everything else defaults open. */
+	private collapsedAnimIds: Set<string> = new Set();
 
 	private creatingCharacter = false;
 	private importingFolder = false;
@@ -115,6 +124,11 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 	display(): void {
 		const { containerEl } = this;
+		// display() runs on nearly every interaction (any toggle, any text
+		// change) via containerEl.empty() + a full rebuild, which resets
+		// scroll to the top each time unless explicitly restored - jarring
+		// once there's enough content to actually scroll through.
+		const scrollTop = containerEl.scrollTop;
 		containerEl.empty();
 		const s = this.plugin.settings;
 
@@ -366,6 +380,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				this.renderCharacterEditor(body);
 			}
 		});
+
+		containerEl.scrollTop = scrollTop;
 	}
 
 	// ---------- actions reference + command triggers ----------
@@ -744,7 +760,25 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	}
 
 	private renderCustomAnimationBlock(containerEl: HTMLElement, anim: CustomAnimation): void {
-		const wrap = containerEl.createDiv({ cls: "sm-anim-block" });
+		const details = containerEl.createEl("details", { cls: "sm-anim-block" });
+		details.style.setProperty("--sm-anim-color", colorForAnimId(anim.id));
+		if (!this.collapsedAnimIds.has(anim.id)) details.setAttr("open", "");
+		details.addEventListener("toggle", () => {
+			if (details.open) this.collapsedAnimIds.delete(anim.id);
+			else this.collapsedAnimIds.add(anim.id);
+		});
+
+		const summary = details.createEl("summary", { cls: "sm-anim-summary" });
+		summary.createSpan({ cls: "sm-anim-summary-dot" });
+		summary.createSpan({ cls: "sm-anim-summary-name", text: anim.name || "(unnamed)" });
+		const frameLabel = anim.frames.length === 1 ? "1 frame" : `${anim.frames.length} frames`;
+		const triggerLabel = anim.triggers.length === 0 ? "unassigned" : `${anim.triggers.length} action${anim.triggers.length === 1 ? "" : "s"}`;
+		summary.createSpan({
+			cls: "sm-anim-summary-meta",
+			text: `${frameLabel} · ${triggerLabel}${anim.enabled ? "" : " · disabled"}`,
+		});
+
+		const wrap = details.createDiv({ cls: "sm-anim-body" });
 
 		new Setting(wrap)
 			.setName("Name")
