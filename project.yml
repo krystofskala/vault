@@ -1,0 +1,32 @@
+name: PragueStreetTracker
+options:
+  bundleIdPrefix: com.krystofskala
+  deploymentTarget:
+    iOS: "16.0"
+
+packages:
+  StreetTrackerCore:
+    path: Packages/StreetTrackerCore
+
+targets:
+  PragueStreetTracker:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: StreetTrackerCore
+    info:
+      path: Generated/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSLocationWhenInUseUsageDescription: "Prague Street Tracker uses your location to record which streets you've walked. Your location data is stored only on this device and is never sent anywhere."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Prague Street Tracker needs background location access to keep tracking the streets you walk while your phone is locked or you're using another app. Your location data is stored only on this device and is never sent anywhere."
+        NSMotionUsageDescription: "Prague Street Tracker uses motion data to tell walking apart from driving or cycling, so rides don't get logged as walked streets."
+        UIBackgroundModes:
+          - location
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.krystofskala.praguestreettracker
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"

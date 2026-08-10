@@ -1,0 +1,35 @@
+{
+  "_comment": "DEMO FIXTURE ONLY. A handful of approximate streets near Malostranské náměstí so the app has something to render out of the box. Coordinates are simplified, not surveyed. Replace this file with real data from Scripts/fetch_prague_streets.sh before relying on it for actual coverage tracking.",
+  "elements": [
+    { "type": "node", "id": 1, "lat": 50.08893, "lon": 14.40332 },
+    { "type": "node", "id": 2, "lat": 50.08951, "lon": 14.40280 },
+    { "type": "node", "id": 3, "lat": 50.09010, "lon": 14.40190 },
+    { "type": "node", "id": 4, "lat": 50.09075, "lon": 14.40098 },
+    { "type": "node", "id": 5, "lat": 50.08893, "lon": 14.40332 },
+    { "type": "node", "id": 6, "lat": 50.08790, "lon": 14.40460 },
+    { "type": "node", "id": 7, "lat": 50.08659, "lon": 14.40613 },
+    { "type": "node", "id": 8, "lat": 50.08541, "lon": 14.40759 },
+    { "type": "node", "id": 9, "lat": 50.08893, "lon": 14.40332 },
+    { "type": "node", "id": 10, "lat": 50.08840, "lon": 14.40415 },
+    { "type": "node", "id": 11, "lat": 50.08791, "lon": 14.40492 },
+
+    {
+      "type": "way",
+      "id": 1001,
+      "nodes": [1, 2, 3, 4],
+      "tags": { "highway": "residential", "name": "Nerudova" }
+    },
+    {
+      "type": "way",
+      "id": 1002,
+      "nodes": [5, 6, 7, 8],
+      "tags": { "highway": "pedestrian", "name": "Mostecká" }
+    },
+    {
+      "type": "way",
+      "id": 1003,
+      "nodes": [9, 10, 11],
+      "tags": { "highway": "residential", "name": "Sněmovní" }
+    }
+  ]
+}
