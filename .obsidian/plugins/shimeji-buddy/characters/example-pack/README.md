@@ -48,23 +48,31 @@ source → Folder pack**, using a vault-relative path, e.g.:
   Any subset is fine; missing ones just fall back to `idle` (or the built-in
   placeholder if `idle` itself is missing).
 - `loop` - `true` for animations that should play continuously (`idle`,
-  `walk`, `sleep` are the ones the plugin ever holds indefinitely), `false`
-  for one-shot reactions that should play once and then return to idle.
+  `walk`, `run`, `jump`, `sleep` are the ones the plugin ever holds
+  indefinitely), `false` for one-shot reactions that should play once and
+  then return to idle.
 
 ## Recognised animation names
 
-| Name        | Triggered by                                   |
-| ----------- | ----------------------------------------------- |
-| `idle`      | Standby, nothing going on                       |
-| `walk`      | The buddy wandering to a new spot on its own    |
-| `sleep`     | No vault activity for a while                   |
-| `wave`      | Opening a note                                  |
-| `cheer`     | Creating a note                                 |
-| `poof`      | Deleting a note                                 |
-| `nod`       | Editing a note (debounced)                      |
-| `surprised` | Renaming a note                                 |
-| `think`     | Opening the search pane                         |
-| `poke`      | Clicking the buddy                              |
+| Name        | Triggered by                                                |
+| ----------- | ------------------------------------------------------------ |
+| `idle`      | Standby, nothing going on                                    |
+| `walk`      | Roaming to a new spot on its own, calm pace                  |
+| `run`       | Roaming to a new spot on its own, fast pace                  |
+| `jump`      | Roaming to a new spot on its own, hopping                    |
+| `sleep`     | No vault activity for a while                                |
+| `wave`      | Opening a note                                                |
+| `cheer`     | Creating a note                                               |
+| `poof`      | Deleting a note                                               |
+| `nod`       | Editing a note (debounced)                                    |
+| `surprised` | Renaming a note                                               |
+| `think`     | Opening the search pane                                       |
+| `poke`      | Clicking the buddy                                             |
+
+`walk`/`run`/`jump` are all optional - define any subset and the buddy will
+only pick between whichever ones your pack actually has when it roams (if
+your pack defines none of the three, it just glides to the new spot with no
+locomotion animation).
 
 ## Getting sprites
 

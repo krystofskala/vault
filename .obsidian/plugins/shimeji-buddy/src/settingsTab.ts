@@ -1,4 +1,4 @@
-import { App, Platform, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting } from "obsidian";
 import type ShimejiBuddyPlugin from "./main";
 import { AtlasSlicer } from "./AtlasSlicer";
 import {
@@ -89,22 +89,21 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				})
 			);
 
-		if (Platform.isMobile) {
-			new Setting(containerEl)
-				.setName("Restrict touch to reading view")
-				.setDesc(
-					"Only let you drag or poke the buddy while the open note is in reading view - avoids " +
-						"misclicks while typing on a small screen. It keeps animating and reacting to what you " +
-						"do either way, it just won't respond to touch in edit view."
-				)
-				.addToggle((t) =>
-					t.setValue(s.mobileReadingViewOnly).onChange(async (v) => {
-						s.mobileReadingViewOnly = v;
-						await this.plugin.saveSettings();
-						this.plugin.updateMobileInteractivity();
-					})
-				);
-		}
+		new Setting(containerEl)
+			.setName("Restrict touch to reading view (mobile)")
+			.setDesc(
+				"On the mobile app, only let you drag or poke the buddy while the open note is in reading " +
+					"view - avoids misclicks while typing on a small screen. It keeps animating and reacting " +
+					"to what you do either way, it just won't respond to touch in edit view. No effect on " +
+					"desktop; safe to set up here even if you're configuring from a computer."
+			)
+			.addToggle((t) =>
+				t.setValue(s.mobileReadingViewOnly).onChange(async (v) => {
+					s.mobileReadingViewOnly = v;
+					await this.plugin.saveSettings();
+					this.plugin.updateMobileInteractivity();
+				})
+			);
 
 		containerEl.createEl("h3", { text: "Standby behaviour" });
 

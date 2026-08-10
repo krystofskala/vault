@@ -203,6 +203,50 @@
 	50% { transform: rotate(-22deg); }
 }
 
+.sm-state-run {
+	animation: sm-run-bob 0.26s ease-in-out infinite;
+}
+.sm-state-run .sm-leg-l { animation: sm-run-step 0.26s ease-in-out infinite; }
+.sm-state-run .sm-leg-r { animation: sm-run-step 0.26s ease-in-out infinite reverse; }
+.sm-state-run .sm-arm-l { animation: sm-run-arm 0.26s ease-in-out infinite reverse; }
+.sm-state-run .sm-arm-r { animation: sm-run-arm 0.26s ease-in-out infinite; }
+
+@keyframes sm-run-bob {
+	0%, 100% { transform: translateY(0) rotate(-6deg); }
+	50% { transform: translateY(-10%) rotate(-6deg); }
+}
+@keyframes sm-run-step {
+	0%, 100% { transform: rotate(38deg); }
+	50% { transform: rotate(-38deg); }
+}
+@keyframes sm-run-arm {
+	0%, 100% { transform: rotate(45deg); }
+	50% { transform: rotate(-45deg); }
+}
+
+.sm-state-jump {
+	animation: sm-jump-hop 0.55s ease-in-out infinite;
+}
+.sm-state-jump .sm-leg-l,
+.sm-state-jump .sm-leg-r {
+	animation: sm-jump-legs 0.55s ease-in-out infinite;
+}
+.sm-state-jump .sm-arm-l { animation: sm-cheer-arm 0.55s ease-in-out infinite; }
+.sm-state-jump .sm-arm-r { animation: sm-cheer-arm 0.55s ease-in-out infinite; }
+
+@keyframes sm-jump-hop {
+	0%, 100% { transform: translateY(0); }
+	40% { transform: translateY(-32%); }
+	55% { transform: translateY(-32%); }
+	100% { transform: translateY(0); }
+}
+@keyframes sm-jump-legs {
+	0%, 100% { transform: translateY(0) scaleY(1); }
+	20% { transform: translateY(2%) scaleY(0.85); }
+	50% { transform: translateY(-6%) scaleY(0.6); }
+	80% { transform: translateY(2%) scaleY(0.85); }
+}
+
 .sm-state-sleep {
 	animation: sm-sleep-bob 3.2s ease-in-out infinite;
 }

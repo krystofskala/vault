@@ -8,11 +8,18 @@ export type ReactionName =
 	| "think"
 	| "sleep"
 	| "walk"
+	| "run"
+	| "jump"
 	| "poke";
+
+/** Locomotion styles wander() can pick between while roaming the screen. */
+export const GAIT_REACTIONS: ReactionName[] = ["walk", "run", "jump"];
 
 export const REACTION_NAMES: ReactionName[] = [
 	"idle",
 	"walk",
+	"run",
+	"jump",
 	"sleep",
 	"wave",
 	"cheer",
@@ -25,7 +32,9 @@ export const REACTION_NAMES: ReactionName[] = [
 
 export const REACTION_LABELS: Record<ReactionName, string> = {
 	idle: "Idle (standby)",
-	walk: "Walk (wanders on its own)",
+	walk: "Walk (roaming, calm pace)",
+	run: "Run (roaming, fast pace)",
+	jump: "Jump (roaming, hopping)",
 	sleep: "Sleep (long inactivity)",
 	wave: "Wave (opening a note)",
 	cheer: "Cheer (creating a note)",
@@ -36,7 +45,7 @@ export const REACTION_LABELS: Record<ReactionName, string> = {
 	poke: "Poke (clicked)",
 };
 
-export const LOOPING_REACTIONS: ReadonlySet<ReactionName> = new Set(["idle", "walk", "sleep"]);
+export const LOOPING_REACTIONS: ReadonlySet<ReactionName> = new Set(["idle", "walk", "run", "jump", "sleep"]);
 
 export interface SpeechLines {
 	wave: string[];

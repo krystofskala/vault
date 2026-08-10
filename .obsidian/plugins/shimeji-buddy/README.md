@@ -39,8 +39,9 @@ matter which one (or neither) is active.
 ## Features
 
 - **Standby brain**: on a randomized timer, the buddy decides for itself
-  whether to idle in place or run to a random spot anywhere on screen -
-  travel time scales with distance so it doesn't teleport or crawl.
+  whether to idle in place or roam to a random spot anywhere on screen,
+  picking a walk, run, or jump gait each time - travel time scales with
+  distance so it doesn't teleport or crawl.
 - **Reacts to what you do**:
   - opening a note → wave/greet
   - creating a note → cheer

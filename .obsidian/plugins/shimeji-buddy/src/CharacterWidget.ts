@@ -1,5 +1,7 @@
-import { LOOPING_REACTIONS, type ShimejiSettings, type ReactionName } from "./settings";
+import { GAIT_REACTIONS, LOOPING_REACTIONS, type ShimejiSettings, type ReactionName } from "./settings";
 import type { LoadedSpritePack } from "./spritePack";
+
+const LOCOMOTION_REACTIONS: ReadonlySet<ReactionName> = new Set<ReactionName>(["idle", ...GAIT_REACTIONS]);
 
 // Movement past this many px (in either axis, summed) counts as a drag
 // rather than a tap/click. Touch input is jittery, so this needs to be a
@@ -20,11 +22,16 @@ function computeResponsiveSize(baseSize: number): number {
 	return Math.min(MAX_RENDERED_SIZE, Math.max(MIN_RENDERED_SIZE, baseSize * scale));
 }
 
-// Wandering picks a random spot anywhere on screen and runs there at roughly
-// this speed, so a short hop across a phone and a long dash across an
-// ultrawide monitor both feel like the same gait rather than snapping or crawling.
-const RUN_SPEED_PX_PER_SEC = 260;
-const RUN_MIN_DURATION_MS = 500;
+// Wandering picks a random spot anywhere on screen and travels there at a
+// speed depending on the gait chosen, so a short hop across a phone and a
+// long dash across an ultrawide monitor both feel consistent rather than
+// snapping or crawling.
+const GAIT_SPEED_PX_PER_SEC: Record<"walk" | "run" | "jump", number> = {
+	walk: 200,
+	run: 440,
+	jump: 260,
+};
+const RUN_MIN_DURATION_MS = 450;
 const RUN_MAX_DURATION_MS = 3400;
 
 // How long each built-in placeholder animation runs for, in ms.
@@ -32,6 +39,8 @@ const RUN_MAX_DURATION_MS = 3400;
 const PLACEHOLDER_DURATIONS: Record<ReactionName, number> = {
 	idle: 0, // looping, no fixed duration
 	walk: 0, // looping, driven by the wander tween instead
+	run: 0, // looping, driven by the wander tween instead
+	jump: 0, // looping, driven by the wander tween instead
 	sleep: 0, // looping
 	wave: 900,
 	cheer: 800,
@@ -306,7 +315,7 @@ export class CharacterWidget {
 
 	private idleTick(): void {
 		this.scheduleNextIdleTick();
-		if (this.currentReaction !== "idle" && this.currentReaction !== "walk") return;
+		if (!LOCOMOTION_REACTIONS.has(this.currentReaction)) return;
 
 		if (this.settings.wanderEnabled && Math.random() < 0.35) {
 			this.wander();
@@ -317,7 +326,20 @@ export class CharacterWidget {
 		}
 	}
 
+	/** Picks a locomotion style for this roam - whichever gaits the active character actually has, or all three for the built-in placeholder. */
+	private pickGait(): ReactionName {
+		if (this.pack) {
+			const available = GAIT_REACTIONS.filter((g) => this.pack!.animations[g]);
+			if (available.length > 0) return available[Math.floor(Math.random() * available.length)];
+			return "walk"; // setReaction() will gracefully fall back to idle/placeholder if even this is missing
+		}
+		return GAIT_REACTIONS[Math.floor(Math.random() * GAIT_REACTIONS.length)];
+	}
+
 	private wander(): void {
+		const gait = this.pickGait();
+		const speed = GAIT_SPEED_PX_PER_SEC[gait as "walk" | "run" | "jump"] ?? GAIT_SPEED_PX_PER_SEC.walk;
+
 		const rect = this.containerEl.getBoundingClientRect();
 		const margin = 8;
 		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
@@ -333,12 +355,9 @@ export class CharacterWidget {
 		if (Math.abs(dx) > 1) this.facingLeft = dx > 0; // moving toward the right offset = moving left on screen
 
 		const distance = Math.hypot(dx, dy);
-		const duration = Math.min(
-			RUN_MAX_DURATION_MS,
-			Math.max(RUN_MIN_DURATION_MS, (distance / RUN_SPEED_PX_PER_SEC) * 1000)
-		);
+		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / speed) * 1000));
 
-		this.setReaction("walk");
+		this.setReaction(gait);
 		this.containerEl.addClass("sm-tween");
 		this.containerEl.style.transitionDuration = `${duration}ms`;
 		this.containerEl.style.right = `${newRight}px`;
@@ -350,7 +369,7 @@ export class CharacterWidget {
 			this.settings.posX = newRight;
 			this.settings.posY = newBottom;
 			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
-			if (this.currentReaction === "walk") this.setReaction("idle");
+			if (this.currentReaction === gait) this.setReaction("idle");
 		}, duration);
 	}
 
