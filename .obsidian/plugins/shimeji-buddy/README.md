@@ -29,15 +29,17 @@ close as a plugin can get to a separate window - Obsidian doesn't expose a
 way to pop a settings panel into its own OS window, so this is a big modal
 instead of the cramped settings-tab column). In there:
 
-- **Freeform**: drag a box around a frame, for messy/irregular sheets.
-- **Grid**: set columns/rows and click cells in the order you want them to
-  play - the click order becomes the animation's frame order, so a whole
-  walk cycle on a uniform sheet is a few clicks. If the sheet has padding
-  between frames, set "Gap X/Y (px)" to that padding's width - it's excluded
-  from each cell (shown as a shaded red band) instead of getting baked into
-  every picked frame. The slicer also magnifies small pixel-art sheets
-  heavily (up to 24x) so individual cells on a 16x16 or 32x32 sheet are
-  still clickable.
+- Starts as an even grid (set Columns/Rows, and Gap X/Y if the sheet has
+  padding between frames - excluded from each cell, shown as a shaded red
+  band). **Left-click a cell** to select it (numbered in click order - that
+  order becomes the animation's frame order); click again to deselect.
+  **Right-click-drag a grid line** to move it, resizing its two neighboring
+  cells, for sheets where frames aren't quite uniform; a plain **right-click
+  on a line (no drag)** deletes it, merging those cells back into one.
+  Dragging snaps to whole source pixels, and to match another cell's width
+  when you get close to one, so it's easy to land on a clean, consistent
+  size. The slicer also magnifies small pixel-art sheets heavily (up to
+  24x) so individual cells on a 16x16 or 32x32 sheet are still clickable.
 - Every animation built from that image is listed right there too - rename
   or delete any of them without leaving the window.
 

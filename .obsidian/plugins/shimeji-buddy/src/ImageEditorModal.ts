@@ -22,11 +22,14 @@ export interface ImageEditorModalOptions {
 
 /**
  * A large, dedicated workspace for slicing one image's frames and managing
- * the animations built from it - freeform drag-select for messy sheets, or
- * grid-pick (set columns/rows, click cells in play order) for uniform ones.
- * Obsidian doesn't expose a way for a plugin to pop a settings panel into
- * its own OS window, so this is the closest equivalent: a big modal instead
- * of the cramped settings-tab column.
+ * the animations built from it: starts from an even cols x rows grid (with
+ * optional padding between cells), then any interior line can be
+ * right-click-dragged to resize its neighboring cells, or right-clicked
+ * without dragging to delete it and merge them - for sheets where frames
+ * aren't quite uniform. Left-click a cell to toggle it into the current
+ * selection. Obsidian doesn't expose a way for a plugin to pop a settings
+ * panel into its own OS window, so this big modal is the closest equivalent
+ * to that, instead of the cramped settings-tab column.
  */
 export class ImageEditorModal extends Modal {
 	private opts: ImageEditorModalOptions;
@@ -50,8 +53,9 @@ export class ImageEditorModal extends Modal {
 		contentEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"Freeform: drag a box around a frame. Grid: set columns/rows below, then click cells in the " +
-				"order you want them to play - the order you click becomes the frame order.",
+				"Left-click a cell to select it (numbered in click order - that's the frame order). Hover a " +
+				"grid line to grab it: right-click-drag to move it, or right-click without dragging to delete " +
+				"it and merge the two cells it separated.",
 		});
 
 		const layout = contentEl.createDiv({ cls: "sm-editor-layout" });
@@ -61,9 +65,8 @@ export class ImageEditorModal extends Modal {
 		this.slicer = new AtlasSlicer(slicerCol);
 		await this.opts.loadSlicerImage(this.slicer);
 
-		// ---------- mode + grid controls ----------
+		// ---------- grid controls ----------
 
-		const modeRow = new Setting(sideCol).setName("Mode");
 		let colsInput: HTMLInputElement;
 		let rowsInput: HTMLInputElement;
 		let gapXInput: HTMLInputElement;
@@ -76,70 +79,33 @@ export class ImageEditorModal extends Modal {
 			const gapY = Math.max(0, Number(gapYInput.value) || 0);
 			if (cols > 0 && rows > 0) this.slicer.setGrid(cols, rows, gapX, gapY);
 		};
-		modeRow.addDropdown((d) => {
-			d.addOption("freeform", "Freeform (drag a box)");
-			d.addOption("grid", "Grid (click cells)");
-			d.setValue("freeform");
-			d.onChange((v) => {
-				gridFieldsWrap.style.display = v === "grid" ? "" : "none";
-				if (v === "grid") applyGrid();
-				else this.slicer.setGrid(0, 0);
-			});
-		});
 		const mkGridField = (label: string, defaultValue: string, min: string): HTMLInputElement => {
 			const wrap = gridFieldsWrap.createDiv({ cls: "sm-slicer-field" });
 			wrap.createEl("label", { text: label });
 			const input = wrap.createEl("input", { type: "number", attr: { min } });
 			input.value = defaultValue;
-			input.addEventListener("change", applyGrid);
 			return input;
 		};
 		colsInput = mkGridField("Columns", "4", "1");
 		rowsInput = mkGridField("Rows", "4", "1");
 		gapXInput = mkGridField("Gap X (px)", "0", "0");
 		gapYInput = mkGridField("Gap Y (px)", "0", "0");
-		gridFieldsWrap.createEl("button", { text: "Apply grid", cls: "mod-cta" }).addEventListener("click", applyGrid);
-		gridFieldsWrap.style.display = "none";
+		gridFieldsWrap
+			.createEl("button", { text: "Apply grid", cls: "mod-cta" })
+			.addEventListener("click", applyGrid);
 		gridFieldsWrap.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"If the sheet has padding between frames, set Gap X/Y to that padding's width in source-image " +
-				"pixels - it's excluded from each cell, shown as a shaded red band on the grid.",
+				"Resets to an even grid, discarding any lines you've dragged - fine to use as a starting point, " +
+				"then fine-tune individual lines afterward. If the sheet has padding between frames, set Gap " +
+				"X/Y to that padding's width in source-image pixels.",
 		});
+		applyGrid(); // start from an even grid immediately
 
 		this.cellCountEl = sideCol.createEl("p", { cls: "setting-item-description" });
 		this.slicer.onCellSelectionChange((count) => {
 			this.cellCountEl.setText(count > 0 ? `${count} cell(s) selected.` : "");
 		});
-
-		// ---------- freeform numeric fields ----------
-
-		const controls = sideCol.createDiv({ cls: "sm-slicer-controls" });
-		const mkNumField = (label: string): HTMLInputElement => {
-			const wrap = controls.createDiv({ cls: "sm-slicer-field" });
-			wrap.createEl("label", { text: label });
-			return wrap.createEl("input", { type: "number", attr: { min: "0" } });
-		};
-		const xInput = mkNumField("X");
-		const yInput = mkNumField("Y");
-		const wInput = mkNumField("W");
-		const hInput = mkNumField("H");
-		const syncInputsFromSelection = (rect: AtlasFrameRect | null) => {
-			xInput.value = rect ? String(rect.x) : "";
-			yInput.value = rect ? String(rect.y) : "";
-			wInput.value = rect ? String(rect.w) : "";
-			hInput.value = rect ? String(rect.h) : "";
-		};
-		this.slicer.onSelectionChange(syncInputsFromSelection);
-		const commitInputsToSelection = () => {
-			const x = Number(xInput.value);
-			const y = Number(yInput.value);
-			const w = Number(wInput.value);
-			const h = Number(hInput.value);
-			if ([x, y, w, h].some((n) => Number.isNaN(n))) return;
-			this.slicer.setSelection({ x, y, w: Math.max(1, w), h: Math.max(1, h) });
-		};
-		for (const input of [xInput, yInput, wInput, hInput]) input.addEventListener("change", commitInputsToSelection);
 
 		// ---------- target animation + add ----------
 
@@ -163,11 +129,7 @@ export class ImageEditorModal extends Modal {
 				.setButtonText("Add")
 				.setCta()
 				.onClick(async () => {
-					const frames = this.slicer.isGridMode()
-						? this.slicer.getSelectedCellRects()
-						: this.slicer.getSelection()
-							? [this.slicer.getSelection()!]
-							: [];
+					const frames = this.slicer.getSelectedCellRects();
 					if (frames.length === 0) {
 						new Notice("Nothing selected yet.");
 						return;
@@ -179,8 +141,7 @@ export class ImageEditorModal extends Modal {
 						this.targetAnimationId = animId;
 					}
 					await this.opts.addFrames(animId, frames);
-					if (this.slicer.isGridMode()) this.slicer.clearCellSelection();
-					else this.slicer.setSelection(null);
+					this.slicer.clearCellSelection();
 					new Notice(`Added ${frames.length} frame(s).`);
 					this.refreshTargetDropdown();
 					this.refreshAnimList();

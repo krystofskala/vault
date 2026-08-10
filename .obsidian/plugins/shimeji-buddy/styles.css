@@ -755,6 +755,8 @@
 	-webkit-user-select: none;
 	user-select: none;
 	image-rendering: pixelated;
+	/* Default until hover logic (over a grid line) swaps in ew-resize/ns-resize inline. */
+	cursor: crosshair;
 }
 
 .sm-slicer-placeholder {
