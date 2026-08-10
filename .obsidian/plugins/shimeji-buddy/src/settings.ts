@@ -1,68 +1,63 @@
-export type ReactionName =
-	| "idle"
-	| "wave"
-	| "cheer"
-	| "poof"
-	| "nod"
-	| "surprised"
-	| "think"
-	| "sleep"
-	| "walk"
-	| "run"
-	| "jump"
-	| "poke";
-
-/** Locomotion styles wander() can pick between while roaming the screen. */
-export const GAIT_REACTIONS: ReactionName[] = ["walk", "run", "jump"];
-
-export const REACTION_NAMES: ReactionName[] = [
-	"idle",
-	"walk",
-	"run",
-	"jump",
-	"sleep",
-	"wave",
-	"cheer",
-	"poof",
-	"nod",
-	"surprised",
-	"think",
-	"poke",
-];
-
-export const REACTION_LABELS: Record<ReactionName, string> = {
-	idle: "Idle (standby)",
-	walk: "Walk (roaming, calm pace)",
-	run: "Run (roaming, fast pace)",
-	jump: "Jump (roaming, hopping)",
-	sleep: "Sleep (long inactivity)",
-	wave: "Wave (opening a note)",
-	cheer: "Cheer (creating a note)",
-	poof: "Poof (deleting a note)",
-	nod: "Nod (editing a note)",
-	surprised: "Surprised (renaming a note)",
-	think: "Think (search opened)",
-	poke: "Poke (clicked)",
-};
-
-export const LOOPING_REACTIONS: ReadonlySet<ReactionName> = new Set(["idle", "walk", "run", "jump", "sleep"]);
-
-export interface SpeechLines {
-	wave: string[];
-	cheer: string[];
-	poof: string[];
-	nod: string[];
-	surprised: string[];
-	think: string[];
-	poke: string[];
-}
-
 /** A single frame's crop rectangle within a sprite sheet, in source-image pixels. */
 export interface AtlasFrameRect {
 	x: number;
 	y: number;
 	w: number;
 	h: number;
+}
+
+/**
+ * A trackable Obsidian thing Shimeji can react to. Deliberately just a
+ * string id, not a closed enum - "idle" and the handful below are wired to
+ * real event listeners in main.ts, and command triggers (id
+ * `command:<commandId>`) are added by the user at runtime, so the set of
+ * valid ids grows without touching this list.
+ */
+export interface TriggerDef {
+	id: string;
+	label: string;
+}
+
+export const BUILTIN_TRIGGERS: TriggerDef[] = [
+	{ id: "idle", label: "Idle / standby / roaming" },
+	{ id: "note:open", label: "Opening a note" },
+	{ id: "note:create", label: "Creating a note" },
+	{ id: "note:delete", label: "Deleting a note" },
+	{ id: "note:rename", label: "Renaming a note" },
+	{ id: "note:edit", label: "Editing / typing in a note" },
+	{ id: "search:open", label: "Opening the search pane" },
+	{ id: "poke", label: "Clicking / poking the buddy" },
+	{ id: "sleep", label: "Falling asleep (long inactivity)" },
+];
+
+/** A user-added trigger tied to a specific Obsidian command id, so any command (yours or another plugin's) can be reacted to without hand-listing them. */
+export interface CommandTrigger {
+	commandId: string;
+	label: string;
+}
+
+export function commandTriggerId(commandId: string): string {
+	return `command:${commandId}`;
+}
+
+/**
+ * One animation in the user's library. Can be assigned to more than one
+ * trigger (e.g. the same "happy hop" plays for both note:create and poke);
+ * each trigger it's assigned to draws from a pool of all animations
+ * assigned to it, weighted, so several animations can share one trigger for
+ * variety instead of always playing the same thing.
+ */
+export interface CustomAnimation {
+	id: string;
+	name: string;
+	triggers: string[];
+	/** Only meaningful when "idle" is among triggers: roam to a new spot while playing vs. play in place. */
+	moves: boolean;
+	weight: number;
+	enabled: boolean;
+	loop: boolean;
+	fps: number;
+	frames: AtlasFrameRect[];
 }
 
 export interface AtlasAnimationConfig {
@@ -72,9 +67,17 @@ export interface AtlasAnimationConfig {
 	loop: boolean;
 }
 
-export type AtlasAnimationsConfig = Record<ReactionName, AtlasAnimationConfig>;
-
 export type CharacterMode = "builtin" | "pack" | "atlas";
+
+export interface SpeechLines {
+	"note:open": string[];
+	"note:create": string[];
+	"note:delete": string[];
+	"note:edit": string[];
+	"note:rename": string[];
+	"search:open": string[];
+	poke: string[];
+}
 
 export interface ShimejiSettings {
 	enabled: boolean;
@@ -99,38 +102,24 @@ export interface ShimejiSettings {
 
 	characterMode: CharacterMode;
 
-	// characterMode === "pack": a folder with manifest.json + per-animation strip PNGs
+	// characterMode === "pack": a folder with manifest.json (animations keyed by trigger id, see characters/example-pack)
 	customCharacterFolder: string;
 
 	// characterMode === "atlas": one image, sliced into freeform per-frame rectangles
 	atlasImagePath: string;
-	atlasAnimations: AtlasAnimationsConfig;
+	customAnimations: CustomAnimation[];
+	commandTriggers: CommandTrigger[];
 }
 
 export const DEFAULT_SPEECH_LINES: SpeechLines = {
-	wave: ["Welcome back!", "Let's read this one.", "Yosh!"],
-	cheer: ["New page, let's go!", "Something new!", "Nice, a fresh note!"],
-	poof: ["Aw, it's gone...", "Poof!", "Byebye, note."],
-	nod: ["Nice edit!", "Looking good.", "Saved it!"],
-	surprised: ["Ooh, a new name!", "Whoa, renamed!"],
-	think: ["Hmm, searching...", "Let me think...", "Looking for something?"],
+	"note:open": ["Welcome back!", "Let's read this one.", "Yosh!"],
+	"note:create": ["New page, let's go!", "Something new!", "Nice, a fresh note!"],
+	"note:delete": ["Aw, it's gone...", "Poof!", "Byebye, note."],
+	"note:edit": ["Nice edit!", "Looking good.", "Saved it!"],
+	"note:rename": ["Ooh, a new name!", "Whoa, renamed!"],
+	"search:open": ["Hmm, searching...", "Let me think...", "Looking for something?"],
 	poke: ["Hey!", "Stop that!", "Hehe, that tickles.", "Believe it!"],
 };
-
-function buildDefaultAtlasAnimations(): AtlasAnimationsConfig {
-	const result = {} as AtlasAnimationsConfig;
-	for (const name of REACTION_NAMES) {
-		result[name] = {
-			enabled: false,
-			frames: [],
-			fps: 6,
-			loop: LOOPING_REACTIONS.has(name),
-		};
-	}
-	return result;
-}
-
-export const DEFAULT_ATLAS_ANIMATIONS: AtlasAnimationsConfig = buildDefaultAtlasAnimations();
 
 export const DEFAULT_SETTINGS: ShimejiSettings = {
 	enabled: true,
@@ -156,5 +145,6 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	customCharacterFolder: "",
 
 	atlasImagePath: "",
-	atlasAnimations: DEFAULT_ATLAS_ANIMATIONS,
+	customAnimations: [],
+	commandTriggers: [],
 };

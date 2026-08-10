@@ -1,22 +1,25 @@
 import { Vault } from "obsidian";
-import type { AtlasAnimationsConfig, AtlasFrameRect, ReactionName } from "./settings";
+import type { AtlasFrameRect, CustomAnimation } from "./settings";
 
 export interface StripAnimationDef {
 	file: string; // filename of the horizontal sprite strip, relative to the pack folder
 	frames: number; // number of equal-width frames in the strip
 	fps: number; // playback speed
 	loop: boolean; // whether it should loop until interrupted, or play once
+	weight?: number; // relative pick probability within its trigger's pool; default 1
+	moves?: boolean; // only meaningful under the "idle" key: roam vs play in place; default false
 }
 
 export interface SpritePackManifest {
 	name: string;
 	frameWidth: number;
 	frameHeight: number;
-	animations: Partial<Record<ReactionName, StripAnimationDef>>;
+	/** Keyed by trigger id ("idle", "note:open", "command:<id>", ...). Each array is a weighted pool. */
+	animations: Record<string, StripAnimationDef[]>;
 }
 
 /** A resolved animation, ready for CharacterWidget to play - regardless of
- * whether it came from a folder pack's manifest.json or a freeform atlas. */
+ * whether it came from a folder pack's manifest.json or the atlas library. */
 export interface ResolvedAnimation {
 	imageUrl: string;
 	imageWidth: number;
@@ -26,9 +29,15 @@ export interface ResolvedAnimation {
 	loop: boolean;
 }
 
+export interface WeightedAnimation extends ResolvedAnimation {
+	weight: number;
+	moves: boolean;
+}
+
 export interface LoadedSpritePack {
 	name: string;
-	animations: Partial<Record<ReactionName, ResolvedAnimation>>;
+	/** Keyed by trigger id; each array is a weighted pool of candidates for that trigger. */
+	bySlot: Record<string, WeightedAnimation[]>;
 	objectUrls: string[];
 }
 
@@ -47,10 +56,23 @@ async function blobUrlForVaultFile(vault: Vault, path: string): Promise<string> 
 	return URL.createObjectURL(blob);
 }
 
+/** Picks a weighted-random entry (falls back to even odds if every weight is 0). */
+export function pickWeighted<T extends { weight: number }>(items: T[]): T | null {
+	if (items.length === 0) return null;
+	const total = items.reduce((sum, i) => sum + Math.max(0, i.weight), 0);
+	if (total <= 0) return items[Math.floor(Math.random() * items.length)];
+	let r = Math.random() * total;
+	for (const item of items) {
+		r -= Math.max(0, item.weight);
+		if (r <= 0) return item;
+	}
+	return items[items.length - 1];
+}
+
 /**
  * Loads a sprite pack from a vault-relative folder. The folder must contain a
  * manifest.json (see SpritePackManifest) plus the PNG strips it references -
- * one horizontal, equal-width-frame strip per animation. Returns null if the
+ * one horizontal, equal-width-frame strip per pool entry. Returns null if the
  * folder/manifest is missing or invalid so callers can fall back to the
  * built-in placeholder character.
  */
@@ -83,50 +105,54 @@ export async function loadSpritePack(
 	}
 
 	const objectUrls: string[] = [];
-	const animations: Partial<Record<ReactionName, ResolvedAnimation>> = {};
+	const bySlot: Record<string, WeightedAnimation[]> = {};
 
-	for (const key of Object.keys(manifest.animations) as ReactionName[]) {
-		const def = manifest.animations[key];
-		if (!def) continue;
-		const imgPath = `${normalized}/${def.file}`;
-		try {
-			const url = await blobUrlForVaultFile(vault, imgPath);
-			objectUrls.push(url);
-			const dims = await getImageDimensions(url);
-			const frames: AtlasFrameRect[] = [];
-			for (let i = 0; i < def.frames; i++) {
-				frames.push({ x: i * manifest.frameWidth, y: 0, w: manifest.frameWidth, h: manifest.frameHeight });
+	for (const [triggerId, defs] of Object.entries(manifest.animations)) {
+		if (!Array.isArray(defs)) continue;
+		for (const def of defs) {
+			const imgPath = `${normalized}/${def.file}`;
+			try {
+				const url = await blobUrlForVaultFile(vault, imgPath);
+				objectUrls.push(url);
+				const dims = await getImageDimensions(url);
+				const frames: AtlasFrameRect[] = [];
+				for (let i = 0; i < def.frames; i++) {
+					frames.push({ x: i * manifest.frameWidth, y: 0, w: manifest.frameWidth, h: manifest.frameHeight });
+				}
+				(bySlot[triggerId] ??= []).push({
+					imageUrl: url,
+					imageWidth: dims.width,
+					imageHeight: dims.height,
+					frames,
+					fps: def.fps,
+					loop: def.loop,
+					weight: def.weight ?? 1,
+					moves: def.moves ?? false,
+				});
+			} catch (e) {
+				console.warn(`Shimeji Buddy: could not load sprite frame "${imgPath}"`, e);
 			}
-			animations[key] = {
-				imageUrl: url,
-				imageWidth: dims.width,
-				imageHeight: dims.height,
-				frames,
-				fps: def.fps,
-				loop: def.loop,
-			};
-		} catch (e) {
-			console.warn(`Shimeji Buddy: could not load sprite frame "${imgPath}"`, e);
 		}
 	}
 
-	if (Object.keys(animations).length === 0) {
+	if (Object.keys(bySlot).length === 0) {
 		for (const url of objectUrls) URL.revokeObjectURL(url);
 		return null;
 	}
 
-	return { name: manifest.name, animations, objectUrls };
+	return { name: manifest.name, bySlot, objectUrls };
 }
 
 /**
- * Builds a sprite pack from a single "atlas" image plus explicit per-frame
- * crop rectangles configured in settings - no manifest.json needed. Suited
- * to modular/irregularly-packed sheets where frames aren't a uniform grid.
+ * Builds a sprite pack from a single "atlas" image plus the user's animation
+ * library from settings - no manifest.json needed. Each animation can be
+ * assigned to more than one trigger; it's added to every trigger pool it's
+ * assigned to, using the same weight in each.
  */
 export async function loadAtlasSpritePack(
 	vault: Vault,
 	atlasImagePath: string,
-	atlasAnimations: AtlasAnimationsConfig
+	customAnimations: CustomAnimation[]
 ): Promise<LoadedSpritePack | null> {
 	if (!atlasImagePath) return null;
 	if (!(await vault.adapter.exists(atlasImagePath))) return null;
@@ -141,26 +167,30 @@ export async function loadAtlasSpritePack(
 		return null;
 	}
 
-	const animations: Partial<Record<ReactionName, ResolvedAnimation>> = {};
-	for (const key of Object.keys(atlasAnimations) as ReactionName[]) {
-		const cfg = atlasAnimations[key];
-		if (!cfg || !cfg.enabled || cfg.frames.length === 0) continue;
-		animations[key] = {
+	const bySlot: Record<string, WeightedAnimation[]> = {};
+	for (const anim of customAnimations) {
+		if (!anim.enabled || anim.frames.length === 0 || anim.triggers.length === 0) continue;
+		const resolved: WeightedAnimation = {
 			imageUrl: url,
 			imageWidth: dims.width,
 			imageHeight: dims.height,
-			frames: cfg.frames,
-			fps: Math.max(1, cfg.fps),
-			loop: cfg.loop,
+			frames: anim.frames,
+			fps: Math.max(1, anim.fps),
+			loop: anim.loop,
+			weight: Math.max(0, anim.weight),
+			moves: anim.moves,
 		};
+		for (const trigger of anim.triggers) {
+			(bySlot[trigger] ??= []).push(resolved);
+		}
 	}
 
-	if (Object.keys(animations).length === 0) {
+	if (Object.keys(bySlot).length === 0) {
 		URL.revokeObjectURL(url);
 		return null;
 	}
 
-	return { name: "Custom atlas", animations, objectUrls: [url] };
+	return { name: "Custom atlas", bySlot, objectUrls: [url] };
 }
 
 export function revokeSpritePack(pack: LoadedSpritePack | null): void {
@@ -204,10 +234,10 @@ export async function listAvailableSpritePacks(
 		try {
 			const raw = await vault.adapter.read(manifestPath);
 			const manifest: SpritePackManifest = JSON.parse(raw);
-			const defs = Object.values(manifest.animations || {});
+			const allDefs = Object.values(manifest.animations || {}).flat();
 
 			let hasImage = false;
-			for (const def of defs) {
+			for (const def of allDefs) {
 				if (def && (await vault.adapter.exists(`${folder}/${def.file}`))) {
 					hasImage = true;
 					break;

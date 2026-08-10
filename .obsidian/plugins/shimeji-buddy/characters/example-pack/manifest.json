@@ -3,17 +3,21 @@
 	"frameWidth": 128,
 	"frameHeight": 128,
 	"animations": {
-		"idle": { "file": "idle.png", "frames": 4, "fps": 4, "loop": true },
-		"walk": { "file": "walk.png", "frames": 6, "fps": 8, "loop": true },
-		"run": { "file": "run.png", "frames": 6, "fps": 14, "loop": true },
-		"jump": { "file": "jump.png", "frames": 4, "fps": 10, "loop": true },
-		"sleep": { "file": "sleep.png", "frames": 2, "fps": 1, "loop": true },
-		"wave": { "file": "wave.png", "frames": 5, "fps": 8, "loop": false },
-		"cheer": { "file": "cheer.png", "frames": 6, "fps": 10, "loop": false },
-		"poof": { "file": "poof.png", "frames": 6, "fps": 12, "loop": false },
-		"nod": { "file": "nod.png", "frames": 4, "fps": 8, "loop": false },
-		"surprised": { "file": "surprised.png", "frames": 3, "fps": 8, "loop": false },
-		"think": { "file": "think.png", "frames": 4, "fps": 6, "loop": false },
-		"poke": { "file": "poke.png", "frames": 3, "fps": 10, "loop": false }
+		"idle": [
+			{ "file": "idle.png", "frames": 4, "fps": 4, "loop": true, "weight": 3, "moves": false },
+			{ "file": "walk.png", "frames": 6, "fps": 8, "loop": true, "weight": 2, "moves": true },
+			{ "file": "run.png", "frames": 6, "fps": 14, "loop": true, "weight": 1, "moves": true }
+		],
+		"sleep": [{ "file": "sleep.png", "frames": 2, "fps": 1, "loop": true }],
+		"note:open": [{ "file": "wave.png", "frames": 5, "fps": 8, "loop": false }],
+		"note:create": [{ "file": "cheer.png", "frames": 6, "fps": 10, "loop": false }],
+		"note:delete": [{ "file": "poof.png", "frames": 6, "fps": 12, "loop": false }],
+		"note:edit": [{ "file": "nod.png", "frames": 4, "fps": 8, "loop": false }],
+		"note:rename": [{ "file": "surprised.png", "frames": 3, "fps": 8, "loop": false }],
+		"search:open": [{ "file": "think.png", "frames": 4, "fps": 6, "loop": false }],
+		"poke": [
+			{ "file": "poke.png", "frames": 3, "fps": 10, "loop": false, "weight": 2 },
+			{ "file": "poke-annoyed.png", "frames": 4, "fps": 10, "loop": false, "weight": 1 }
+		]
 	}
 }

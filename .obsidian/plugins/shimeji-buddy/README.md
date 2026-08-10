@@ -21,34 +21,55 @@ itself.
 Two ways to supply a character, both in **Settings → Shimeji Buddy →
 Character source**:
 
-- **Folder pack**: a folder with a `manifest.json` plus one sprite strip PNG
-  per animation (uniform frame size). Drop it into `characters/` inside this
-  plugin's folder and pick it from the dropdown - see
+- **Folder pack**: a folder with a `manifest.json` plus sprite strip PNGs
+  (uniform frame size). Drop it into `characters/` inside this plugin's
+  folder and pick it from the dropdown - see
   `characters/example-pack/README.md` for the format.
 - **Single spritesheet**: for sheets that *aren't* a tidy grid - frames of
   different sizes, packed irregularly, extra stuff mixed in (exactly what
   most fan-made/ripped sheets look like). Point at one image and slice it
   right there in settings: drag a box around each frame directly on the
-  sheet (or type exact pixel coordinates), assign it to an animation, and
-  add it - repeat in order for every frame you need. No manifest.json, no
-  grid math.
+  sheet (or type exact pixel coordinates), add it to an animation, and
+  assign that animation to whichever action(s) it belongs to.
 
-The animation engine, idle behaviour, and event reactions work identically no
+The animation engine, idle behaviour, and reactions work identically no
 matter which one (or neither) is active.
+
+## Actions and the animation library
+
+Everything Shimeji can react to - opening/creating/deleting/renaming/editing
+a note, the search pane opening, being poked, falling asleep while idle, and
+any Obsidian command you name by its command id - is listed in
+**Settings → Shimeji Buddy → Actions Shimeji can react to**. An animation you
+build isn't locked to one of these: assign it to as many as you like (a
+"happy hop" could play for both creating a note *and* being poked), and each
+action draws from a weighted pool of everything assigned to it, so several
+variants can share one action for variety instead of always playing the same
+clip. Nothing assigned to an action just falls back to whatever idle is
+doing - never a hard failure.
+
+The idle pool works the same way, plus one extra flag: an idle animation can
+be marked to roam the buddy to a new spot on screen while it plays (like a
+walk or run cycle) or to just play in place (like resting), so a single pool
+can mix "walks around," "sits and looks around," "stretches," whatever you
+build, each with its own odds.
+
+*Planned, not built yet:* scripted/idle speech lines beyond the current
+simple per-action text pool, and a mood system that shifts which animations
+get picked based on how you've been treating the buddy.
 
 ## Features
 
 - **Standby brain**: on a randomized timer, the buddy decides for itself
-  whether to idle in place or roam to a random spot anywhere on screen,
-  picking a walk, run, or jump gait each time - travel time scales with
-  distance so it doesn't teleport or crawl.
-- **Reacts to what you do**:
-  - opening a note → wave/greet
-  - creating a note → cheer
-  - deleting a note → sad "poof"
-  - editing a note → nod (debounced so it doesn't spam on every keystroke)
-  - renaming a note → surprised
-  - opening the search pane → thinking pose
+  whether to idle in place or roam to a random spot anywhere on screen -
+  travel time scales with distance so it doesn't teleport or crawl. With the
+  built-in placeholder it picks between a walk/run/jump gait; with a custom
+  animation library, it draws from whatever you've built (see "Actions and
+  the animation library" above).
+- **Reacts to what you do** - opening/creating/deleting/renaming/editing a
+  note, the search pane opening, being poked, falling asleep, and any
+  Obsidian command you name (see below) - each with the built-in placeholder
+  pose by default, or whatever you've assigned in your own library.
 - Falls asleep after a configurable period of vault inactivity, wakes back up
   on the next action or click.
 - Draggable - click and drag to move it anywhere; position is remembered.
@@ -92,9 +113,9 @@ Source lives in `src/`:
 - `CharacterWidget.ts` - the floating DOM widget: placeholder character
   animation, sprite playback (folder pack or atlas), idle/standby brain,
   dragging, speech bubble.
-- `spritePack.ts` - loads a folder pack (manifest.json + PNG strips) or an
-  atlas (single image + explicit per-frame rectangles) into a common
-  resolved-animation shape.
+- `spritePack.ts` - loads a folder pack (manifest.json + PNG strips) or the
+  atlas library (single image + explicit per-frame rectangles) into a common
+  trigger-id → weighted-animation-pool shape.
 - `AtlasSlicer.ts` - the canvas-based drag-to-select tool used in settings to
   slice a freeform spritesheet into frames.
 - `settingsTab.ts` - the settings UI.

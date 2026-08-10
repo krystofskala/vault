@@ -11,14 +11,15 @@ different sizes, packed by hand, extra non-sprite stuff mixed in (very
 common on fan-made/ripped sheets) - use **Settings → Shimeji Buddy →
 Character source → Single spritesheet** instead. That mode lets you
 drag-select each frame's exact bounding box directly on the image, no
-uniform grid required.
+uniform grid required, and is generally the easier way to build a library
+of many animations by hand.
 
 ## Layout
 
 A folder pack is a folder containing:
 
 - `manifest.json` - describes the character and its animations (see below)
-- one PNG per animation, each a **horizontal strip** of equally-sized frames
+- one PNG per pool entry, each a **horizontal strip** of equally-sized frames
   (frame 0 leftmost, reading left to right)
 
 Point the plugin at the folder via **Settings → Shimeji Buddy → Character
@@ -36,43 +37,38 @@ source → Folder pack**, using a vault-relative path, e.g.:
   "frameWidth": 128,
   "frameHeight": 128,
   "animations": {
-    "idle": { "file": "idle.png", "frames": 4, "fps": 4, "loop": true },
-    "walk": { "file": "walk.png", "frames": 6, "fps": 8, "loop": true }
+    "idle": [
+      { "file": "idle.png", "frames": 4, "fps": 4, "loop": true, "weight": 3, "moves": false },
+      { "file": "walk.png", "frames": 6, "fps": 8, "loop": true, "weight": 1, "moves": true }
+    ],
+    "note:open": [
+      { "file": "wave.png", "frames": 5, "fps": 8, "loop": false }
+    ]
   }
 }
 ```
 
-- `frameWidth` / `frameHeight` - the pixel size of a single frame. Every strip
-  in the pack must use this same frame size (strip width = frameWidth * frame count).
-- `animations` - a map keyed by the reaction names the plugin knows about.
-  Any subset is fine; missing ones just fall back to `idle` (or the built-in
-  placeholder if `idle` itself is missing).
-- `loop` - `true` for animations that should play continuously (`idle`,
-  `walk`, `run`, `jump`, `sleep` are the ones the plugin ever holds
-  indefinitely), `false` for one-shot reactions that should play once and
-  then return to idle.
-
-## Recognised animation names
-
-| Name        | Triggered by                                                |
-| ----------- | ------------------------------------------------------------ |
-| `idle`      | Standby, nothing going on                                    |
-| `walk`      | Roaming to a new spot on its own, calm pace                  |
-| `run`       | Roaming to a new spot on its own, fast pace                  |
-| `jump`      | Roaming to a new spot on its own, hopping                    |
-| `sleep`     | No vault activity for a while                                |
-| `wave`      | Opening a note                                                |
-| `cheer`     | Creating a note                                               |
-| `poof`      | Deleting a note                                               |
-| `nod`       | Editing a note (debounced)                                    |
-| `surprised` | Renaming a note                                               |
-| `think`     | Opening the search pane                                       |
-| `poke`      | Clicking the buddy                                             |
-
-`walk`/`run`/`jump` are all optional - define any subset and the buddy will
-only pick between whichever ones your pack actually has when it roams (if
-your pack defines none of the three, it just glides to the new spot with no
-locomotion animation).
+- `frameWidth` / `frameHeight` - the pixel size of a single frame. Every
+  strip in the pack must use this same frame size (strip width = frameWidth
+  * frame count).
+- `animations` - a map keyed by **trigger id** (see the full list of built-in
+  ones, and how to add your own for any Obsidian command, in the plugin's
+  own Settings tab under "Actions Shimeji can react to"). Each key's value
+  is an array - a *pool* of candidate animations for that trigger. Multiple
+  entries under one key are picked between at random, weighted, so e.g.
+  `note:open` could have three different "wave" variants that show up with
+  different odds instead of always playing the same one.
+- `weight` - relative pick probability within its pool. Optional, defaults
+  to `1`.
+- `moves` - only meaningful under the `idle` key: `true` means this entry
+  also roams the buddy to a new spot on screen while playing (like a walk or
+  run cycle); `false` (the default) means it plays in place, like resting.
+- `loop` - `true` for animations that should play continuously for as long
+  as they're showing (typically everything under `idle` and `sleep`),
+  `false` for one-shot reactions that play once and then return to idle.
+- A key with no entries defined (or entirely absent) just falls back to the
+  `idle` pool, or the built-in placeholder if that's empty too - same as an
+  animation that's disabled or has no frames yet.
 
 ## Getting sprites
 

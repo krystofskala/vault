@@ -8,7 +8,7 @@ import {
 	type LoadedSpritePack,
 	type SpritePackInfo,
 } from "./spritePack";
-import { DEFAULT_SETTINGS, type ShimejiSettings, type ReactionName, type SpeechLines } from "./settings";
+import { DEFAULT_SETTINGS, commandTriggerId, type ShimejiSettings, type SpeechLines } from "./settings";
 import { ShimejiSettingTab } from "./settingsTab";
 
 const MODIFY_DEBOUNCE_MS = 1500;
@@ -19,18 +19,20 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	private spritePack: LoadedSpritePack | null = null;
 	private modifyDebounce: number | null = null;
 	private lastSearchReactAt = 0;
+	private unpatchCommands: (() => void) | null = null;
 	availablePacks: SpritePackInfo[] = [];
 	availablePacksLoaded = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		this.addSettingTab(new ShimejiSettingTab(this.app, this));
+		this.registerCommandHook();
 
 		this.app.workspace.onLayoutReady(async () => {
 			this.createWidget();
 			await this.refreshAvailablePacks();
 			await this.reloadSpritePack();
-			this.widget?.react("wave");
+			this.reactWithLine("note:open");
 			this.registerVaultEvents();
 			this.registerWorkspaceEvents();
 			this.registerMobileInteractivityWatcher();
@@ -39,7 +41,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		this.addCommand({
 			id: "shimeji-buddy-poke",
 			name: "Poke the buddy",
-			callback: () => this.widget?.react("poke"),
+			callback: () => this.reactWithLine("poke"),
 		});
 
 		this.addCommand({
@@ -59,6 +61,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		revokeSpritePack(this.spritePack);
 		this.spritePack = null;
 		if (this.modifyDebounce) window.clearTimeout(this.modifyDebounce);
+		this.unpatchCommands?.();
 	}
 
 	// ---------- settings ----------
@@ -67,7 +70,8 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		const data = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data, {
 			speechLines: Object.assign({}, DEFAULT_SETTINGS.speechLines, data?.speechLines),
-			atlasAnimations: Object.assign({}, DEFAULT_SETTINGS.atlasAnimations, data?.atlasAnimations),
+			customAnimations: data?.customAnimations ?? [],
+			commandTriggers: data?.commandTriggers ?? [],
 		});
 		// upgrade path: older saved data predates characterMode and only had customCharacterFolder
 		if (!data?.characterMode && data?.customCharacterFolder) {
@@ -135,7 +139,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.spritePack = await loadAtlasSpritePack(
 				this.app.vault,
 				this.settings.atlasImagePath,
-				this.settings.atlasAnimations
+				this.settings.customAnimations
 			);
 		} else {
 			this.spritePack = null;
@@ -155,14 +159,14 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		return this.availablePacks;
 	}
 
-	// ---------- vault action -> animation wiring ----------
+	// ---------- vault/workspace triggers ----------
 
 	private registerVaultEvents(): void {
 		this.registerEvent(
 			this.app.vault.on("create", (file) => {
 				if (!(file instanceof TFile)) return;
 				if (!this.settings.reactToCreate) return;
-				this.reactWithLine("cheer", "cheer");
+				this.reactWithLine("note:create");
 			})
 		);
 
@@ -170,7 +174,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.app.vault.on("delete", (file) => {
 				if (!(file instanceof TFile)) return;
 				if (!this.settings.reactToDelete) return;
-				this.reactWithLine("poof", "poof");
+				this.reactWithLine("note:delete");
 			})
 		);
 
@@ -178,7 +182,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.app.vault.on("rename", (file) => {
 				if (!(file instanceof TFile)) return;
 				if (!this.settings.reactToRename) return;
-				this.reactWithLine("surprised", "surprised");
+				this.reactWithLine("note:rename");
 			})
 		);
 
@@ -188,7 +192,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 				if (!this.settings.reactToModify) return;
 				if (this.modifyDebounce) window.clearTimeout(this.modifyDebounce);
 				this.modifyDebounce = window.setTimeout(() => {
-					this.reactWithLine("nod", "nod");
+					this.reactWithLine("note:edit");
 				}, MODIFY_DEBOUNCE_MS);
 			})
 		);
@@ -199,7 +203,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.app.workspace.on("file-open", (file) => {
 				if (!file) return;
 				if (!this.settings.reactToOpen) return;
-				this.reactWithLine("wave", "wave");
+				this.reactWithLine("note:open");
 			})
 		);
 
@@ -211,14 +215,39 @@ export default class ShimejiBuddyPlugin extends Plugin {
 				const now = Date.now();
 				if (now - this.lastSearchReactAt < 4000) return;
 				this.lastSearchReactAt = now;
-				this.reactWithLine("think", "think");
+				this.reactWithLine("search:open");
 			})
 		);
 	}
 
-	private reactWithLine(reaction: ReactionName, lineKey: keyof SpeechLines): void {
-		const lines = this.settings.speechLines[lineKey];
+	private reactWithLine(trigger: keyof SpeechLines): void {
+		const lines = this.settings.speechLines[trigger];
 		const line = lines && lines.length ? lines[Math.floor(Math.random() * lines.length)] : undefined;
-		this.widget?.react(reaction, line);
+		this.widget?.react(trigger, line);
+	}
+
+	// ---------- command triggers ----------
+
+	/**
+	 * Obsidian doesn't expose a public "a command just ran" event, so this
+	 * wraps the internal `app.commands.executeCommandById` (same technique
+	 * plugins like Commander use) to notice when a command the user has
+	 * added as a trigger runs, from anywhere - the command palette, a
+	 * hotkey, another plugin. Restored on unload.
+	 */
+	private registerCommandHook(): void {
+		const commands = (this.app as any).commands;
+		if (!commands || typeof commands.executeCommandById !== "function") return;
+		const original = commands.executeCommandById.bind(commands);
+		commands.executeCommandById = (id: string, ...args: unknown[]) => {
+			const result = original(id, ...args);
+			if (this.settings.commandTriggers.some((c) => c.commandId === id)) {
+				this.widget?.react(commandTriggerId(id));
+			}
+			return result;
+		};
+		this.unpatchCommands = () => {
+			commands.executeCommandById = original;
+		};
 	}
 }

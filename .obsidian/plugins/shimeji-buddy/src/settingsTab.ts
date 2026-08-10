@@ -1,20 +1,26 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, type DropdownComponent, type TextComponent } from "obsidian";
 import type ShimejiBuddyPlugin from "./main";
 import { AtlasSlicer } from "./AtlasSlicer";
 import {
-	REACTION_LABELS,
-	REACTION_NAMES,
+	BUILTIN_TRIGGERS,
+	commandTriggerId,
 	type AtlasFrameRect,
 	type CharacterMode,
-	type ReactionName,
+	type CustomAnimation,
+	type TriggerDef,
 } from "./settings";
+
+function newAnimationId(): string {
+	if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+	return `anim-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export class ShimejiSettingTab extends PluginSettingTab {
 	plugin: ShimejiBuddyPlugin;
 
 	private slicer?: AtlasSlicer;
-	private pendingTargetReaction: ReactionName = "idle";
-	private frameCountEls: Partial<Record<ReactionName, HTMLElement>> = {};
+	private pendingTargetAnimationId: string | null = null;
+	private frameCountEls: Record<string, HTMLElement> = {};
 
 	constructor(app: App, plugin: ShimejiBuddyPlugin) {
 		super(app, plugin);
@@ -181,6 +187,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		reactionToggle("Renaming a note", "Look surprised when a file is renamed.", "reactToRename");
 		reactionToggle("Searching", "Look thoughtful while the search pane is open.", "reactToSearch");
 
+		this.renderActionsSection(containerEl);
+
 		containerEl.createEl("h3", { text: "Speech bubble" });
 
 		new Setting(containerEl)
@@ -225,6 +233,69 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		}
 	}
 
+	// ---------- actions reference + command triggers ----------
+
+	private allKnownTriggers(): TriggerDef[] {
+		const commandDefs: TriggerDef[] = this.plugin.settings.commandTriggers.map((c) => ({
+			id: commandTriggerId(c.commandId),
+			label: `${c.label || c.commandId} (command)`,
+		}));
+		return [...BUILTIN_TRIGGERS, ...commandDefs];
+	}
+
+	private renderActionsSection(containerEl: HTMLElement): void {
+		const s = this.plugin.settings;
+
+		containerEl.createEl("h3", { text: "Actions Shimeji can react to" });
+		containerEl.createEl("p", {
+			cls: "setting-item-description",
+			text:
+				"Every one of these is assignable to an animation down in the Character section. Built-in " +
+				"ones are wired to real events already; add your own for any Obsidian command (yours or " +
+				"another plugin's) by its command id below.",
+		});
+
+		const list = containerEl.createEl("ul", { cls: "sm-trigger-list" });
+		for (const t of BUILTIN_TRIGGERS) {
+			list.createEl("li", { text: `${t.label} — ${t.id}` });
+		}
+		for (const c of s.commandTriggers) {
+			const li = list.createEl("li");
+			li.createSpan({ text: `${c.label || c.commandId} — ${commandTriggerId(c.commandId)} ` });
+			const remove = li.createEl("span", { text: "(remove)", cls: "sm-trigger-remove" });
+			remove.onclick = async () => {
+				s.commandTriggers = s.commandTriggers.filter((x) => x.commandId !== c.commandId);
+				await this.plugin.saveSettings();
+				this.display();
+			};
+		}
+
+		let commandIdInput: TextComponent | undefined;
+		let commandLabelInput: TextComponent | undefined;
+		new Setting(containerEl)
+			.setName("Add a command trigger")
+			.setDesc(
+				"Paste an Obsidian command id (find one via a helper plugin like \"Show Command ID\", or from a plugin's source) and give it a short label."
+			)
+			.addText((t) => {
+				commandIdInput = t;
+				t.setPlaceholder("editor:toggle-bold");
+			})
+			.addText((t) => {
+				commandLabelInput = t;
+				t.setPlaceholder("Label (optional)");
+			})
+			.addButton((b) =>
+				b.setButtonText("Add").onClick(async () => {
+					const commandId = commandIdInput?.getValue().trim();
+					if (!commandId || s.commandTriggers.some((c) => c.commandId === commandId)) return;
+					s.commandTriggers.push({ commandId, label: commandLabelInput?.getValue().trim() || commandId });
+					await this.plugin.saveSettings();
+					this.display();
+				})
+			);
+	}
+
 	// ---------- folder-pack mode ----------
 
 	private renderPackSection(containerEl: HTMLElement): void {
@@ -250,7 +321,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				? s.customCharacterFolder
 				: CUSTOM_VALUE;
 
-		let customPathText: import("obsidian").TextComponent | undefined;
+		let customPathText: TextComponent | undefined;
 
 		new Setting(containerEl)
 			.setName("Character pack")
@@ -298,7 +369,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			});
 	}
 
-	// ---------- freeform atlas mode ----------
+	// ---------- freeform atlas mode: animation library ----------
 
 	private renderAtlasSection(containerEl: HTMLElement): void {
 		const s = this.plugin.settings;
@@ -308,8 +379,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			text:
 				"For spritesheets that aren't a uniform grid (frames of different sizes, packed however they " +
 				"packed them). Point at one image, drag a box around a frame below (or type exact pixel " +
-				"coordinates), pick which animation it belongs to, and add it - repeat in order for every frame " +
-				"of every animation you want.",
+				"coordinates), add it to an animation, and assign that animation to one or more actions above.",
 		});
 
 		new Setting(containerEl)
@@ -369,12 +439,13 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Add selection to")
-			.setDesc("Which animation the currently selected frame should be appended to.")
+			.setDesc("Pick an existing animation, or create a new one, then add the current selection as its next frame.")
 			.addDropdown((d) => {
-				for (const name of REACTION_NAMES) d.addOption(name, REACTION_LABELS[name]);
-				d.setValue(this.pendingTargetReaction);
+				d.addOption("__new__", "+ New animation");
+				for (const anim of s.customAnimations) d.addOption(anim.id, anim.name || "(unnamed)");
+				d.setValue(this.pendingTargetAnimationId ?? "__new__");
 				d.onChange((v) => {
-					this.pendingTargetReaction = v as ReactionName;
+					this.pendingTargetAnimationId = v === "__new__" ? null : v;
 				});
 			})
 			.addButton((b) =>
@@ -384,92 +455,201 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.onClick(async () => {
 						const sel = this.slicer?.getSelection();
 						if (!sel) return;
-						const cfg = s.atlasAnimations[this.pendingTargetReaction];
-						cfg.frames.push({ ...sel });
-						cfg.enabled = true;
+						let anim = s.customAnimations.find((a) => a.id === this.pendingTargetAnimationId);
+						if (!anim) {
+							anim = {
+								id: newAnimationId(),
+								name: `Animation ${s.customAnimations.length + 1}`,
+								triggers: ["idle"],
+								moves: true,
+								weight: 1,
+								enabled: true,
+								loop: true,
+								fps: 6,
+								frames: [],
+							};
+							s.customAnimations.push(anim);
+							this.pendingTargetAnimationId = anim.id;
+						}
+						anim.frames.push({ ...sel });
+						anim.enabled = true;
 						await this.plugin.saveSettings();
 						await this.plugin.reloadSpritePack();
-						this.refreshFrameCountText(this.pendingTargetReaction);
+						this.display();
 					})
 			);
 
-		containerEl.createEl("h4", { text: "Animations" });
-		containerEl.createEl("p", {
-			cls: "setting-item-description",
-			text: "Undo removes the most recently added frame; frames play back in the order you added them.",
-		});
+		containerEl.createEl("h4", { text: "Your animations" });
+		if (s.customAnimations.length === 0) {
+			containerEl.createEl("p", {
+				cls: "setting-item-description",
+				text: "No animations yet - drag a selection above and click \"Add frame\" to create your first one.",
+			});
+		}
+		for (const anim of s.customAnimations) {
+			this.renderCustomAnimationBlock(containerEl, anim);
+		}
+	}
 
-		for (const name of REACTION_NAMES) {
-			const cfg = s.atlasAnimations[name];
-			const row = new Setting(containerEl).setName(REACTION_LABELS[name]);
-			row.descEl.empty();
-			const countEl = row.descEl.createSpan({ cls: "sm-frame-count" });
-			this.frameCountEls[name] = countEl;
-			this.refreshFrameCountText(name);
+	private renderCustomAnimationBlock(containerEl: HTMLElement, anim: CustomAnimation): void {
+		const s = this.plugin.settings;
+		const wrap = containerEl.createDiv({ cls: "sm-anim-block" });
 
-			row.addToggle((t) =>
+		new Setting(wrap)
+			.setName("Name")
+			.addText((t) =>
+				t.setValue(anim.name).onChange(async (v) => {
+					anim.name = v;
+					await this.plugin.saveSettings();
+				})
+			)
+			.addExtraButton((b) =>
+				b
+					.setIcon("trash-2")
+					.setTooltip("Delete this animation")
+					.onClick(async () => {
+						s.customAnimations = s.customAnimations.filter((a) => a.id !== anim.id);
+						if (this.pendingTargetAnimationId === anim.id) this.pendingTargetAnimationId = null;
+						await this.plugin.saveSettings();
+						await this.plugin.reloadSpritePack();
+						this.display();
+					})
+			);
+
+		const allKnown = this.allKnownTriggers();
+		const chipRow = wrap.createDiv({ cls: "sm-chip-row" });
+		if (anim.triggers.length === 0) {
+			chipRow.createSpan({ cls: "setting-item-description", text: "Not assigned to anything yet." });
+		}
+		for (const triggerId of anim.triggers) {
+			const label = allKnown.find((k) => k.id === triggerId)?.label ?? triggerId;
+			const chip = chipRow.createSpan({ cls: "sm-chip" });
+			chip.createSpan({ text: label });
+			const remove = chip.createSpan({ cls: "sm-chip-remove", text: "×" });
+			remove.onclick = async () => {
+				anim.triggers = anim.triggers.filter((x) => x !== triggerId);
+				await this.plugin.saveSettings();
+				await this.plugin.reloadSpritePack();
+				this.display();
+			};
+		}
+
+		const remaining = allKnown.filter((k) => !anim.triggers.includes(k.id));
+		if (remaining.length > 0) {
+			let addDropdown: DropdownComponent | undefined;
+			new Setting(wrap)
+				.setName("Add trigger")
+				.setDesc("Assign this animation to another action too.")
+				.addDropdown((d) => {
+					addDropdown = d;
+					for (const t of remaining) d.addOption(t.id, t.label);
+				})
+				.addButton((b) =>
+					b.setButtonText("Add").onClick(async () => {
+						const value = addDropdown?.getValue();
+						if (!value) return;
+						anim.triggers.push(value);
+						await this.plugin.saveSettings();
+						await this.plugin.reloadSpritePack();
+						this.display();
+					})
+				);
+		}
+
+		if (anim.triggers.includes("idle")) {
+			new Setting(wrap)
+				.setName("Moves around the screen")
+				.setDesc("On: played while roaming to a new spot. Off: played in place, like resting.")
+				.addToggle((t) =>
+					t.setValue(anim.moves).onChange(async (v) => {
+						anim.moves = v;
+						await this.plugin.saveSettings();
+					})
+				);
+		}
+
+		new Setting(wrap)
+			.setName("Probability weight")
+			.setDesc("Relative chance of being picked vs. other enabled animations sharing any of the same actions.")
+			.addText((t) =>
+				t.setValue(String(anim.weight)).onChange(async (v) => {
+					const n = Number(v);
+					if (!Number.isNaN(n) && n >= 0) {
+						anim.weight = n;
+						await this.plugin.saveSettings();
+					}
+				})
+			);
+
+		const playbackRow = new Setting(wrap).setName("Playback");
+		playbackRow.descEl.empty();
+		const countEl = playbackRow.descEl.createSpan({ cls: "sm-frame-count" });
+		this.frameCountEls[anim.id] = countEl;
+		this.refreshFrameCountText(anim.id);
+
+		playbackRow
+			.addToggle((t) =>
 				t
-					.setTooltip("Use this animation")
-					.setValue(cfg.enabled)
+					.setTooltip("Enabled")
+					.setValue(anim.enabled)
 					.onChange(async (v) => {
-						cfg.enabled = v;
+						anim.enabled = v;
 						await this.plugin.saveSettings();
 						await this.plugin.reloadSpritePack();
 					})
-			);
-			row.addText((t) =>
+			)
+			.addText((t) =>
 				t
 					.setPlaceholder("fps")
-					.setValue(String(cfg.fps))
+					.setValue(String(anim.fps))
 					.onChange(async (v) => {
 						const n = Number(v);
 						if (!Number.isNaN(n) && n > 0) {
-							cfg.fps = n;
+							anim.fps = n;
 							await this.plugin.saveSettings();
 							await this.plugin.reloadSpritePack();
 						}
 					})
-			);
-			row.addToggle((t) =>
+			)
+			.addToggle((t) =>
 				t
 					.setTooltip("Loop")
-					.setValue(cfg.loop)
+					.setValue(anim.loop)
 					.onChange(async (v) => {
-						cfg.loop = v;
+						anim.loop = v;
 						await this.plugin.saveSettings();
 						await this.plugin.reloadSpritePack();
 					})
-			);
-			row.addExtraButton((b) =>
+			)
+			.addExtraButton((b) =>
 				b
 					.setIcon("undo-2")
 					.setTooltip("Remove last frame")
 					.onClick(async () => {
-						cfg.frames.pop();
+						anim.frames.pop();
 						await this.plugin.saveSettings();
 						await this.plugin.reloadSpritePack();
-						this.refreshFrameCountText(name);
+						this.refreshFrameCountText(anim.id);
 					})
-			);
-			row.addExtraButton((b) =>
+			)
+			.addExtraButton((b) =>
 				b
 					.setIcon("trash-2")
 					.setTooltip("Clear all frames")
 					.onClick(async () => {
-						cfg.frames = [];
-						cfg.enabled = false;
+						anim.frames = [];
 						await this.plugin.saveSettings();
 						await this.plugin.reloadSpritePack();
-						this.refreshFrameCountText(name);
+						this.refreshFrameCountText(anim.id);
 					})
 			);
-		}
 	}
 
-	private refreshFrameCountText(name: ReactionName): void {
-		const el = this.frameCountEls[name];
+	private refreshFrameCountText(animId: string): void {
+		const el = this.frameCountEls[animId];
 		if (!el) return;
-		const count = this.plugin.settings.atlasAnimations[name].frames.length;
+		const anim = this.plugin.settings.customAnimations.find((a) => a.id === animId);
+		const count = anim ? anim.frames.length : 0;
 		el.setText(count === 1 ? "1 frame" : `${count} frames`);
 	}
 

@@ -1,7 +1,35 @@
-import { GAIT_REACTIONS, LOOPING_REACTIONS, type ShimejiSettings, type ReactionName } from "./settings";
-import type { LoadedSpritePack } from "./spritePack";
+import type { ShimejiSettings } from "./settings";
+import { pickWeighted, type LoadedSpritePack, type ResolvedAnimation } from "./spritePack";
 
-const LOCOMOTION_REACTIONS: ReadonlySet<ReactionName> = new Set<ReactionName>(["idle", ...GAIT_REACTIONS]);
+/** The built-in placeholder character's fixed set of hand-authored CSS poses. */
+type BuiltinPose =
+	| "idle"
+	| "wave"
+	| "cheer"
+	| "poof"
+	| "nod"
+	| "surprised"
+	| "think"
+	| "poke"
+	| "walk"
+	| "run"
+	| "jump"
+	| "sleep";
+
+const LOOPING_POSES: ReadonlySet<BuiltinPose> = new Set(["idle", "walk", "run", "jump", "sleep"]);
+
+/** Which builtin pose plays for a trigger id when no pack/atlas animation is assigned to it. Anything not listed here (e.g. a command trigger) just rests at idle. */
+const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
+	idle: "idle",
+	"note:open": "wave",
+	"note:create": "cheer",
+	"note:delete": "poof",
+	"note:edit": "nod",
+	"note:rename": "surprised",
+	"search:open": "think",
+	poke: "poke",
+	sleep: "sleep",
+};
 
 // Movement past this many px (in either axis, summed) counts as a drag
 // rather than a tap/click. Touch input is jittery, so this needs to be a
@@ -23,9 +51,10 @@ function computeResponsiveSize(baseSize: number): number {
 }
 
 // Wandering picks a random spot anywhere on screen and travels there at a
-// speed depending on the gait chosen, so a short hop across a phone and a
-// long dash across an ultrawide monitor both feel consistent rather than
-// snapping or crawling.
+// speed depending on the gait, so a short hop across a phone and a long dash
+// across an ultrawide monitor both feel consistent rather than snapping or
+// crawling. Custom pack/atlas "moves" idle animations don't carry their own
+// speed, so they use the walk pace.
 const GAIT_SPEED_PX_PER_SEC: Record<"walk" | "run" | "jump", number> = {
 	walk: 200,
 	run: 440,
@@ -34,14 +63,15 @@ const GAIT_SPEED_PX_PER_SEC: Record<"walk" | "run" | "jump", number> = {
 const RUN_MIN_DURATION_MS = 450;
 const RUN_MAX_DURATION_MS = 3400;
 
-// How long each built-in placeholder animation runs for, in ms.
-// Must stay in sync with the keyframe durations in styles.css.
-const PLACEHOLDER_DURATIONS: Record<ReactionName, number> = {
-	idle: 0, // looping, no fixed duration
-	walk: 0, // looping, driven by the wander tween instead
-	run: 0, // looping, driven by the wander tween instead
-	jump: 0, // looping, driven by the wander tween instead
-	sleep: 0, // looping
+// How long each one-shot builtin placeholder pose runs for, in ms, before
+// reverting to idle. Must stay in sync with the keyframe durations in
+// styles.css. Looping poses (see LOOPING_POSES) are exempt.
+const PLACEHOLDER_DURATIONS: Record<BuiltinPose, number> = {
+	idle: 0,
+	walk: 0,
+	run: 0,
+	jump: 0,
+	sleep: 0,
 	wave: 900,
 	cheer: 800,
 	poof: 700,
@@ -66,7 +96,8 @@ export class CharacterWidget {
 	private callbacks: CharacterWidgetCallbacks;
 	private pack: LoadedSpritePack | null = null;
 
-	private currentReaction: ReactionName = "idle";
+	/** The trigger id currently being displayed - "idle" covers both resting and roaming. */
+	private currentTrigger = "idle";
 	private facingLeft = false;
 
 	private idleTimer: number | null = null;
@@ -151,7 +182,7 @@ export class CharacterWidget {
 	setSpritePack(pack: LoadedSpritePack | null): void {
 		this.pack = pack;
 		this.containerEl.toggleClass("sm-sprite-mode", !!pack);
-		this.setReaction(this.currentReaction === "sleep" ? "sleep" : "idle");
+		this.setReaction(this.currentTrigger === "sleep" ? "sleep" : "idle");
 	}
 
 	updateSettings(settings: ShimejiSettings): void {
@@ -182,10 +213,10 @@ export class CharacterWidget {
 		this.restartIdleBrain();
 	}
 
-	/** Called from vault/workspace event handlers to react to something the user did. */
-	react(name: ReactionName, message?: string): void {
+	/** Called from vault/workspace event handlers (and the command hook) to react to a trigger id. */
+	react(trigger: string, message?: string): void {
 		this.lastActivity = Date.now();
-		this.setReaction(name, message);
+		this.setReaction(trigger, message);
 	}
 
 	destroy(): void {
@@ -200,45 +231,52 @@ export class CharacterWidget {
 
 	// ---------- reaction / animation core ----------
 
-	private setReaction(name: ReactionName, message?: string): void {
-		this.currentReaction = name;
+	private setReaction(trigger: string, message?: string): void {
+		this.currentTrigger = trigger;
+		this.clearTimer("oneShotRevertTimer");
 
-		if (this.pack?.animations[name]) {
-			this.playSprite(name);
+		const pool = this.pack?.bySlot[trigger];
+		const chosen = pool && pool.length > 0 ? pickWeighted(pool) : null;
+
+		if (chosen) {
+			this.playResolvedAnimation(chosen, () => {
+				if (this.currentTrigger === trigger) this.setReaction("idle");
+			});
 		} else if (this.pack) {
-			// Sprite pack active but missing this specific animation: fall back
-			// to its idle frame (or the placeholder if it has none at all).
-			if (this.pack.animations.idle) this.playSprite("idle");
-			else this.playPlaceholder(name);
+			// Pack active but nothing assigned to this trigger: fall back to its
+			// idle pool (a resting entry if one exists), else the placeholder.
+			const idlePool = this.pack.bySlot.idle ?? [];
+			const restingIdle = idlePool.filter((c) => !c.moves);
+			const idleChosen = pickWeighted(restingIdle.length > 0 ? restingIdle : idlePool);
+			if (idleChosen) this.playResolvedAnimation(idleChosen, () => {});
+			else this.playBuiltinForTrigger(trigger);
 		} else {
-			this.playPlaceholder(name);
+			this.playBuiltinForTrigger(trigger);
 		}
 
 		if (message && this.settings.speechBubbleEnabled) this.showBubble(message);
+	}
 
-		if (!LOOPING_REACTIONS.has(name)) {
-			this.clearTimer("oneShotRevertTimer");
-			const duration = this.pack?.animations[name]
-				? undefined // sprite one-shot completion drives the revert itself
-				: PLACEHOLDER_DURATIONS[name] || 600;
-			if (duration) {
-				this.oneShotRevertTimer = window.setTimeout(() => {
-					if (this.currentReaction === name) this.setReaction("idle");
-				}, duration);
-			}
+	/** Renders the trigger's built-in placeholder pose and, unless it loops, schedules the revert to idle. */
+	private playBuiltinForTrigger(trigger: string): void {
+		const pose = BUILTIN_POSE_FOR_TRIGGER[trigger] ?? "idle";
+		this.playPlaceholder(pose);
+		if (!LOOPING_POSES.has(pose)) {
+			const duration = PLACEHOLDER_DURATIONS[pose] || 600;
+			this.oneShotRevertTimer = window.setTimeout(() => {
+				if (this.currentTrigger === trigger) this.setReaction("idle");
+			}, duration);
 		}
 	}
 
-	private playPlaceholder(name: ReactionName): void {
+	private playPlaceholder(pose: BuiltinPose): void {
 		this.spriteStageEl.style.display = "none";
 		this.charEl.style.display = "";
-		this.charEl.className = `sm-char sm-state-${name}${this.facingLeft ? " sm-facing-left" : ""}`;
+		this.charEl.className = `sm-char sm-state-${pose}${this.facingLeft ? " sm-facing-left" : ""}`;
 	}
 
-	private playSprite(name: ReactionName): void {
-		if (!this.pack) return;
-		const anim = this.pack.animations[name];
-		if (!anim || anim.frames.length === 0) return;
+	private playResolvedAnimation(anim: ResolvedAnimation, onComplete: () => void): void {
+		if (anim.frames.length === 0) return;
 
 		this.charEl.style.display = "none";
 		this.spriteStageEl.style.display = "";
@@ -279,9 +317,7 @@ export class CharacterWidget {
 					frame = anim.frames.length - 1;
 					draw();
 					this.clearTimer("spriteFrameTimer");
-					if (this.currentReaction === name && !LOOPING_REACTIONS.has(name)) {
-						this.setReaction("idle");
-					}
+					onComplete();
 					return;
 				}
 			}
@@ -315,30 +351,40 @@ export class CharacterWidget {
 
 	private idleTick(): void {
 		this.scheduleNextIdleTick();
-		if (!LOCOMOTION_REACTIONS.has(this.currentReaction)) return;
+		if (this.currentTrigger !== "idle") return;
 
 		if (this.settings.wanderEnabled && Math.random() < 0.35) {
 			this.wander();
 		} else {
 			// Nudge the placeholder animation to replay its idle keyframe
-			// (also picks a fresh random blink phase via CSS restart).
+			// (also picks a fresh random blink phase via CSS restart), or
+			// re-roll the pack's idle pool for variety.
 			this.setReaction("idle");
 		}
 	}
 
-	/** Picks a locomotion style for this roam - whichever gaits the active character actually has, or all three for the built-in placeholder. */
-	private pickGait(): ReactionName {
-		if (this.pack) {
-			const available = GAIT_REACTIONS.filter((g) => this.pack!.animations[g]);
-			if (available.length > 0) return available[Math.floor(Math.random() * available.length)];
-			return "walk"; // setReaction() will gracefully fall back to idle/placeholder if even this is missing
-		}
-		return GAIT_REACTIONS[Math.floor(Math.random() * GAIT_REACTIONS.length)];
-	}
-
 	private wander(): void {
-		const gait = this.pickGait();
-		const speed = GAIT_SPEED_PX_PER_SEC[gait as "walk" | "run" | "jump"] ?? GAIT_SPEED_PX_PER_SEC.walk;
+		let speed: number;
+		let render: () => void;
+
+		if (this.pack) {
+			const movable = (this.pack.bySlot.idle ?? []).filter((c) => c.moves);
+			const chosen = pickWeighted(movable);
+			if (!chosen) return; // nothing to roam with this tick; stay put
+			speed = GAIT_SPEED_PX_PER_SEC.walk;
+			render = () => {
+				this.currentTrigger = "idle";
+				this.playResolvedAnimation(chosen, () => {});
+			};
+		} else {
+			const gaits: BuiltinPose[] = ["walk", "run", "jump"];
+			const pose = gaits[Math.floor(Math.random() * gaits.length)];
+			speed = GAIT_SPEED_PX_PER_SEC[pose as "walk" | "run" | "jump"];
+			render = () => {
+				this.currentTrigger = "idle";
+				this.playPlaceholder(pose);
+			};
+		}
 
 		const rect = this.containerEl.getBoundingClientRect();
 		const margin = 8;
@@ -357,7 +403,7 @@ export class CharacterWidget {
 		const distance = Math.hypot(dx, dy);
 		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / speed) * 1000));
 
-		this.setReaction(gait);
+		render();
 		this.containerEl.addClass("sm-tween");
 		this.containerEl.style.transitionDuration = `${duration}ms`;
 		this.containerEl.style.right = `${newRight}px`;
@@ -369,7 +415,7 @@ export class CharacterWidget {
 			this.settings.posX = newRight;
 			this.settings.posY = newBottom;
 			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
-			if (this.currentReaction === gait) this.setReaction("idle");
+			if (this.currentTrigger === "idle") this.setReaction("idle");
 		}, duration);
 	}
 
@@ -378,7 +424,7 @@ export class CharacterWidget {
 	private startSleepWatcher(): void {
 		this.clearTimer("sleepCheckTimer");
 		this.sleepCheckTimer = window.setInterval(() => {
-			if (this.currentReaction !== "idle") return;
+			if (this.currentTrigger !== "idle") return;
 			const idleMs = Date.now() - this.lastActivity;
 			if (idleMs > this.settings.sleepAfterMinutes * 60_000) {
 				this.setReaction("sleep");
@@ -452,7 +498,7 @@ export class CharacterWidget {
 		this.applySize(this.settings.size);
 		// The placeholder character rescales for free via the --sm-size CSS
 		// var; a sprite pack/atlas needs its frame dimensions recomputed.
-		if (this.pack) this.setReaction(this.currentReaction);
+		if (this.pack) this.setReaction(this.currentTrigger);
 
 		const rect = this.containerEl.getBoundingClientRect();
 		const maxRight = Math.max(4, window.innerWidth - rect.width - 4);
