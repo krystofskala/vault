@@ -41,15 +41,18 @@ export function commandTriggerId(commandId: string): string {
 }
 
 /**
- * One animation in the user's library. Can be assigned to more than one
+ * One animation in a character's library. Can be assigned to more than one
  * trigger (e.g. the same "happy hop" plays for both note:create and poke);
  * each trigger it's assigned to draws from a pool of all animations
  * assigned to it, weighted, so several animations can share one trigger for
- * variety instead of always playing the same thing.
+ * variety instead of always playing the same thing. All of an animation's
+ * frames come from one source image within its character's folder.
  */
 export interface CustomAnimation {
 	id: string;
 	name: string;
+	/** Filename (within the character's folder) this animation's frames are cropped from. */
+	sourceImage: string;
 	triggers: string[];
 	/** Only meaningful when "idle" is among triggers: roam to a new spot while playing vs. play in place. */
 	moves: boolean;
@@ -60,14 +63,7 @@ export interface CustomAnimation {
 	frames: AtlasFrameRect[];
 }
 
-export interface AtlasAnimationConfig {
-	enabled: boolean;
-	frames: AtlasFrameRect[];
-	fps: number;
-	loop: boolean;
-}
-
-export type CharacterMode = "builtin" | "pack" | "atlas";
+export type CharacterMode = "builtin" | "character";
 
 export interface SpeechLines {
 	"note:open": string[];
@@ -102,12 +98,9 @@ export interface ShimejiSettings {
 
 	characterMode: CharacterMode;
 
-	// characterMode === "pack": a folder with manifest.json (animations keyed by trigger id, see characters/example-pack)
-	customCharacterFolder: string;
+	/** characterMode === "character": vault-relative path to the active character's folder (images + character.json live there). */
+	activeCharacterFolder: string;
 
-	// characterMode === "atlas": one image, sliced into freeform per-frame rectangles
-	atlasImagePath: string;
-	customAnimations: CustomAnimation[];
 	commandTriggers: CommandTrigger[];
 }
 
@@ -142,9 +135,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	mobileReadingViewOnly: true,
 
 	characterMode: "builtin",
-	customCharacterFolder: "",
+	activeCharacterFolder: "",
 
-	atlasImagePath: "",
-	customAnimations: [],
 	commandTriggers: [],
 };

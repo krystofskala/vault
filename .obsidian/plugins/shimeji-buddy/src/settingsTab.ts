@@ -5,15 +5,26 @@ import {
 	BUILTIN_TRIGGERS,
 	commandTriggerId,
 	type AtlasFrameRect,
-	type CharacterMode,
 	type CustomAnimation,
 	type TriggerDef,
 } from "./settings";
+import {
+	addImageToCharacter,
+	createCharacter,
+	deleteCharacterImage,
+	generateStripFrames,
+	listCharacterImages,
+	readCharacterFile,
+	writeCharacterFile,
+	type CharacterFile,
+} from "./spritePack";
 
 function newAnimationId(): string {
 	if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
 	return `anim-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
+
+const NEW_CHARACTER_VALUE = "__new_character__";
 
 export class ShimejiSettingTab extends PluginSettingTab {
 	plugin: ShimejiBuddyPlugin;
@@ -21,6 +32,13 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	private slicer?: AtlasSlicer;
 	private pendingTargetAnimationId: string | null = null;
 	private frameCountEls: Record<string, HTMLElement> = {};
+
+	private creatingCharacter = false;
+	private loadedCharacterFolder: string | null = null;
+	private characterFileLoaded = false;
+	private characterFile: CharacterFile | null = null;
+	private characterImages: string[] = [];
+	private editingImage: string | null = null;
 
 	constructor(app: App, plugin: ShimejiBuddyPlugin) {
 		super(app, plugin);
@@ -41,8 +59,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		containerEl.createEl("p", {
 			text:
 				"A little character that idles on its own and reacts to what you do in the vault. " +
-				"Ships with a generic placeholder - pick or drop in sprites of whatever character you like " +
-				"below, however you find them.",
+				"Ships with a generic placeholder - build your own character below to make it look like " +
+				"anything you want.",
 			cls: "setting-item-description",
 		});
 
@@ -113,35 +131,20 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h3", { text: "Standby behaviour" });
 
-		new Setting(containerEl)
+		const idleRow = new Setting(containerEl)
 			.setName("Idle interval")
-			.setDesc("How often (seconds) the buddy decides on its own what to do next while nothing is happening.")
-			.addText((t) =>
-				t
-					.setPlaceholder("min")
-					.setValue(String(s.idleMinSeconds))
-					.onChange(async (v) => {
-						const n = Number(v);
-						if (!Number.isNaN(n) && n > 0) {
-							s.idleMinSeconds = n;
-							await this.plugin.saveSettings();
-							this.plugin.applyLiveSettings();
-						}
-					})
-			)
-			.addText((t) =>
-				t
-					.setPlaceholder("max")
-					.setValue(String(s.idleMaxSeconds))
-					.onChange(async (v) => {
-						const n = Number(v);
-						if (!Number.isNaN(n) && n > 0) {
-							s.idleMaxSeconds = n;
-							await this.plugin.saveSettings();
-							this.plugin.applyLiveSettings();
-						}
-					})
-			);
+			.setDesc("How often the buddy decides on its own what to do next while nothing is happening.");
+		const idleFields = idleRow.controlEl.createDiv({ cls: "sm-slicer-controls" });
+		this.mkLabeledNumber(idleFields, "Min sec", s.idleMinSeconds, async (n) => {
+			s.idleMinSeconds = n;
+			await this.plugin.saveSettings();
+			this.plugin.applyLiveSettings();
+		});
+		this.mkLabeledNumber(idleFields, "Max sec", s.idleMaxSeconds, async (n) => {
+			s.idleMaxSeconds = n;
+			await this.plugin.saveSettings();
+			this.plugin.applyLiveSettings();
+		});
 
 		new Setting(containerEl)
 			.setName("Wander")
@@ -205,32 +208,33 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"The built-in character is a generic placeholder. Bring your own character instead: use a " +
-				"folder pack (manifest.json + sprite strips), or a single freeform spritesheet sliced right " +
-				"here in settings - whatever sprites you've got, in whatever shape you found them.",
+				"The built-in character is a generic placeholder. Build your own instead: a character is a " +
+				"folder that can hold as many images as you want (clean strips or messy full sheets); slice " +
+				"whichever frames you need out of any of them, right here.",
 		});
 
-		new Setting(containerEl)
-			.setName("Character source")
-			.setDesc("Where the buddy's look comes from.")
-			.addDropdown((d) => {
-				d.addOption("builtin", "Built-in placeholder (generic)");
-				d.addOption("pack", "Folder pack (manifest.json + sprite strips)");
-				d.addOption("atlas", "Single spritesheet (slice it below)");
-				d.setValue(s.characterMode);
-				d.onChange(async (v) => {
-					s.characterMode = v as CharacterMode;
-					await this.plugin.saveSettings();
-					await this.plugin.reloadSpritePack();
-					this.display();
-				});
-			});
+		this.renderCharacterPicker(containerEl);
 
-		if (s.characterMode === "pack") {
-			this.renderPackSection(containerEl);
-		} else if (s.characterMode === "atlas") {
-			this.renderAtlasSection(containerEl);
+		if (s.characterMode === "character" && s.activeCharacterFolder) {
+			this.renderCharacterEditor(containerEl);
 		}
+	}
+
+	private mkLabeledNumber(
+		parent: HTMLElement,
+		label: string,
+		value: number,
+		onCommit: (n: number) => void | Promise<void>
+	): HTMLInputElement {
+		const wrap = parent.createDiv({ cls: "sm-slicer-field" });
+		wrap.createEl("label", { text: label });
+		const input = wrap.createEl("input", { type: "number", attr: { min: "1" } });
+		input.value = String(value);
+		input.addEventListener("change", () => {
+			const n = Number(input.value);
+			if (!Number.isNaN(n) && n > 0) onCommit(n);
+		});
+		return input;
 	}
 
 	// ---------- actions reference + command triggers ----------
@@ -251,8 +255,9 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			cls: "setting-item-description",
 			text:
 				"Every one of these is assignable to an animation down in the Character section. Built-in " +
-				"ones are wired to real events already; add your own for any Obsidian command (yours or " +
-				"another plugin's) by its command id below.",
+				"ones are wired to real events already. For anything else - any Obsidian command, yours or " +
+				"another plugin's - run \"Shimeji Buddy: List all command IDs into current note\" from the " +
+				"command palette to paste every command's id into your note, then add the one you want below.",
 		});
 
 		const list = containerEl.createEl("ul", { cls: "sm-trigger-list" });
@@ -274,9 +279,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		let commandLabelInput: TextComponent | undefined;
 		new Setting(containerEl)
 			.setName("Add a command trigger")
-			.setDesc(
-				"Paste an Obsidian command id (find one via a helper plugin like \"Show Command ID\", or from a plugin's source) and give it a short label."
-			)
+			.setDesc("Paste a command id from the list above and give it a short label.")
 			.addText((t) => {
 				commandIdInput = t;
 				t.setPlaceholder("editor:toggle-bold");
@@ -296,106 +299,186 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			);
 	}
 
-	// ---------- folder-pack mode ----------
+	// ---------- character picker ----------
 
-	private renderPackSection(containerEl: HTMLElement): void {
+	private renderCharacterPicker(containerEl: HTMLElement): void {
 		const s = this.plugin.settings;
 
-		containerEl.createEl("p", {
-			cls: "setting-item-description",
-			text:
-				"Drop a pack's folder into characters/ inside this plugin's folder (each one needs a " +
-				"manifest.json plus its sprite strips - see characters/example-pack for the format), then pick it below.",
-		});
-
-		if (!this.plugin.availablePacksLoaded) {
-			this.plugin.refreshAvailablePacks().then(() => this.display());
+		if (!this.plugin.availableCharactersLoaded) {
+			this.plugin.refreshAvailableCharacters().then(() => this.display());
 		}
 
-		const CUSTOM_VALUE = "__custom__";
-		const knownPaths = this.plugin.availablePacks.map((p) => p.path);
-		const dropdownValue =
-			s.customCharacterFolder === ""
-				? ""
-				: knownPaths.includes(s.customCharacterFolder)
-				? s.customCharacterFolder
-				: CUSTOM_VALUE;
-
-		let customPathText: TextComponent | undefined;
-
 		new Setting(containerEl)
-			.setName("Character pack")
-			.setDesc("Choose a discovered pack, or pick \"Custom path...\" to point at one manually below.")
+			.setName("Character source")
+			.setDesc("Which character is active.")
 			.addDropdown((d) => {
-				d.addOption("", "Built-in placeholder (generic)");
-				for (const pack of this.plugin.availablePacks) d.addOption(pack.path, pack.label);
-				d.addOption(CUSTOM_VALUE, "Custom path...");
-				d.setValue(dropdownValue);
+				d.addOption("builtin", "Built-in placeholder (generic)");
+				for (const c of this.plugin.availableCharacters) d.addOption(c.path, c.label);
+				d.addOption(NEW_CHARACTER_VALUE, "+ New character...");
+				d.setValue(
+					s.characterMode === "character" && s.activeCharacterFolder ? s.activeCharacterFolder : "builtin"
+				);
 				d.onChange(async (value) => {
-					if (value === CUSTOM_VALUE) {
+					if (value === NEW_CHARACTER_VALUE) {
+						this.creatingCharacter = true;
 						this.display();
 						return;
 					}
-					s.customCharacterFolder = value;
-					customPathText?.setValue(value);
+					if (value === "builtin") {
+						s.characterMode = "builtin";
+					} else {
+						s.characterMode = "character";
+						s.activeCharacterFolder = value;
+						this.characterFileLoaded = false;
+						this.editingImage = null;
+					}
 					await this.plugin.saveSettings();
 					await this.plugin.reloadSpritePack();
+					this.display();
 				});
 			})
 			.addExtraButton((b) =>
 				b
 					.setIcon("refresh-cw")
-					.setTooltip("Rescan characters/ for packs")
+					.setTooltip("Rescan characters/ folder")
 					.onClick(async () => {
-						await this.plugin.refreshAvailablePacks();
+						await this.plugin.refreshAvailableCharacters();
 						this.display();
 					})
 			);
 
-		new Setting(containerEl)
-			.setName("Custom pack path")
-			.setDesc(
-				"Vault-relative folder path, e.g. .obsidian/plugins/shimeji-buddy/characters/my-pack. Leave empty for the built-in placeholder."
-			)
-			.addText((t) => {
-				customPathText = t;
-				t.setPlaceholder(".obsidian/plugins/shimeji-buddy/characters/my-pack")
-					.setValue(s.customCharacterFolder)
-					.onChange(async (v) => {
-						s.customCharacterFolder = v.trim();
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
-					});
-			});
+		if (this.creatingCharacter) {
+			let nameInput: TextComponent | undefined;
+			new Setting(containerEl)
+				.setName("New character name")
+				.addText((t) => {
+					nameInput = t;
+					t.setPlaceholder("My character");
+				})
+				.addButton((b) =>
+					b
+						.setButtonText("Create")
+						.setCta()
+						.onClick(async () => {
+							const name = nameInput?.getValue().trim();
+							if (!name) return;
+							const folder = await createCharacter(this.app.vault, this.plugin.getCharactersDir(), name);
+							s.characterMode = "character";
+							s.activeCharacterFolder = folder;
+							this.characterFileLoaded = false;
+							this.editingImage = null;
+							this.creatingCharacter = false;
+							await this.plugin.saveSettings();
+							await this.plugin.refreshAvailableCharacters();
+							await this.plugin.reloadSpritePack();
+							this.display();
+						})
+				)
+				.addExtraButton((b) =>
+					b.setIcon("x").setTooltip("Cancel").onClick(() => {
+						this.creatingCharacter = false;
+						this.display();
+					})
+				);
+		}
 	}
 
-	// ---------- freeform atlas mode: animation library ----------
+	// ---------- character editor ----------
 
-	private renderAtlasSection(containerEl: HTMLElement): void {
+	private renderCharacterEditor(containerEl: HTMLElement): void {
 		const s = this.plugin.settings;
+		const folder = s.activeCharacterFolder;
 
-		containerEl.createEl("p", {
-			cls: "setting-item-description",
-			text:
-				"For spritesheets that aren't a uniform grid (frames of different sizes, packed however they " +
-				"packed them). Point at one image, drag a box around a frame below (or type exact pixel " +
-				"coordinates), add it to an animation, and assign that animation to one or more actions above.",
-		});
+		if (this.loadedCharacterFolder !== folder) {
+			this.loadedCharacterFolder = folder;
+			this.characterFileLoaded = false;
+			Promise.all([readCharacterFile(this.app.vault, folder), listCharacterImages(this.app.vault, folder)]).then(
+				([file, images]) => {
+					this.characterFile = file;
+					this.characterImages = images;
+					this.characterFileLoaded = true;
+					this.display();
+				}
+			);
+		}
+
+		if (!this.characterFileLoaded || !this.characterFile) {
+			containerEl.createEl("p", { cls: "setting-item-description", text: "Loading character…" });
+			return;
+		}
+
+		containerEl.createEl("h4", { text: "Images" });
+		if (this.characterImages.length === 0) {
+			containerEl.createEl("p", {
+				cls: "setting-item-description",
+				text: "No images yet - upload one to get started (a clean strip, a messy full sheet, whatever).",
+			});
+		}
+		for (const img of this.characterImages) {
+			const isEditing = this.editingImage === img;
+			new Setting(containerEl)
+				.setName(img)
+				.addButton((b) =>
+					b
+						.setButtonText(isEditing ? "Editing" : "Slice frames")
+						.setDisabled(isEditing)
+						.onClick(async () => {
+							this.editingImage = img;
+							await this.loadSlicerImage();
+							this.display();
+						})
+				)
+				.addExtraButton((b) =>
+					b
+						.setIcon("trash-2")
+						.setTooltip("Delete image (and any animations using it)")
+						.onClick(async () => {
+							await deleteCharacterImage(this.app.vault, folder, img);
+							if (this.characterFile) {
+								this.characterFile.animations = this.characterFile.animations.filter(
+									(a) => a.sourceImage !== img
+								);
+								await this.persistCharacterFile();
+							}
+							if (this.editingImage === img) this.editingImage = null;
+							this.characterImages = await listCharacterImages(this.app.vault, folder);
+							this.display();
+						})
+				);
+		}
 
 		new Setting(containerEl)
-			.setName("Spritesheet image")
-			.setDesc("Vault-relative path to a single image containing all your frames.")
-			.addText((t) =>
-				t
-					.setPlaceholder(".obsidian/plugins/shimeji-buddy/characters/my-sheet.png")
-					.setValue(s.atlasImagePath)
-					.onChange(async (v) => {
-						s.atlasImagePath = v.trim();
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
-						await this.loadSlicerImage();
-					})
-			);
+			.setName("Upload image")
+			.setDesc("Pick a PNG (or JPG/GIF/WebP) from anywhere on your computer - it's copied into this character's folder.")
+			.addButton((b) => b.setButtonText("Upload…").onClick(() => this.pickAndUploadImage(folder)));
+
+		containerEl.createEl("h4", { text: "Slice frames" });
+		if (!this.editingImage) {
+			containerEl.createEl("p", {
+				cls: "setting-item-description",
+				text: "Pick \"Slice frames\" on an image above to start.",
+			});
+		} else {
+			this.renderSlicer(containerEl, folder);
+		}
+
+		containerEl.createEl("h4", { text: "Animations" });
+		if (this.characterFile.animations.length === 0) {
+			containerEl.createEl("p", {
+				cls: "setting-item-description",
+				text: "No animations yet - slice some frames above to create your first one.",
+			});
+		}
+		for (const anim of this.characterFile.animations) {
+			this.renderCustomAnimationBlock(containerEl, anim);
+		}
+	}
+
+	private renderSlicer(containerEl: HTMLElement, folder: string): void {
+		containerEl.createEl("p", {
+			cls: "setting-item-description",
+			text: `Editing: ${this.editingImage}. Drag a box around a frame (or type exact coordinates), then add it to an animation - or use "Generate strip frames" below if this image is an evenly-spaced strip.`,
+		});
 
 		const slicerHost = containerEl.createDiv();
 		if (!this.slicer) {
@@ -437,12 +520,13 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			input.addEventListener("change", commitInputsToSelection);
 		}
 
+		const relevantAnims = this.characterFile?.animations.filter((a) => a.sourceImage === this.editingImage) ?? [];
 		new Setting(containerEl)
 			.setName("Add selection to")
-			.setDesc("Pick an existing animation, or create a new one, then add the current selection as its next frame.")
+			.setDesc("Pick an existing animation for this image, or create a new one.")
 			.addDropdown((d) => {
 				d.addOption("__new__", "+ New animation");
-				for (const anim of s.customAnimations) d.addOption(anim.id, anim.name || "(unnamed)");
+				for (const anim of relevantAnims) d.addOption(anim.id, anim.name || "(unnamed)");
 				d.setValue(this.pendingTargetAnimationId ?? "__new__");
 				d.onChange((v) => {
 					this.pendingTargetAnimationId = v === "__new__" ? null : v;
@@ -455,52 +539,64 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.onClick(async () => {
 						const sel = this.slicer?.getSelection();
 						if (!sel) return;
-						let anim = s.customAnimations.find((a) => a.id === this.pendingTargetAnimationId);
-						if (!anim) {
-							anim = {
-								id: newAnimationId(),
-								name: `Animation ${s.customAnimations.length + 1}`,
-								triggers: ["idle"],
-								moves: true,
-								weight: 1,
-								enabled: true,
-								loop: true,
-								fps: 6,
-								frames: [],
-							};
-							s.customAnimations.push(anim);
-							this.pendingTargetAnimationId = anim.id;
-						}
-						anim.frames.push({ ...sel });
-						anim.enabled = true;
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
-						this.display();
+						await this.appendFramesToTargetAnimation(folder, [sel]);
 					})
 			);
 
-		containerEl.createEl("h4", { text: "Your animations" });
-		if (s.customAnimations.length === 0) {
-			containerEl.createEl("p", {
-				cls: "setting-item-description",
-				text: "No animations yet - drag a selection above and click \"Add frame\" to create your first one.",
-			});
+		let stripCountInput: TextComponent | undefined;
+		new Setting(containerEl)
+			.setName("Generate strip frames")
+			.setDesc("For an evenly-spaced horizontal strip: how many equal-width frames does this image contain?")
+			.addText((t) => {
+				stripCountInput = t;
+				t.setPlaceholder("e.g. 6");
+			})
+			.addButton((b) =>
+				b.setButtonText("Generate").onClick(async () => {
+					const size = this.slicer?.getNaturalSize();
+					const count = Number(stripCountInput?.getValue());
+					if (!size || !count || count < 1) return;
+					const frames = generateStripFrames(size.width, size.height, count);
+					await this.appendFramesToTargetAnimation(folder, frames);
+				})
+			);
+	}
+
+	private async appendFramesToTargetAnimation(folder: string, frames: AtlasFrameRect[]): Promise<void> {
+		if (!this.characterFile || !this.editingImage) return;
+		let anim = this.characterFile.animations.find((a) => a.id === this.pendingTargetAnimationId);
+		if (!anim || anim.sourceImage !== this.editingImage) {
+			anim = {
+				id: newAnimationId(),
+				name: `Animation ${this.characterFile.animations.length + 1}`,
+				sourceImage: this.editingImage,
+				triggers: ["idle"],
+				moves: true,
+				weight: 1,
+				enabled: true,
+				loop: true,
+				fps: 6,
+				frames: [],
+			};
+			this.characterFile.animations.push(anim);
+			this.pendingTargetAnimationId = anim.id;
 		}
-		for (const anim of s.customAnimations) {
-			this.renderCustomAnimationBlock(containerEl, anim);
-		}
+		anim.frames.push(...frames);
+		anim.enabled = true;
+		await this.persistCharacterFile();
+		this.display();
 	}
 
 	private renderCustomAnimationBlock(containerEl: HTMLElement, anim: CustomAnimation): void {
-		const s = this.plugin.settings;
 		const wrap = containerEl.createDiv({ cls: "sm-anim-block" });
 
 		new Setting(wrap)
 			.setName("Name")
+			.setDesc(`Source image: ${anim.sourceImage}`)
 			.addText((t) =>
 				t.setValue(anim.name).onChange(async (v) => {
 					anim.name = v;
-					await this.plugin.saveSettings();
+					await this.persistCharacterFile();
 				})
 			)
 			.addExtraButton((b) =>
@@ -508,10 +604,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.setIcon("trash-2")
 					.setTooltip("Delete this animation")
 					.onClick(async () => {
-						s.customAnimations = s.customAnimations.filter((a) => a.id !== anim.id);
+						if (!this.characterFile) return;
+						this.characterFile.animations = this.characterFile.animations.filter((a) => a.id !== anim.id);
 						if (this.pendingTargetAnimationId === anim.id) this.pendingTargetAnimationId = null;
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
+						await this.persistCharacterFile();
 						this.display();
 					})
 			);
@@ -528,8 +624,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			const remove = chip.createSpan({ cls: "sm-chip-remove", text: "×" });
 			remove.onclick = async () => {
 				anim.triggers = anim.triggers.filter((x) => x !== triggerId);
-				await this.plugin.saveSettings();
-				await this.plugin.reloadSpritePack();
+				await this.persistCharacterFile();
 				this.display();
 			};
 		}
@@ -549,8 +644,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						const value = addDropdown?.getValue();
 						if (!value) return;
 						anim.triggers.push(value);
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
+						await this.persistCharacterFile();
 						this.display();
 					})
 				);
@@ -563,7 +657,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				.addToggle((t) =>
 					t.setValue(anim.moves).onChange(async (v) => {
 						anim.moves = v;
-						await this.plugin.saveSettings();
+						await this.persistCharacterFile();
 					})
 				);
 		}
@@ -576,7 +670,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					const n = Number(v);
 					if (!Number.isNaN(n) && n >= 0) {
 						anim.weight = n;
-						await this.plugin.saveSettings();
+						await this.persistCharacterFile();
 					}
 				})
 			);
@@ -594,8 +688,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.setValue(anim.enabled)
 					.onChange(async (v) => {
 						anim.enabled = v;
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
+						await this.persistCharacterFile();
 					})
 			)
 			.addText((t) =>
@@ -606,8 +699,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						const n = Number(v);
 						if (!Number.isNaN(n) && n > 0) {
 							anim.fps = n;
-							await this.plugin.saveSettings();
-							await this.plugin.reloadSpritePack();
+							await this.persistCharacterFile();
 						}
 					})
 			)
@@ -617,8 +709,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.setValue(anim.loop)
 					.onChange(async (v) => {
 						anim.loop = v;
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
+						await this.persistCharacterFile();
 					})
 			)
 			.addExtraButton((b) =>
@@ -627,8 +718,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.setTooltip("Remove last frame")
 					.onClick(async () => {
 						anim.frames.pop();
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
+						await this.persistCharacterFile();
 						this.refreshFrameCountText(anim.id);
 					})
 			)
@@ -638,8 +728,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.setTooltip("Clear all frames")
 					.onClick(async () => {
 						anim.frames = [];
-						await this.plugin.saveSettings();
-						await this.plugin.reloadSpritePack();
+						await this.persistCharacterFile();
 						this.refreshFrameCountText(anim.id);
 					})
 			);
@@ -648,13 +737,36 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	private refreshFrameCountText(animId: string): void {
 		const el = this.frameCountEls[animId];
 		if (!el) return;
-		const anim = this.plugin.settings.customAnimations.find((a) => a.id === animId);
+		const anim = this.characterFile?.animations.find((a) => a.id === animId);
 		const count = anim ? anim.frames.length : 0;
 		el.setText(count === 1 ? "1 frame" : `${count} frames`);
 	}
 
+	private async persistCharacterFile(): Promise<void> {
+		if (!this.characterFile || !this.plugin.settings.activeCharacterFolder) return;
+		await writeCharacterFile(this.app.vault, this.plugin.settings.activeCharacterFolder, this.characterFile);
+		await this.plugin.reloadSpritePack();
+	}
+
 	private async loadSlicerImage(): Promise<void> {
-		if (!this.slicer) return;
-		await this.slicer.load(this.app.vault, this.plugin.settings.atlasImagePath);
+		if (!this.slicer || !this.editingImage || !this.plugin.settings.activeCharacterFolder) return;
+		await this.slicer.load(this.app.vault, `${this.plugin.settings.activeCharacterFolder}/${this.editingImage}`);
+	}
+
+	private pickAndUploadImage(folder: string): void {
+		const input = document.createElement("input");
+		input.type = "file";
+		input.accept = "image/png,image/jpeg,image/gif,image/webp";
+		input.onchange = async () => {
+			const file = input.files?.[0];
+			if (!file) return;
+			const buffer = await file.arrayBuffer();
+			const savedName = await addImageToCharacter(this.app.vault, folder, file.name, buffer);
+			this.characterImages = await listCharacterImages(this.app.vault, folder);
+			this.editingImage = savedName;
+			await this.loadSlicerImage();
+			this.display();
+		};
+		input.click();
 	}
 }

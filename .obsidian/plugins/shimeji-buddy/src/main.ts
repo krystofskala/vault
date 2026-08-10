@@ -1,12 +1,11 @@
 import { MarkdownView, Platform, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { CharacterWidget } from "./CharacterWidget";
 import {
-	loadSpritePack,
-	loadAtlasSpritePack,
+	loadCharacter,
 	revokeSpritePack,
-	listAvailableSpritePacks,
+	listCharacters,
 	type LoadedSpritePack,
-	type SpritePackInfo,
+	type CharacterInfo,
 } from "./spritePack";
 import { DEFAULT_SETTINGS, commandTriggerId, type ShimejiSettings, type SpeechLines } from "./settings";
 import { ShimejiSettingTab } from "./settingsTab";
@@ -20,8 +19,8 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	private modifyDebounce: number | null = null;
 	private lastSearchReactAt = 0;
 	private unpatchCommands: (() => void) | null = null;
-	availablePacks: SpritePackInfo[] = [];
-	availablePacksLoaded = false;
+	availableCharacters: CharacterInfo[] = [];
+	availableCharactersLoaded = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -30,7 +29,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(async () => {
 			this.createWidget();
-			await this.refreshAvailablePacks();
+			await this.refreshAvailableCharacters();
 			await this.reloadSpritePack();
 			this.reactWithLine("note:open");
 			this.registerVaultEvents();
@@ -53,6 +52,18 @@ export default class ShimejiBuddyPlugin extends Plugin {
 				this.applyVisibility();
 			},
 		});
+
+		this.addCommand({
+			id: "shimeji-buddy-list-command-ids",
+			name: "List all command IDs into current note",
+			editorCallback: (editor) => {
+				const commands = (this.app as any).commands?.commands ?? {};
+				const lines = Object.values(commands)
+					.map((c: any) => `- \`${c.id}\` — ${c.name}`)
+					.sort();
+				editor.replaceSelection(lines.join("\n") + "\n");
+			},
+		});
 	}
 
 	onunload(): void {
@@ -70,13 +81,8 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		const data = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data, {
 			speechLines: Object.assign({}, DEFAULT_SETTINGS.speechLines, data?.speechLines),
-			customAnimations: data?.customAnimations ?? [],
 			commandTriggers: data?.commandTriggers ?? [],
 		});
-		// upgrade path: older saved data predates characterMode and only had customCharacterFolder
-		if (!data?.characterMode && data?.customCharacterFolder) {
-			this.settings.characterMode = "pack";
-		}
 	}
 
 	async saveSettings(): Promise<void> {
@@ -131,16 +137,12 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		this.widget?.setAutoClickThrough(!isReadingView);
 	}
 
+	// ---------- character loading ----------
+
 	async reloadSpritePack(): Promise<void> {
 		const previous = this.spritePack;
-		if (this.settings.characterMode === "pack") {
-			this.spritePack = await loadSpritePack(this.app.vault, this.settings.customCharacterFolder);
-		} else if (this.settings.characterMode === "atlas") {
-			this.spritePack = await loadAtlasSpritePack(
-				this.app.vault,
-				this.settings.atlasImagePath,
-				this.settings.customAnimations
-			);
+		if (this.settings.characterMode === "character" && this.settings.activeCharacterFolder) {
+			this.spritePack = await loadCharacter(this.app.vault, this.settings.activeCharacterFolder);
 		} else {
 			this.spritePack = null;
 		}
@@ -148,15 +150,15 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		revokeSpritePack(previous);
 	}
 
-	/** vault-relative folder this plugin's bundled/dropped-in character packs live under */
+	/** vault-relative folder this plugin's characters live under */
 	getCharactersDir(): string {
 		return `${this.app.vault.configDir}/plugins/${this.manifest.id}/characters`;
 	}
 
-	async refreshAvailablePacks(): Promise<SpritePackInfo[]> {
-		this.availablePacks = await listAvailableSpritePacks(this.app.vault, this.getCharactersDir());
-		this.availablePacksLoaded = true;
-		return this.availablePacks;
+	async refreshAvailableCharacters(): Promise<CharacterInfo[]> {
+		this.availableCharacters = await listCharacters(this.app.vault, this.getCharactersDir());
+		this.availableCharactersLoaded = true;
+		return this.availableCharacters;
 	}
 
 	// ---------- vault/workspace triggers ----------

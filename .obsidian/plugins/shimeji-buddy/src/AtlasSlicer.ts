@@ -101,6 +101,11 @@ export class AtlasSlicer {
 		return this.selection;
 	}
 
+	/** The currently loaded image's real pixel size, or null if nothing's loaded. */
+	getNaturalSize(): { width: number; height: number } | null {
+		return this.image ? { width: this.naturalWidth, height: this.naturalHeight } : null;
+	}
+
 	/** Programmatically set (or clear) the selection box, e.g. from numeric input fields. */
 	setSelection(rect: AtlasFrameRect | null): void {
 		if (rect) {

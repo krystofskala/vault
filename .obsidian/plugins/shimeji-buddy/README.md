@@ -18,22 +18,18 @@ You're responsible for having the rights to use whatever art you bring in;
 this plugin doesn't fetch, bundle, or redistribute any character's artwork
 itself.
 
-Two ways to supply a character, both in **Settings → Shimeji Buddy →
-Character source**:
+A character is one folder that can hold as many images as you want - clean
+equal-frame strips, large messy sheets, whatever you've got. Build one
+entirely from **Settings → Shimeji Buddy → Character**: create it, upload
+images (picked from anywhere on your computer, not just the vault), slice
+out whichever frames you need from any of them (drag a box, or auto-generate
+an evenly-spaced strip in one click), and assign each resulting animation to
+one or more actions. No file editing required, though the character folder
+stays a plain, portable `character.json` + images if you'd rather script one
+- see `characters/example-character/README.md` for that format.
 
-- **Folder pack**: a folder with a `manifest.json` plus sprite strip PNGs
-  (uniform frame size). Drop it into `characters/` inside this plugin's
-  folder and pick it from the dropdown - see
-  `characters/example-pack/README.md` for the format.
-- **Single spritesheet**: for sheets that *aren't* a tidy grid - frames of
-  different sizes, packed irregularly, extra stuff mixed in (exactly what
-  most fan-made/ripped sheets look like). Point at one image and slice it
-  right there in settings: drag a box around each frame directly on the
-  sheet (or type exact pixel coordinates), add it to an animation, and
-  assign that animation to whichever action(s) it belongs to.
-
-The animation engine, idle behaviour, and reactions work identically no
-matter which one (or neither) is active.
+The animation engine, idle behaviour, and reactions work identically whether
+the built-in placeholder or a character you've built is active.
 
 ## Actions and the animation library
 
@@ -84,10 +80,11 @@ get picked based on how you've been treating the buddy.
   in edit view, it just won't take touch input there.
 - Fully configurable from **Settings → Shimeji Buddy**: size, idle timing,
   sleep timeout, which event reactions are on, speech bubble on/off and its
-  lines, click-through mode, mobile touch restriction, and the character
-  source (built-in, a folder pack, or a freeform-sliced single spritesheet).
-- Two commands (Command palette): "Poke the buddy" and "Toggle buddy
-  visibility".
+  lines, click-through mode, mobile touch restriction, and building/managing
+  your own character.
+- Three commands (Command palette): "Poke the buddy", "Toggle buddy
+  visibility", and "List all command IDs into current note" (browse every
+  Obsidian command id, to add one as a custom trigger).
 
 ## Installing / enabling
 
@@ -109,14 +106,13 @@ npm run build   # production build -> main.js
 Source lives in `src/`:
 
 - `main.ts` - plugin entry point, settings persistence, wiring vault/workspace
-  events to reactions.
+  events (and the command-id hook) to reactions.
 - `CharacterWidget.ts` - the floating DOM widget: placeholder character
-  animation, sprite playback (folder pack or atlas), idle/standby brain,
-  dragging, speech bubble.
-- `spritePack.ts` - loads a folder pack (manifest.json + PNG strips) or the
-  atlas library (single image + explicit per-frame rectangles) into a common
-  trigger-id → weighted-animation-pool shape.
+  animation, sprite playback, idle/standby brain, dragging, speech bubble.
+- `spritePack.ts` - character folder I/O (character.json read/write, image
+  upload/list/delete, character discovery) and resolves it all into a common
+  trigger-id → weighted-animation-pool shape for CharacterWidget to play.
 - `AtlasSlicer.ts` - the canvas-based drag-to-select tool used in settings to
-  slice a freeform spritesheet into frames.
-- `settingsTab.ts` - the settings UI.
+  slice frames out of whichever image is being edited.
+- `settingsTab.ts` - the settings UI, including the character editor.
 - `settings.ts` - settings types and defaults.

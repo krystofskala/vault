@@ -1,25 +1,15 @@
 import { Vault } from "obsidian";
 import type { AtlasFrameRect, CustomAnimation } from "./settings";
 
-export interface StripAnimationDef {
-	file: string; // filename of the horizontal sprite strip, relative to the pack folder
-	frames: number; // number of equal-width frames in the strip
-	fps: number; // playback speed
-	loop: boolean; // whether it should loop until interrupted, or play once
-	weight?: number; // relative pick probability within its trigger's pool; default 1
-	moves?: boolean; // only meaningful under the "idle" key: roam vs play in place; default false
-}
+const CHARACTER_FILE_NAME = "character.json";
 
-export interface SpritePackManifest {
+/** One pool entry as stored on disk in a character's character.json. */
+export interface CharacterFile {
 	name: string;
-	frameWidth: number;
-	frameHeight: number;
-	/** Keyed by trigger id ("idle", "note:open", "command:<id>", ...). Each array is a weighted pool. */
-	animations: Record<string, StripAnimationDef[]>;
+	animations: CustomAnimation[];
 }
 
-/** A resolved animation, ready for CharacterWidget to play - regardless of
- * whether it came from a folder pack's manifest.json or the atlas library. */
+/** A resolved animation, ready for CharacterWidget to play. */
 export interface ResolvedAnimation {
 	imageUrl: string;
 	imageWidth: number;
@@ -69,69 +59,146 @@ export function pickWeighted<T extends { weight: number }>(items: T[]): T | null
 	return items[items.length - 1];
 }
 
-/**
- * Loads a sprite pack from a vault-relative folder. The folder must contain a
- * manifest.json (see SpritePackManifest) plus the PNG strips it references -
- * one horizontal, equal-width-frame strip per pool entry. Returns null if the
- * folder/manifest is missing or invalid so callers can fall back to the
- * built-in placeholder character.
- */
-export async function loadSpritePack(
-	vault: Vault,
-	folderPath: string
-): Promise<LoadedSpritePack | null> {
-	if (!folderPath) return null;
-	const normalized = folderPath.replace(/\/+$/, "");
-	const manifestPath = `${normalized}/manifest.json`;
+function normalizeFolder(folderPath: string): string {
+	return folderPath.replace(/\/+$/, "");
+}
 
-	let manifestRaw: string;
-	try {
-		if (!(await vault.adapter.exists(manifestPath))) return null;
-		manifestRaw = await vault.adapter.read(manifestPath);
-	} catch (e) {
-		console.warn("Shimeji Buddy: could not read sprite pack manifest", e);
-		return null;
-	}
+export function characterFilePath(folderPath: string): string {
+	return `${normalizeFolder(folderPath)}/${CHARACTER_FILE_NAME}`;
+}
 
-	let manifest: SpritePackManifest;
+/** Reads a character's character.json, or a blank one if the folder has none yet. */
+export async function readCharacterFile(vault: Vault, folderPath: string): Promise<CharacterFile> {
+	const path = characterFilePath(folderPath);
 	try {
-		manifest = JSON.parse(manifestRaw);
-		if (!manifest.animations || !manifest.frameWidth || !manifest.frameHeight) {
-			throw new Error("manifest missing required fields");
+		if (await vault.adapter.exists(path)) {
+			const raw = await vault.adapter.read(path);
+			const parsed = JSON.parse(raw);
+			if (parsed && Array.isArray(parsed.animations)) return parsed as CharacterFile;
 		}
 	} catch (e) {
-		console.warn("Shimeji Buddy: invalid sprite pack manifest.json", e);
-		return null;
+		console.warn("Shimeji Buddy: could not read character.json, starting fresh", e);
 	}
+	const folderName = folderPath.split("/").pop() || "Character";
+	return { name: folderName, animations: [] };
+}
+
+export async function writeCharacterFile(vault: Vault, folderPath: string, file: CharacterFile): Promise<void> {
+	await vault.adapter.write(characterFilePath(folderPath), JSON.stringify(file, null, 2));
+}
+
+/** Lists the image filenames already sitting in a character's folder. */
+export async function listCharacterImages(vault: Vault, folderPath: string): Promise<string[]> {
+	const normalized = normalizeFolder(folderPath);
+	if (!(await vault.adapter.exists(normalized))) return [];
+	try {
+		const listing = await vault.adapter.list(normalized);
+		return listing.files
+			.map((f) => f.split("/").pop() || f)
+			.filter((name) => /\.(png|jpe?g|gif|webp)$/i.test(name))
+			.sort();
+	} catch {
+		return [];
+	}
+}
+
+/** Creates a new, empty character folder + character.json. Returns its vault-relative folder path. */
+export async function createCharacter(vault: Vault, basePath: string, name: string): Promise<string> {
+	const slug =
+		name
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/(^-|-$)/g, "") || "character";
+	let folder = `${normalizeFolder(basePath)}/${slug}`;
+	let suffix = 2;
+	while (await vault.adapter.exists(folder)) {
+		folder = `${normalizeFolder(basePath)}/${slug}-${suffix}`;
+		suffix++;
+	}
+	await vault.adapter.mkdir(folder);
+	await writeCharacterFile(vault, folder, { name: name.trim() || slug, animations: [] });
+	return folder;
+}
+
+/** Copies raw bytes (e.g. from a native file picker) into a character's folder, avoiding filename collisions. */
+export async function addImageToCharacter(
+	vault: Vault,
+	folderPath: string,
+	fileName: string,
+	data: ArrayBuffer
+): Promise<string> {
+	const normalized = normalizeFolder(folderPath);
+	if (!(await vault.adapter.exists(normalized))) await vault.adapter.mkdir(normalized);
+
+	const dot = fileName.lastIndexOf(".");
+	const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+	const ext = dot > 0 ? fileName.slice(dot) : ".png";
+	let candidate = fileName;
+	let suffix = 2;
+	while (await vault.adapter.exists(`${normalized}/${candidate}`)) {
+		candidate = `${base}-${suffix}${ext}`;
+		suffix++;
+	}
+	await vault.adapter.writeBinary(`${normalized}/${candidate}`, data);
+	return candidate;
+}
+
+export async function deleteCharacterImage(vault: Vault, folderPath: string, fileName: string): Promise<void> {
+	const path = `${normalizeFolder(folderPath)}/${fileName}`;
+	if (await vault.adapter.exists(path)) await vault.adapter.remove(path);
+}
+
+/**
+ * Loads a character folder's animations into the running shape CharacterWidget
+ * plays from: one shared object URL per source image, frames resolved from
+ * either explicit crop rectangles or an auto-generated even strip.
+ */
+export async function loadCharacter(vault: Vault, folderPath: string): Promise<LoadedSpritePack | null> {
+	if (!folderPath) return null;
+	const normalized = normalizeFolder(folderPath);
+	if (!(await vault.adapter.exists(normalized))) return null;
+
+	const file = await readCharacterFile(vault, normalized);
+	if (file.animations.length === 0) return null;
 
 	const objectUrls: string[] = [];
-	const bySlot: Record<string, WeightedAnimation[]> = {};
-
-	for (const [triggerId, defs] of Object.entries(manifest.animations)) {
-		if (!Array.isArray(defs)) continue;
-		for (const def of defs) {
-			const imgPath = `${normalized}/${def.file}`;
-			try {
-				const url = await blobUrlForVaultFile(vault, imgPath);
+	const imageCache = new Map<string, Promise<{ url: string; width: number; height: number }>>();
+	const loadImage = (fileName: string) => {
+		let promise = imageCache.get(fileName);
+		if (!promise) {
+			promise = (async () => {
+				const url = await blobUrlForVaultFile(vault, `${normalized}/${fileName}`);
 				objectUrls.push(url);
 				const dims = await getImageDimensions(url);
-				const frames: AtlasFrameRect[] = [];
-				for (let i = 0; i < def.frames; i++) {
-					frames.push({ x: i * manifest.frameWidth, y: 0, w: manifest.frameWidth, h: manifest.frameHeight });
-				}
-				(bySlot[triggerId] ??= []).push({
-					imageUrl: url,
-					imageWidth: dims.width,
-					imageHeight: dims.height,
-					frames,
-					fps: def.fps,
-					loop: def.loop,
-					weight: def.weight ?? 1,
-					moves: def.moves ?? false,
-				});
-			} catch (e) {
-				console.warn(`Shimeji Buddy: could not load sprite frame "${imgPath}"`, e);
+				return { url, ...dims };
+			})();
+			imageCache.set(fileName, promise);
+		}
+		return promise;
+	};
+
+	const bySlot: Record<string, WeightedAnimation[]> = {};
+
+	for (const anim of file.animations) {
+		if (!anim.enabled || !anim.sourceImage || anim.frames.length === 0 || anim.triggers.length === 0) continue;
+		try {
+			const img = await loadImage(anim.sourceImage);
+			const resolved: WeightedAnimation = {
+				imageUrl: img.url,
+				imageWidth: img.width,
+				imageHeight: img.height,
+				frames: anim.frames,
+				fps: Math.max(1, anim.fps),
+				loop: anim.loop,
+				weight: Math.max(0, anim.weight),
+				moves: anim.moves,
+			};
+			for (const trigger of anim.triggers) {
+				(bySlot[trigger] ??= []).push(resolved);
 			}
+		} catch (e) {
+			console.warn(`Shimeji Buddy: could not load "${anim.sourceImage}" for animation "${anim.name}"`, e);
 		}
 	}
 
@@ -140,57 +207,7 @@ export async function loadSpritePack(
 		return null;
 	}
 
-	return { name: manifest.name, bySlot, objectUrls };
-}
-
-/**
- * Builds a sprite pack from a single "atlas" image plus the user's animation
- * library from settings - no manifest.json needed. Each animation can be
- * assigned to more than one trigger; it's added to every trigger pool it's
- * assigned to, using the same weight in each.
- */
-export async function loadAtlasSpritePack(
-	vault: Vault,
-	atlasImagePath: string,
-	customAnimations: CustomAnimation[]
-): Promise<LoadedSpritePack | null> {
-	if (!atlasImagePath) return null;
-	if (!(await vault.adapter.exists(atlasImagePath))) return null;
-
-	let url: string;
-	let dims: { width: number; height: number };
-	try {
-		url = await blobUrlForVaultFile(vault, atlasImagePath);
-		dims = await getImageDimensions(url);
-	} catch (e) {
-		console.warn("Shimeji Buddy: could not load atlas image", e);
-		return null;
-	}
-
-	const bySlot: Record<string, WeightedAnimation[]> = {};
-	for (const anim of customAnimations) {
-		if (!anim.enabled || anim.frames.length === 0 || anim.triggers.length === 0) continue;
-		const resolved: WeightedAnimation = {
-			imageUrl: url,
-			imageWidth: dims.width,
-			imageHeight: dims.height,
-			frames: anim.frames,
-			fps: Math.max(1, anim.fps),
-			loop: anim.loop,
-			weight: Math.max(0, anim.weight),
-			moves: anim.moves,
-		};
-		for (const trigger of anim.triggers) {
-			(bySlot[trigger] ??= []).push(resolved);
-		}
-	}
-
-	if (Object.keys(bySlot).length === 0) {
-		URL.revokeObjectURL(url);
-		return null;
-	}
-
-	return { name: "Custom atlas", bySlot, objectUrls: [url] };
+	return { name: file.name, bySlot, objectUrls };
 }
 
 export function revokeSpritePack(pack: LoadedSpritePack | null): void {
@@ -198,25 +215,15 @@ export function revokeSpritePack(pack: LoadedSpritePack | null): void {
 	for (const url of pack.objectUrls) URL.revokeObjectURL(url);
 }
 
-export interface SpritePackInfo {
+export interface CharacterInfo {
 	/** vault-relative folder path */
 	path: string;
-	/** manifest.json "name", falling back to the folder name */
 	label: string;
 }
 
-/**
- * Scans a vault-relative base folder (typically this plugin's characters/
- * folder) for sub-folders that look like a usable folder pack - i.e. they
- * have a manifest.json referencing at least one image file that actually
- * exists. Used to populate the "Character pack" picker in settings so users
- * aren't stuck typing paths by hand.
- */
-export async function listAvailableSpritePacks(
-	vault: Vault,
-	baseFolder: string
-): Promise<SpritePackInfo[]> {
-	const results: SpritePackInfo[] = [];
+/** Scans a base folder (this plugin's characters/ folder) for sub-folders that look like a character (have a character.json). */
+export async function listCharacters(vault: Vault, baseFolder: string): Promise<CharacterInfo[]> {
+	const results: CharacterInfo[] = [];
 	if (!baseFolder) return results;
 	if (!(await vault.adapter.exists(baseFolder))) return results;
 
@@ -228,25 +235,11 @@ export async function listAvailableSpritePacks(
 	}
 
 	for (const folder of listing.folders) {
-		const manifestPath = `${folder}/manifest.json`;
-		if (!(await vault.adapter.exists(manifestPath))) continue;
-
+		if (!(await vault.adapter.exists(characterFilePath(folder)))) continue;
 		try {
-			const raw = await vault.adapter.read(manifestPath);
-			const manifest: SpritePackManifest = JSON.parse(raw);
-			const allDefs = Object.values(manifest.animations || {}).flat();
-
-			let hasImage = false;
-			for (const def of allDefs) {
-				if (def && (await vault.adapter.exists(`${folder}/${def.file}`))) {
-					hasImage = true;
-					break;
-				}
-			}
-			if (!hasImage) continue;
-
+			const file = await readCharacterFile(vault, folder);
 			const folderName = folder.split("/").pop() || folder;
-			results.push({ path: folder, label: manifest.name || folderName });
+			results.push({ path: folder, label: file.name || folderName });
 		} catch {
 			continue;
 		}
@@ -255,7 +248,18 @@ export async function listAvailableSpritePacks(
 	return results;
 }
 
-/** Loads just the pixel dimensions of a vault image, for UI helpers (the atlas slicer). */
+/** Generates N evenly-spaced frame rectangles across a full image - the "strip" shortcut. */
+export function generateStripFrames(imageWidth: number, imageHeight: number, count: number): AtlasFrameRect[] {
+	const n = Math.max(1, Math.floor(count));
+	const frameWidth = imageWidth / n;
+	const frames: AtlasFrameRect[] = [];
+	for (let i = 0; i < n; i++) {
+		frames.push({ x: Math.round(i * frameWidth), y: 0, w: Math.round(frameWidth), h: imageHeight });
+	}
+	return frames;
+}
+
+/** Loads just the pixel dimensions (+ a display URL) of a vault image, for UI helpers (the slicer). */
 export async function loadImageForSlicing(
 	vault: Vault,
 	imagePath: string

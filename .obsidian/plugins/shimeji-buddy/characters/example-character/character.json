@@ -1,0 +1,51 @@
+{
+	"name": "Example / template character",
+	"animations": [
+		{
+			"id": "idle-rest",
+			"name": "Idle rest",
+			"sourceImage": "idle.png",
+			"triggers": ["idle"],
+			"moves": false,
+			"weight": 3,
+			"enabled": true,
+			"loop": true,
+			"fps": 4,
+			"frames": [
+				{ "x": 0, "y": 0, "w": 64, "h": 64 },
+				{ "x": 64, "y": 0, "w": 64, "h": 64 }
+			]
+		},
+		{
+			"id": "idle-walk",
+			"name": "Walk",
+			"sourceImage": "walk.png",
+			"triggers": ["idle"],
+			"moves": true,
+			"weight": 1,
+			"enabled": true,
+			"loop": true,
+			"fps": 8,
+			"frames": [
+				{ "x": 0, "y": 0, "w": 64, "h": 64 },
+				{ "x": 64, "y": 0, "w": 64, "h": 64 },
+				{ "x": 128, "y": 0, "w": 64, "h": 64 }
+			]
+		},
+		{
+			"id": "greet",
+			"name": "Wave",
+			"sourceImage": "reactions.png",
+			"triggers": ["note:open"],
+			"moves": false,
+			"weight": 1,
+			"enabled": true,
+			"loop": false,
+			"fps": 8,
+			"frames": [
+				{ "x": 0, "y": 64, "w": 64, "h": 64 },
+				{ "x": 64, "y": 64, "w": 64, "h": 64 }
+			]
+		}
+	]
+}
