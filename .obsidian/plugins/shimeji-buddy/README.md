@@ -125,12 +125,10 @@ independent things to configure:
   "Comic" is a fixed white bubble with a bold black ink outline and a
   stylized font, manga-panel style, the same in light or dark mode.
 - **Speech lines file** - a markdown file, anywhere in your vault, of your
-  own lines. Each line is one thing the buddy can say, tagged with `@` plus
-  an action id to say when it's eligible - deliberately `@`, not `#`, since
-  `#` already means something in Obsidian. A line can carry more than one
-  tag (so it can play for several actions), and lines/headings with no
-  recognized `@tag` are just ignored, so notes and organization are safe to
-  keep in the file too:
+  own lines. Each plain line is one thing the buddy can say, tagged with `@`
+  plus an action id to say when it's eligible - deliberately `@`, not `#`,
+  since `#` already means something in Obsidian. A line can carry more than
+  one tag (so it can play for several actions):
 
   ```markdown
   Hurá! @happy
@@ -145,13 +143,23 @@ independent things to configure:
   else has to match an action id exactly from "Full action reference" in the
   same section, including `@note:open`/`@note:create`/etc. and
   `@command:your-command-id` for any custom command trigger you've added.
-  Hit **"Create (if needed) and open"** next to the file path to scaffold a
-  starter file with the full format explained inline, or **"Reload"** to
-  re-parse on demand - though editing and saving the file in Obsidian itself
-  already reloads it automatically. A trigger with lines in this file uses
-  only those; anything not covered falls back to a small built-in default
-  pool (covering opening/creating/deleting/editing/renaming a note, search,
-  and poke) so reactions never go silent by default.
+
+  **Structuring the file**: group lines under `##` headings however makes
+  sense to you (by mood, by topic, whatever) - headings, `>` blockquotes/
+  callouts, and `<!-- comments -->` are all "safe zones" the parser never
+  reads as speech, *even if the text itself mentions an `@tag` as an
+  example* (this isn't a full markdown parser, just a line scanner, so that
+  distinction matters). That makes a permanent `> [!tip]` callout a good
+  spot for your own tag cheat sheet, and an HTML comment a good spot for
+  longer notes to yourself - Obsidian hides those in Reading view too, so
+  they don't clutter what you actually see day to day. Hit **"Create (if
+  needed) and open"** next to the file path to scaffold a starter file
+  organized exactly this way, or **"Reload"** to re-parse on demand - though
+  editing and saving the file in Obsidian itself already reloads it
+  automatically. A trigger with lines in this file uses only those;
+  anything not covered falls back to a small built-in default pool
+  (covering opening/creating/deleting/editing/renaming a note, search, and
+  poke) so reactions never go silent by default.
 
 ## Features
 

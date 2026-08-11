@@ -493,7 +493,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 							"Friendly shortcuts: @happy, @bored / @sleeping, @angry, @normal, @poke, @idle. Anything " +
 								"else must match an action id exactly from \"Full action reference\" below, e.g. " +
 								"@note:open, @note:create, @search:open, or @command:your-command-id for a custom " +
-								"command trigger you've added."
+								"command trigger you've added. Group lines under headings however you like to keep " +
+								"things organized by topic - headings, > blockquotes/callouts, and <!-- comments --> " +
+								"are never spoken, even ones that mention an @tag as an example, so a visible \"tag " +
+								"cheat sheet\" callout or a hidden note to yourself are both safe to keep in the file."
 						);
 					},
 					"message-circle"
