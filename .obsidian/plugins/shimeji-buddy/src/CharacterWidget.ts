@@ -547,7 +547,12 @@ export class CharacterWidget {
 			this.playSequence(chosen, trigger);
 		} else {
 			this.playResolvedAnimation(chosen, () => {
-				if (this.currentTrigger === trigger) this.setReaction("idle");
+				if (this.currentTrigger !== trigger) return;
+				// A non-looping clip's own duration (frames/fps) and a travel
+				// movement's duration (distance/speed) are unrelated numbers -
+				// this can fire before the travel actually arrives.
+				this.freezeTweenPosition();
+				this.setReaction("idle");
 			});
 			this.applyMovement(chosen.movement, trigger);
 		}
@@ -586,13 +591,17 @@ export class CharacterWidget {
 		const chosen = pool.length > 0 ? pickWeighted(pool) : null;
 		if (chosen) {
 			this.playResolvedAnimation(chosen, () => {
-				if (this.currentTrigger === "summon") this.setReaction("idle");
+				if (this.currentTrigger !== "summon") return;
+				this.freezeTweenPosition();
+				this.setReaction("idle");
 			});
 		} else {
 			const roleClip = this.roleClipForTrigger("summon");
 			if (roleClip) {
 				this.playResolvedAnimation(roleClip, () => {
-					if (this.currentTrigger === "summon") this.setReaction("idle");
+					if (this.currentTrigger !== "summon") return;
+					this.freezeTweenPosition();
+					this.setReaction("idle");
 				});
 			} else {
 				this.playBuiltinForTrigger("summon");
@@ -691,6 +700,35 @@ export class CharacterWidget {
 
 		const resolvedMessage = message ?? this.resolveSpeechLine(lookupTrigger);
 		if (resolvedMessage && this.settings.speechBubbleEnabled) this.showBubble(resolvedMessage);
+	}
+
+	/**
+	 * Freezes the container exactly where it currently is mid-flight,
+	 * syncing restRight/restBottom/settings.posX-Y/onPositionChange to match -
+	 * call before handing off to another reaction from a non-looping clip's
+	 * onComplete, since that can fire before the travel tween it was
+	 * playing during (see wanderTimer) actually finishes (a clip's own
+	 * frames/fps duration and a travel's distance/speed duration are
+	 * unrelated numbers). Without this, the still-pending CSS transition
+	 * keeps sliding toward the old target on its own - under whatever plays
+	 * next - while restRight/restBottom/settings.pos* silently go stale.
+	 * No-op if nothing was actually mid-tween (wanderTimer already null).
+	 */
+	private freezeTweenPosition(): void {
+		if (this.wanderTimer === null) return;
+		this.clearTimer("wanderTimer");
+		const rect = this.containerEl.getBoundingClientRect();
+		const right = window.innerWidth - rect.right;
+		const bottom = window.innerHeight - rect.bottom;
+		this.containerEl.removeClass("sm-tween");
+		this.containerEl.style.transitionDuration = "";
+		this.containerEl.style.right = `${right}px`;
+		this.containerEl.style.bottom = `${bottom}px`;
+		this.restRight = right;
+		this.restBottom = bottom;
+		this.settings.posX = right;
+		this.settings.posY = bottom;
+		this.callbacks.onPositionChange(right, bottom);
 	}
 
 	/**
@@ -1080,7 +1118,9 @@ export class CharacterWidget {
 		this.currentTrigger = "idle";
 		if (Math.abs(dx) > 1) this.facingLeft = dx > 0;
 		this.playResolvedAnimation(clip, () => {
-			if (this.currentTrigger === "idle") this.setReaction("idle");
+			if (this.currentTrigger !== "idle") return;
+			this.freezeTweenPosition();
+			this.setReaction("idle");
 		});
 		this.applyEdgeOrientation(null);
 
