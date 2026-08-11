@@ -2,6 +2,7 @@ import { Vault } from "obsidian";
 import {
 	BASIC_MOVEMENT_ROLE_LABELS,
 	BASIC_MOVEMENT_ROLES,
+	LOOPING_BASIC_MOVEMENT_ROLES,
 	defaultMovementBehavior,
 	type AnimationSequence,
 	type AtlasFrameRect,

@@ -109,22 +109,92 @@ export function defaultMovementBehavior(): MovementBehavior {
 }
 
 /**
- * The four basic locomotion gaits every character is expected to have, kept
- * separate from its regular trigger-driven animation library - see
- * CustomAnimation.role. Used as the automatic fallback visual for idle
- * roaming (and, later, other movement-needing situations) whenever the user
- * hasn't built something more specific of their own.
+ * Every pose the builtin placeholder can do, except the three jutsus (too
+ * elaborate for a single clip - see AnimationSequence instead) - kept
+ * separate from a character's regular trigger-driven animation library, see
+ * CustomAnimation.role. This is the *complete* roster every character is
+ * expected to have: fill in a role's slot with your own art and it plays
+ * instead of the builtin placeholder's own version of that exact pose;
+ * leave it blank and the placeholder's own pose plays there, so a character
+ * is always fully formed - filled in gradually, one slot at a time, rather
+ * than needing every pose built before it looks/acts complete.
  */
-export type BasicMovementRole = "walk" | "run" | "jump" | "fall";
+export type BasicMovementRole =
+	| "idle"
+	| "walk"
+	| "run"
+	| "jump"
+	| "fall"
+	| "poke"
+	| "wave"
+	| "cheer"
+	| "poof"
+	| "nod"
+	| "surprised"
+	| "think"
+	| "sleep"
+	| "happy"
+	| "angry"
+	| "punch"
+	| "pushup"
+	| "squat"
+	| "lift";
 
-export const BASIC_MOVEMENT_ROLES: BasicMovementRole[] = ["walk", "run", "jump", "fall"];
+export const BASIC_MOVEMENT_ROLES: BasicMovementRole[] = [
+	"idle",
+	"walk",
+	"run",
+	"jump",
+	"fall",
+	"poke",
+	"wave",
+	"cheer",
+	"poof",
+	"nod",
+	"surprised",
+	"think",
+	"sleep",
+	"happy",
+	"angry",
+	"punch",
+	"pushup",
+	"squat",
+	"lift",
+];
 
 export const BASIC_MOVEMENT_ROLE_LABELS: Record<BasicMovementRole, string> = {
+	idle: "Idle / standing still",
 	walk: "Walk",
 	run: "Run",
 	jump: "Jump",
 	fall: "Fall",
+	poke: "Poked reaction",
+	wave: "Greeting (opening a note)",
+	cheer: "Cheering (creating a note)",
+	poof: "Sad reaction (deleting a note)",
+	nod: "Nodding (editing a note)",
+	surprised: "Surprised (renaming a note)",
+	think: "Thinking (searching)",
+	sleep: "Sleeping / bored",
+	happy: "Happy mood",
+	angry: "Angry mood",
+	punch: "Shadow-boxing",
+	pushup: "Push-ups",
+	squat: "Squats",
+	lift: "Dumbbell lift",
 };
+
+/** Which roles default to a looping clip vs. a one-shot pose that reverts to idle when it finishes - mirrors CharacterWidget's own LOOPING_POSES for the builtin placeholder, so a fresh slot's default matches how that pose actually behaves. */
+export const LOOPING_BASIC_MOVEMENT_ROLES: ReadonlySet<BasicMovementRole> = new Set([
+	"idle",
+	"walk",
+	"run",
+	"jump",
+	"fall",
+	"sleep",
+	"happy",
+	"angry",
+]);
 
 /**
  * One animation in a character's library. Can be assigned to more than one
