@@ -1044,6 +1044,20 @@
 	display: none;
 }
 
+.sm-section-icon {
+	display: inline-flex;
+	color: var(--text-muted);
+	flex-shrink: 0;
+}
+.sm-section-icon svg {
+	width: 15px;
+	height: 15px;
+}
+
+.sm-settings-overview {
+	margin-bottom: 4px;
+}
+
 .sm-section-title::before {
 	content: "▸";
 	display: inline-block;

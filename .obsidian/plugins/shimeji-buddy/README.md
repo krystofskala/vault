@@ -84,7 +84,8 @@ the built-in placeholder or a character you've built is active.
 Everything Shimeji can react to - opening/creating/deleting/renaming/editing
 a note, the search pane opening, being poked, falling asleep while idle, and
 any Obsidian command you name by its command id - is listed in
-**Settings → Shimeji Buddy → Actions Shimeji can react to**. An animation you
+**Settings → Shimeji Buddy → Reactions & actions → Full action reference &
+custom commands**. An animation you
 build isn't locked to one of these: assign it to as many as you like (a
 "happy hop" could play for both creating a note *and* being poked), and each
 action draws from a weighted pool of everything assigned to it, so several
@@ -103,7 +104,7 @@ build, each with its own odds.
 Always running in the background, recomputed every few seconds from how
 you've been treating the buddy - it's just which trigger id "idle" resolves
 to, so a custom character can assign its own animation to any of these the
-same way it would to plain "idle" (see "Actions Shimeji can react to"):
+same way it would to plain "idle" (see "Reactions & actions" above):
 
 - **Happy** - energetic, from typing or otherwise using the vault recently.
   Runs the standby brain faster (acts sooner) too.
@@ -125,7 +126,7 @@ simple per-action text pool.
   doesn't teleport or crawl. With a custom animation library it draws from
   whatever you've built (see "Actions and the animation library" above); with
   the built-in placeholder it picks from a configurable pool of gaits and
-  poses (Settings → Standby behaviour → Idle behaviors) - walk/run/jump,
+  poses (Settings → Standby & idle behavior → Idle behaviors) - walk/run/jump,
   workout breaks (punches, push-ups, squats, a dumbbell lift with a
   puff-of-smoke prop), and three jutsus: **Multiplication Jutsu** (a couple
   of clone silhouettes pop in), **Transformation Jutsu** (a smoke puff and a
@@ -160,10 +161,11 @@ simple per-action text pool.
   restricted to reading view only (on by default), so it's not competing
   with your thumb while you're typing - the buddy still animates and reacts
   in edit view, it just won't take touch input there.
-- Settings is organized into collapsible sections (General, Standby
-  behaviour, React to vault actions, Actions reference, Speech bubble,
-  Character) with inline tips/warnings, so it stays easy to navigate as it
-  grows.
+- Settings is organized into four collapsible top-level sections - General,
+  Standby & idle behavior, Reactions & actions, and Character - each with
+  further nested collapsible sub-groups (e.g. Interaction & touch, Speech
+  bubble, Images, Animations) and inline tips/warnings, so it stays easy to
+  navigate as it grows.
 - Three commands (Command palette): "Poke the buddy", "Toggle buddy
   visibility", and "List all command IDs into current note" (browse every
   Obsidian command id, to add one as a custom trigger).

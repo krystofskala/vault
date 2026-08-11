@@ -86,16 +86,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 	// ---------- layout helpers ----------
 
-	/** A native collapsible section, so a long settings page stays easy to scan. */
+	/** A native collapsible section, so a long settings page stays easy to scan. Nests fine (used for sub-groups within a top-level section) - .sm-section .sm-section gets its own background so depth stays visible. */
 	private section(
 		containerEl: HTMLElement,
 		title: string,
 		defaultOpen: boolean,
-		render: (body: HTMLElement) => void
+		render: (body: HTMLElement) => void,
+		icon?: string
 	): HTMLElement {
 		const details = containerEl.createEl("details", { cls: "sm-section" });
 		if (defaultOpen) details.setAttr("open", "");
-		details.createEl("summary", { text: title, cls: "sm-section-title" });
+		const summary = details.createEl("summary", { cls: "sm-section-title" });
+		if (icon) setIcon(summary.createSpan({ cls: "sm-section-icon" }), icon);
+		summary.createSpan({ text: title });
 		const body = details.createDiv({ cls: "sm-section-body" });
 		render(body);
 		return body;
@@ -146,246 +149,318 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				"anything you want.",
 			cls: "setting-item-description",
 		});
-
-		this.section(containerEl, "General", true, (body) => {
-			new Setting(body)
-				.setName("Enable buddy")
-				.setDesc("Show or hide the character entirely.")
-				.addToggle((t) =>
-					t.setValue(s.enabled).onChange(async (v) => {
-						s.enabled = v;
-						await this.plugin.saveSettings();
-						this.plugin.applyVisibility();
-					})
-				);
-
-			new Setting(body)
-				.setName("Size")
-				.setDesc("Base height of the character - scales automatically to stay proportionate on smaller or larger screens.")
-				.addSlider((sl) =>
-					sl
-						.setLimits(48, 240, 4)
-						.setValue(s.size)
-						.setDynamicTooltip()
-						.onChange(async (v) => {
-							s.size = v;
-							await this.plugin.saveSettings();
-							this.plugin.applyLiveSettings();
-						})
-				);
-
-			new Setting(body)
-				.setName("Reset position")
-				.setDesc("Puts the buddy back in the bottom-right corner.")
-				.addButton((b) =>
-					b.setButtonText("Reset").onClick(async () => {
-						s.posX = 24;
-						s.posY = 24;
-						await this.plugin.saveSettings();
-						this.plugin.recreateWidget();
-					})
-				);
-
-			new Setting(body)
-				.setName("Click-through")
-				.setDesc("Let clicks pass through the buddy to whatever is underneath it (disables dragging and poking).")
-				.addToggle((t) =>
-					t.setValue(s.clickThrough).onChange(async (v) => {
-						s.clickThrough = v;
-						await this.plugin.saveSettings();
-						this.plugin.applyLiveSettings();
-					})
-				);
-
-			new Setting(body)
-				.setName("Restrict touch to reading view (mobile)")
-				.setDesc(
-					"On the mobile app, only let you drag or poke the buddy while the open note is in reading " +
-						"view - it still animates and reacts either way, it just won't take touch input in edit view."
-				)
-				.addToggle((t) =>
-					t.setValue(s.mobileReadingViewOnly).onChange(async (v) => {
-						s.mobileReadingViewOnly = v;
-						await this.plugin.saveSettings();
-						this.plugin.updateMobileInteractivity();
-					})
-				);
-
-			new Setting(body)
-				.setName("Click counter mode")
-				.setDesc(
-					"While on, clicking the buddy tallies clicks (shown as a speech-bubble count) and hops it to " +
-						"a new nearby spot each time, instead of the normal poke reaction. Assign a hotkey to " +
-						"\"Toggle click counter mode\" (Settings → Hotkeys) to flip it on/off without opening settings."
-				)
-				.addToggle((t) =>
-					t.setValue(s.clickCounterEnabled).onChange(async (v) => {
-						await this.plugin.setClickCounterEnabled(v);
-					})
-				);
-
-			this.callout(
-				body,
-				"tip",
-				"\"Size\" is a baseline, not a fixed pixel count - the buddy scales itself to stay a " +
-					"sensible size whether Obsidian's on a phone or an ultrawide monitor. This setting is safe " +
-					"to configure on desktop even if you mainly use the vault on mobile."
-			);
+		containerEl.createEl("p", {
+			text:
+				"Four parts, each collapsible: General (visibility/size), Standby & idle behavior (what it " +
+				"does on its own), Reactions & actions (what it responds to, and the full list of actions an " +
+				"animation can be tied to), and Character (your own art, tied to those same actions).",
+			cls: "setting-item-description sm-settings-overview",
 		});
 
-		this.section(containerEl, "Standby behaviour", true, (body) => {
-			const idleRow = new Setting(body)
-				.setName("Idle interval")
-				.setDesc("How often the buddy decides on its own what to do next while nothing is happening.");
-			const idleFields = idleRow.controlEl.createDiv({ cls: "sm-slicer-controls" });
-			this.mkLabeledNumber(idleFields, "Min sec", s.idleMinSeconds, async (n) => {
-				s.idleMinSeconds = n;
-				await this.plugin.saveSettings();
-				this.plugin.applyLiveSettings();
-			});
-			this.mkLabeledNumber(idleFields, "Max sec", s.idleMaxSeconds, async (n) => {
-				s.idleMaxSeconds = n;
-				await this.plugin.saveSettings();
-				this.plugin.applyLiveSettings();
-			});
-
-			new Setting(body)
-				.setName("Roam style")
-				.setDesc("Whether the buddy occasionally moves to a new spot on its own instead of just idling in place, and how.")
-				.addDropdown((d) => {
-					d.addOption("off", "Off - stay in place");
-					d.addOption("anywhere", "Anywhere on screen");
-					d.addOption("edges", "Along window edges");
-					d.setValue(!s.wanderEnabled ? "off" : s.roamStickToEdges ? "edges" : "anywhere");
-					d.onChange(async (value) => {
-						s.wanderEnabled = value !== "off";
-						s.roamStickToEdges = value === "edges";
-						await this.plugin.saveSettings();
-					});
-				});
-
-			new Setting(body)
-				.setName("Bored / asleep after")
-				.setDesc("Minutes of no vault activity before the buddy gets bored and dozes off.")
-				.addText((t) =>
-					t.setValue(String(s.sleepAfterMinutes)).onChange(async (v) => {
-						const n = Number(v);
-						if (!Number.isNaN(n) && n > 0) {
-							s.sleepAfterMinutes = n;
-							await this.plugin.saveSettings();
-						}
-					})
-				);
-
-			this.callout(
-				body,
-				"tip",
-				"Min/max set the random range between decisions - e.g. 8/20 means it acts every 8 to 20 " +
-					"seconds. \"Along window edges\" tracks the sidebar and main-area boundaries live (and " +
-					"rotates the buddy so its feet face whichever edge it's on), so resizing or toggling a " +
-					"sidebar mid-patrol is fine. The buddy also has a mood, always on in the background: " +
-					"energetic \"Happy\" from recent typing/vault activity, \"Bored\" once it's been quiet for " +
-					"the duration above, \"Angry\" if you poke or throw it too much too fast, and \"Normal\" the " +
-					"rest of the time. Each has its own entry in \"Actions Shimeji can react to\" if you want to " +
-					"assign a custom character's own animation to a mood."
-			);
-
-			if (s.characterMode === "builtin") {
-				this.section(body, "Idle behaviors (builtin placeholder)", false, (behaviorsBody) => {
-					behaviorsBody.createEl("p", {
-						cls: "setting-item-description",
-						text:
-							"What the builtin placeholder can do on its own while idle - gaits it roams with (only " +
-							"offered while \"Roam style\" above isn't Off) and one-off poses it plays in place. " +
-							"Toggle any of these off, or raise/lower a weight to make it more or less likely " +
-							"relative to the others (weight 2 is twice as likely as weight 1).",
-					});
-					for (const id of BUILTIN_BEHAVIOR_ORDER) {
-						const cfg = s.builtinBehaviors[id];
-						new Setting(behaviorsBody)
-							.setName(BUILTIN_BEHAVIOR_LABELS[id])
-							.addToggle((t) =>
-								t
-									.setTooltip("Enabled")
-									.setValue(cfg.enabled)
-									.onChange(async (v) => {
-										cfg.enabled = v;
-										await this.plugin.saveSettings();
-									})
-							)
-							.addText((t) =>
-								t
-									.setPlaceholder("weight")
-									.setValue(String(cfg.weight))
-									.onChange(async (v) => {
-										const n = Number(v);
-										if (!Number.isNaN(n) && n >= 0) {
-											cfg.weight = n;
-											await this.plugin.saveSettings();
-										}
-									})
-							);
-					}
-				});
-			}
-		});
-
-		this.section(containerEl, "React to vault actions", false, (body) => {
-			const reactionToggle = (name: string, desc: string, key: keyof typeof s) => {
+		this.section(
+			containerEl,
+			"General",
+			true,
+			(body) => {
 				new Setting(body)
-					.setName(name)
-					.setDesc(desc)
+					.setName("Enable buddy")
+					.setDesc("Show or hide the character entirely.")
 					.addToggle((t) =>
-						t.setValue(s[key] as boolean).onChange(async (v) => {
-							(s[key] as boolean) = v;
+						t.setValue(s.enabled).onChange(async (v) => {
+							s.enabled = v;
 							await this.plugin.saveSettings();
+							this.plugin.applyVisibility();
 						})
 					);
-			};
 
-			reactionToggle("Opening a note", "Greet you when you open a file.", "reactToOpen");
-			reactionToggle("Creating a note", "Cheer when a new file is created.", "reactToCreate");
-			reactionToggle("Deleting a note", "React sadly when a file is deleted.", "reactToDelete");
-			reactionToggle("Editing a note", "Nod along while you're editing (debounced).", "reactToModify");
-			reactionToggle("Renaming a note", "Look surprised when a file is renamed.", "reactToRename");
-			reactionToggle("Searching", "Look thoughtful while the search pane is open.", "reactToSearch");
-		});
+				new Setting(body)
+					.setName("Size")
+					.setDesc("Base height of the character - scales automatically to stay proportionate on smaller or larger screens.")
+					.addSlider((sl) =>
+						sl
+							.setLimits(48, 240, 4)
+							.setValue(s.size)
+							.setDynamicTooltip()
+							.onChange(async (v) => {
+								s.size = v;
+								await this.plugin.saveSettings();
+								this.plugin.applyLiveSettings();
+							})
+					);
 
-		this.section(containerEl, "Actions Shimeji can react to", false, (body) => this.renderActionsSection(body));
+				new Setting(body)
+					.setName("Reset position")
+					.setDesc("Puts the buddy back in the bottom-right corner.")
+					.addButton((b) =>
+						b.setButtonText("Reset").onClick(async () => {
+							s.posX = 24;
+							s.posY = 24;
+							await this.plugin.saveSettings();
+							this.plugin.recreateWidget();
+						})
+					);
 
-		this.section(containerEl, "Speech bubble", false, (body) => {
-			new Setting(body)
-				.setName("Enable speech bubble")
-				.setDesc("Show a short line of text above the buddy's head for reactions.")
-				.addToggle((t) =>
-					t.setValue(s.speechBubbleEnabled).onChange(async (v) => {
-						s.speechBubbleEnabled = v;
-						await this.plugin.saveSettings();
-					})
+				this.callout(
+					body,
+					"tip",
+					"\"Size\" is a baseline, not a fixed pixel count - the buddy scales itself to stay a " +
+						"sensible size whether Obsidian's on a phone or an ultrawide monitor. This setting is safe " +
+						"to configure on desktop even if you mainly use the vault on mobile."
 				);
-		});
 
-		this.section(containerEl, "Character", true, (body) => {
-			body.createEl("p", {
-				cls: "setting-item-description",
-				text:
-					"The built-in character is a generic placeholder. Build your own instead: a character is a " +
-					"folder that can hold as many images as you want (clean strips or messy full sheets); slice " +
-					"whichever frames you need out of any of them, right here.",
-			});
-			this.callout(
-				body,
-				"info",
-				"Everything below saves itself the moment you change it - straight to that character's " +
-					"character.json in your vault. There's no separate save button or step."
-			);
+				this.section(
+					body,
+					"Interaction & touch",
+					false,
+					(interactionBody) => {
+						interactionBody.createEl("p", {
+							cls: "setting-item-description",
+							text: "How you interact with the buddy directly - dragging, clicking, and touch input on mobile.",
+						});
 
-			this.renderCharacterPicker(body);
+						new Setting(interactionBody)
+							.setName("Click-through")
+							.setDesc("Let clicks pass through the buddy to whatever is underneath it (disables dragging and poking).")
+							.addToggle((t) =>
+								t.setValue(s.clickThrough).onChange(async (v) => {
+									s.clickThrough = v;
+									await this.plugin.saveSettings();
+									this.plugin.applyLiveSettings();
+								})
+							);
 
-			if (s.characterMode === "character" && s.activeCharacterFolder) {
-				this.renderCharacterEditor(body);
-			}
-		});
+						new Setting(interactionBody)
+							.setName("Restrict touch to reading view (mobile)")
+							.setDesc(
+								"On the mobile app, only let you drag or poke the buddy while the open note is in reading " +
+									"view - it still animates and reacts either way, it just won't take touch input in edit view."
+							)
+							.addToggle((t) =>
+								t.setValue(s.mobileReadingViewOnly).onChange(async (v) => {
+									s.mobileReadingViewOnly = v;
+									await this.plugin.saveSettings();
+									this.plugin.updateMobileInteractivity();
+								})
+							);
+
+						new Setting(interactionBody)
+							.setName("Click counter mode")
+							.setDesc(
+								"While on, clicking the buddy tallies clicks (shown as a speech-bubble count) and hops it to " +
+									"a new nearby spot each time, instead of the normal poke reaction. Assign a hotkey to " +
+									"\"Toggle click counter mode\" (Settings → Hotkeys) to flip it on/off without opening settings."
+							)
+							.addToggle((t) =>
+								t.setValue(s.clickCounterEnabled).onChange(async (v) => {
+									await this.plugin.setClickCounterEnabled(v);
+								})
+							);
+					},
+					"hand"
+				);
+			},
+			"sliders-horizontal"
+		);
+
+		this.section(
+			containerEl,
+			"Standby & idle behavior",
+			true,
+			(body) => {
+				const idleRow = new Setting(body)
+					.setName("Idle interval")
+					.setDesc("How often the buddy decides on its own what to do next while nothing is happening.");
+				const idleFields = idleRow.controlEl.createDiv({ cls: "sm-slicer-controls" });
+				this.mkLabeledNumber(idleFields, "Min sec", s.idleMinSeconds, async (n) => {
+					s.idleMinSeconds = n;
+					await this.plugin.saveSettings();
+					this.plugin.applyLiveSettings();
+				});
+				this.mkLabeledNumber(idleFields, "Max sec", s.idleMaxSeconds, async (n) => {
+					s.idleMaxSeconds = n;
+					await this.plugin.saveSettings();
+					this.plugin.applyLiveSettings();
+				});
+
+				new Setting(body)
+					.setName("Roam style")
+					.setDesc("Whether the buddy occasionally moves to a new spot on its own instead of just idling in place, and how.")
+					.addDropdown((d) => {
+						d.addOption("off", "Off - stay in place");
+						d.addOption("anywhere", "Anywhere on screen");
+						d.addOption("edges", "Along window edges");
+						d.setValue(!s.wanderEnabled ? "off" : s.roamStickToEdges ? "edges" : "anywhere");
+						d.onChange(async (value) => {
+							s.wanderEnabled = value !== "off";
+							s.roamStickToEdges = value === "edges";
+							await this.plugin.saveSettings();
+						});
+					});
+
+				new Setting(body)
+					.setName("Bored / asleep after")
+					.setDesc("Minutes of no vault activity before the buddy gets bored and dozes off.")
+					.addText((t) =>
+						t.setValue(String(s.sleepAfterMinutes)).onChange(async (v) => {
+							const n = Number(v);
+							if (!Number.isNaN(n) && n > 0) {
+								s.sleepAfterMinutes = n;
+								await this.plugin.saveSettings();
+							}
+						})
+					);
+
+				this.callout(
+					body,
+					"tip",
+					"Min/max set the random range between decisions - e.g. 8/20 means it acts every 8 to 20 " +
+						"seconds. \"Along window edges\" tracks the sidebar and main-area boundaries live (and " +
+						"rotates the buddy so its feet face whichever edge it's on), so resizing or toggling a " +
+						"sidebar mid-patrol is fine. The buddy also has a mood, always on in the background: " +
+						"energetic \"Happy\" from recent typing/vault activity, \"Bored\" once it's been quiet for " +
+						"the duration above, \"Angry\" if you poke or throw it too much too fast, and \"Normal\" the " +
+						"rest of the time. Each has its own entry in \"Reactions & actions\" below if you want to " +
+						"assign a custom character's own animation to a mood."
+				);
+
+				if (s.characterMode === "builtin") {
+					this.section(
+						body,
+						"Idle behaviors (builtin placeholder)",
+						false,
+						(behaviorsBody) => {
+							behaviorsBody.createEl("p", {
+								cls: "setting-item-description",
+								text:
+									"What the builtin placeholder can do on its own while idle - gaits it roams with (only " +
+									"offered while \"Roam style\" above isn't Off) and one-off poses it plays in place. " +
+									"Toggle any of these off, or raise/lower a weight to make it more or less likely " +
+									"relative to the others (weight 2 is twice as likely as weight 1).",
+							});
+							for (const id of BUILTIN_BEHAVIOR_ORDER) {
+								const cfg = s.builtinBehaviors[id];
+								new Setting(behaviorsBody)
+									.setName(BUILTIN_BEHAVIOR_LABELS[id])
+									.addToggle((t) =>
+										t
+											.setTooltip("Enabled")
+											.setValue(cfg.enabled)
+											.onChange(async (v) => {
+												cfg.enabled = v;
+												await this.plugin.saveSettings();
+											})
+									)
+									.addText((t) =>
+										t
+											.setPlaceholder("weight")
+											.setValue(String(cfg.weight))
+											.onChange(async (v) => {
+												const n = Number(v);
+												if (!Number.isNaN(n) && n >= 0) {
+													cfg.weight = n;
+													await this.plugin.saveSettings();
+												}
+											})
+									);
+							}
+						},
+						"sparkles"
+					);
+				}
+			},
+			"activity"
+		);
+
+		this.section(
+			containerEl,
+			"Reactions & actions",
+			false,
+			(body) => {
+				body.createEl("p", {
+					cls: "setting-item-description",
+					text:
+						"What the buddy responds to on its own, and the complete catalog of \"actions\" (trigger " +
+						"ids - vault events, moods, and any Obsidian command you name) that a custom character's " +
+						"animation can be tied to down in Character → Animations.",
+				});
+
+				body.createEl("h4", { text: "Vault events" });
+				const reactionToggle = (name: string, desc: string, key: keyof typeof s) => {
+					new Setting(body)
+						.setName(name)
+						.setDesc(desc)
+						.addToggle((t) =>
+							t.setValue(s[key] as boolean).onChange(async (v) => {
+								(s[key] as boolean) = v;
+								await this.plugin.saveSettings();
+							})
+						);
+				};
+
+				reactionToggle("Opening a note", "Greet you when you open a file.", "reactToOpen");
+				reactionToggle("Creating a note", "Cheer when a new file is created.", "reactToCreate");
+				reactionToggle("Deleting a note", "React sadly when a file is deleted.", "reactToDelete");
+				reactionToggle("Editing a note", "Nod along while you're editing (debounced).", "reactToModify");
+				reactionToggle("Renaming a note", "Look surprised when a file is renamed.", "reactToRename");
+				reactionToggle("Searching", "Look thoughtful while the search pane is open.", "reactToSearch");
+
+				this.section(
+					body,
+					"Speech bubble",
+					true,
+					(bubbleBody) => {
+						new Setting(bubbleBody)
+							.setName("Enable speech bubble")
+							.setDesc("Show a short line of text above the buddy's head for reactions.")
+							.addToggle((t) =>
+								t.setValue(s.speechBubbleEnabled).onChange(async (v) => {
+									s.speechBubbleEnabled = v;
+									await this.plugin.saveSettings();
+								})
+							);
+					},
+					"message-circle"
+				);
+
+				this.section(
+					body,
+					"Full action reference & custom commands",
+					false,
+					(refBody) => this.renderActionsSection(refBody),
+					"list"
+				);
+			},
+			"zap"
+		);
+
+		this.section(
+			containerEl,
+			"Character",
+			true,
+			(body) => {
+				body.createEl("p", {
+					cls: "setting-item-description",
+					text:
+						"The built-in character is a generic placeholder. Build your own instead: a character is a " +
+						"folder that can hold as many images as you want (clean strips or messy full sheets); slice " +
+						"whichever frames you need out of any of them, right here. Each animation you build gets " +
+						"tied to one or more of the actions from \"Reactions & actions\" above.",
+				});
+				this.callout(
+					body,
+					"info",
+					"Everything below saves itself the moment you change it - straight to that character's " +
+						"character.json in your vault. There's no separate save button or step."
+				);
+
+				this.renderCharacterPicker(body);
+
+				if (s.characterMode === "character" && s.activeCharacterFolder) {
+					this.renderCharacterEditor(body);
+				}
+			},
+			"user"
+		);
 
 		containerEl.scrollTop = scrollTop;
 	}
@@ -403,10 +478,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	private renderActionsSection(containerEl: HTMLElement): void {
 		const s = this.plugin.settings;
 
-		containerEl.createEl("p", {
-			cls: "setting-item-description",
-			text: "Every one of these is assignable to an animation down in the Character section.",
-		});
 		this.callout(
 			containerEl,
 			"tip",
@@ -608,116 +679,128 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			return;
 		}
 
-		this.section(containerEl, "Images", true, (body) => {
-			if (this.characterImages.length === 0) {
-				body.createEl("p", {
-					cls: "setting-item-description",
-					text: "No images yet - upload one to get started (a clean strip, a messy full sheet, whatever).",
-				});
-			}
-			for (const img of this.characterImages) {
-				new Setting(body)
-					.setName(img)
-					.addButton((b) =>
-						b.setButtonText("Edit frames…").onClick(() => this.openImageEditor(folder, img, null))
-					)
-					.addButton((b) =>
-						b
-							.setButtonText("Remove background…")
-							.setTooltip("Color-key transparency - turn a flat background color transparent")
-							.onClick(() => this.openRemoveBackground(folder, img))
-					)
-					.addExtraButton((b) =>
-						b
-							.setIcon("trash-2")
-							.setTooltip("Delete image (and any animations using it)")
-							.onClick(async () => {
-								await deleteCharacterImage(this.app.vault, folder, img);
-								if (this.characterFile) {
-									this.characterFile.animations = this.characterFile.animations.filter(
-										(a) => a.sourceImage !== img
-									);
+		this.section(
+			containerEl,
+			"Images",
+			true,
+			(body) => {
+				if (this.characterImages.length === 0) {
+					body.createEl("p", {
+						cls: "setting-item-description",
+						text: "No images yet - upload one to get started (a clean strip, a messy full sheet, whatever).",
+					});
+				}
+				for (const img of this.characterImages) {
+					new Setting(body)
+						.setName(img)
+						.addButton((b) =>
+							b.setButtonText("Edit frames…").onClick(() => this.openImageEditor(folder, img, null))
+						)
+						.addButton((b) =>
+							b
+								.setButtonText("Remove background…")
+								.setTooltip("Color-key transparency - turn a flat background color transparent")
+								.onClick(() => this.openRemoveBackground(folder, img))
+						)
+						.addExtraButton((b) =>
+							b
+								.setIcon("trash-2")
+								.setTooltip("Delete image (and any animations using it)")
+								.onClick(async () => {
+									await deleteCharacterImage(this.app.vault, folder, img);
+									if (this.characterFile) {
+										this.characterFile.animations = this.characterFile.animations.filter(
+											(a) => a.sourceImage !== img
+										);
+										await this.persistCharacterFile();
+									}
+									this.characterImages = await listCharacterImages(this.app.vault, folder);
+									this.display();
+								})
+						);
+				}
+
+				const uploadSetting = new Setting(body)
+					.setName("Upload image")
+					.setDesc("Pick PNGs/JPGs/GIFs/WebPs from anywhere on your computer, one or several at once - copied into this character's folder.");
+				this.renderUploadControl(uploadSetting.controlEl, folder);
+
+				this.callout(
+					body,
+					"tip",
+					"\"Edit frames…\" opens a bigger dedicated window: drag a box freeform, or set a grid and click " +
+						"cells in play order - either way it also lists and manages every animation built from that " +
+						"image. Got a whole asset-pack export (several PNGs)? Select them all at once in the upload " +
+						"dialog, or use \"Import an existing folder...\" above if you've already placed them in the vault."
+				);
+			},
+			"image"
+		);
+
+		this.section(
+			containerEl,
+			"Animations",
+			true,
+			(body) => {
+				if (this.characterImages.length > 0) {
+					let newAnimName: TextComponent | undefined;
+					let newAnimImage: DropdownComponent | undefined;
+					new Setting(body)
+						.setName("New animation")
+						.setDesc("Adds an empty animation to the list below - open its \"Edit frames\" to slice frames for it.")
+						.addText((t) => {
+							newAnimName = t;
+							t.setPlaceholder("Name");
+						})
+						.addDropdown((d) => {
+							newAnimImage = d;
+							for (const img of this.characterImages) d.addOption(img, img);
+						})
+						.addButton((b) =>
+							b
+								.setButtonText("+ Add")
+								.setCta()
+								.onClick(async () => {
+									const sourceImage = newAnimImage?.getValue();
+									if (!sourceImage || !this.characterFile) return;
+									const anim: CustomAnimation = {
+										id: newAnimationId(),
+										name: newAnimName?.getValue().trim() || `Animation ${this.characterFile.animations.length + 1}`,
+										sourceImage,
+										triggers: ["idle"],
+										moves: true,
+										weight: 1,
+										enabled: true,
+										loop: true,
+										fps: 6,
+										frames: [],
+									};
+									this.characterFile.animations.push(anim);
 									await this.persistCharacterFile();
-								}
-								this.characterImages = await listCharacterImages(this.app.vault, folder);
-								this.display();
-							})
-					);
-			}
+									this.display();
+								})
+						);
+				}
 
-			const uploadSetting = new Setting(body)
-				.setName("Upload image")
-				.setDesc("Pick PNGs/JPGs/GIFs/WebPs from anywhere on your computer, one or several at once - copied into this character's folder.");
-			this.renderUploadControl(uploadSetting.controlEl, folder);
-
-			this.callout(
-				body,
-				"tip",
-				"\"Edit frames…\" opens a bigger dedicated window: drag a box freeform, or set a grid and click " +
-					"cells in play order - either way it also lists and manages every animation built from that " +
-					"image. Got a whole asset-pack export (several PNGs)? Select them all at once in the upload " +
-					"dialog, or use \"Import an existing folder...\" above if you've already placed them in the vault."
-			);
-		});
-
-		this.section(containerEl, "Animations", true, (body) => {
-			if (this.characterImages.length > 0) {
-				let newAnimName: TextComponent | undefined;
-				let newAnimImage: DropdownComponent | undefined;
-				new Setting(body)
-					.setName("New animation")
-					.setDesc("Adds an empty animation to the list below - open its \"Edit frames\" to slice frames for it.")
-					.addText((t) => {
-						newAnimName = t;
-						t.setPlaceholder("Name");
-					})
-					.addDropdown((d) => {
-						newAnimImage = d;
-						for (const img of this.characterImages) d.addOption(img, img);
-					})
-					.addButton((b) =>
-						b
-							.setButtonText("+ Add")
-							.setCta()
-							.onClick(async () => {
-								const sourceImage = newAnimImage?.getValue();
-								if (!sourceImage || !this.characterFile) return;
-								const anim: CustomAnimation = {
-									id: newAnimationId(),
-									name: newAnimName?.getValue().trim() || `Animation ${this.characterFile.animations.length + 1}`,
-									sourceImage,
-									triggers: ["idle"],
-									moves: true,
-									weight: 1,
-									enabled: true,
-									loop: true,
-									fps: 6,
-									frames: [],
-								};
-								this.characterFile.animations.push(anim);
-								await this.persistCharacterFile();
-								this.display();
-							})
-					);
-			}
-
-			if (this.characterFile!.animations.length === 0) {
-				body.createEl("p", {
-					cls: "setting-item-description",
-					text: "No animations yet - add one above, or upload/edit an image first.",
-				});
-			}
-			for (const anim of this.characterFile!.animations) {
-				this.renderCustomAnimationBlock(body, anim);
-			}
-			this.callout(
-				body,
-				"warning",
-				"An animation with no actions assigned (see its trigger chips) never plays - it just sits " +
-					"here unused. Assign it to at least one action, including \"Idle / standby / roaming\" if " +
-					"you want it in the standby rotation."
-			);
-		});
+				if (this.characterFile!.animations.length === 0) {
+					body.createEl("p", {
+						cls: "setting-item-description",
+						text: "No animations yet - add one above, or upload/edit an image first.",
+					});
+				}
+				for (const anim of this.characterFile!.animations) {
+					this.renderCustomAnimationBlock(body, anim);
+				}
+				this.callout(
+					body,
+					"warning",
+					"An animation with no actions assigned (see its trigger chips) never plays - it just sits " +
+						"here unused. Assign it to at least one action, including \"Idle / standby / roaming\" if " +
+						"you want it in the standby rotation."
+				);
+			},
+			"film"
+		);
 	}
 
 	/** Opens the big dedicated slicing window for one image - freeform drag or grid-pick, plus managing every animation built from it. */
