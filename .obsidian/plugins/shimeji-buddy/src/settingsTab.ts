@@ -7,6 +7,7 @@ import {
 	BASIC_MOVEMENT_ROLES,
 	BASIC_MOVEMENT_ROLE_LABELS,
 	BUILTIN_TRIGGERS,
+	JUTSU_LABELS,
 	commandTriggerId,
 	defaultMovementBehavior,
 	type AnimationSequence,
@@ -1845,7 +1846,12 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		const animWrap = fieldsWrap.createDiv({ cls: "sm-slicer-field" });
 		animWrap.createEl("label", { text: "Animation" });
 		const animSelect = animWrap.createEl("select");
-		animSelect.createEl("option", { value: "", text: "(none - wait/hidden beat)" });
+		animSelect.createEl("option", {
+			value: "",
+			text: step.builtinPose
+				? `(none - plays the placeholder's own ${JUTSU_LABELS[step.builtinPose]} for now)`
+				: "(none - wait/hidden beat)",
+		});
 		// Disabled animations are skipped when actually resolving a step's clip
 		// (see loadCharacter in spritePack.ts), same as they're skipped for
 		// their own triggers - keep the currently-picked one selectable even if
@@ -1862,6 +1868,12 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			step.animationId = animSelect.value;
 			await this.persistCharacterFile();
 		});
+		if (step.builtinPose) {
+			animWrap.createSpan({
+				cls: "setting-item-description",
+				text: `This is the ${JUTSU_LABELS[step.builtinPose]} placeholder - pick one of your own animations above to replace it.`,
+			});
+		}
 
 		const durationWrap = fieldsWrap.createDiv({ cls: "sm-slicer-field" });
 		durationWrap.createEl("label", { text: "Duration (ms, 0 = auto)" });

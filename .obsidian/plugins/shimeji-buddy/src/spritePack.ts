@@ -2,12 +2,15 @@ import { Vault } from "obsidian";
 import {
 	BASIC_MOVEMENT_ROLE_LABELS,
 	BASIC_MOVEMENT_ROLES,
+	JUTSU_IDS,
+	JUTSU_LABELS,
 	LOOPING_BASIC_MOVEMENT_ROLES,
 	defaultMovementBehavior,
 	type AnimationSequence,
 	type AtlasFrameRect,
 	type BasicMovementRole,
 	type CustomAnimation,
+	type JutsuId,
 	type MovementBehavior,
 } from "./settings";
 
@@ -44,12 +47,14 @@ export interface WeightedAnimation extends ResolvedAnimation {
 
 /** One resolved beat of a WeightedSequence - see settings.ts's SequenceStep. */
 export interface ResolvedSequenceStep {
-	/** null = no visible animation this step (a pure wait/hidden beat). */
+	/** null = no visible animation this step (a pure wait/hidden beat, or - if builtinPose is set - a placeholder-pose beat). */
 	clip: ResolvedAnimation | null;
 	durationMs: number;
 	hidden: boolean;
 	movement: MovementBehavior;
 	say: string;
+	/** See settings.ts's SequenceStep.builtinPose - only meaningful while clip is null. */
+	builtinPose?: JutsuId;
 }
 
 export interface WeightedSequence {
@@ -454,6 +459,35 @@ function ensureBasicMovementRoles(animations: CustomAnimation[]): CustomAnimatio
 	return [...animations, ...missing.map(blankBasicMovementAnimation)];
 }
 
+/** A one-step placeholder Sequence for one jutsu - animationId starts empty, so CharacterWidget plays the builtin placeholder's own CSS pose for it (see SequenceStep.builtinPose) until replaced with one of the character's own animations. */
+function defaultJutsuSequence(jutsu: JutsuId): AnimationSequence {
+	return {
+		id: newId(),
+		name: JUTSU_LABELS[jutsu],
+		triggers: ["idle"],
+		weight: 1,
+		enabled: true,
+		steps: [
+			{
+				id: newId(),
+				animationId: "",
+				durationMs: 0,
+				hidden: false,
+				movement: defaultMovementBehavior(),
+				say: "",
+				builtinPose: jutsu,
+			},
+		],
+	};
+}
+
+/** Fills in any jutsu placeholder Sequence a character.json doesn't have yet - identified by its single step's builtinPose, not by id (ids are freshly generated, so they can't be used to detect "already has one" across a fresh read). */
+function ensureJutsuSequences(sequences: AnimationSequence[]): AnimationSequence[] {
+	const missing = JUTSU_IDS.filter((jutsu) => !sequences.some((s) => s.steps[0]?.builtinPose === jutsu));
+	if (missing.length === 0) return sequences;
+	return [...sequences, ...missing.map(defaultJutsuSequence)];
+}
+
 /** Reads a character's character.json, or a blank one if the folder has none yet. */
 export async function readCharacterFile(vault: Vault, folderPath: string): Promise<CharacterFile> {
 	const path = characterFilePath(folderPath);
@@ -465,7 +499,7 @@ export async function readCharacterFile(vault: Vault, folderPath: string): Promi
 				return {
 					...parsed,
 					animations: ensureBasicMovementRoles(parsed.animations.map(normalizeAnimation)),
-					sequences: Array.isArray(parsed.sequences) ? parsed.sequences : [],
+					sequences: ensureJutsuSequences(Array.isArray(parsed.sequences) ? parsed.sequences : []),
 					basicMovementRoamEnabled: parsed.basicMovementRoamEnabled !== false,
 				} as CharacterFile;
 			}
@@ -477,7 +511,7 @@ export async function readCharacterFile(vault: Vault, folderPath: string): Promi
 	return {
 		name: folderName,
 		animations: ensureBasicMovementRoles([]),
-		sequences: [],
+		sequences: ensureJutsuSequences([]),
 		basicMovementRoamEnabled: true,
 	};
 }
@@ -519,7 +553,7 @@ export async function createCharacter(vault: Vault, basePath: string, name: stri
 	await writeCharacterFile(vault, folder, {
 		name: name.trim() || slug,
 		animations: ensureBasicMovementRoles([]),
-		sequences: [],
+		sequences: ensureJutsuSequences([]),
 		basicMovementRoamEnabled: true,
 	});
 	return folder;
@@ -653,6 +687,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 					hidden: step.hidden,
 					movement: step.movement,
 					say: step.say,
+					builtinPose: step.builtinPose,
 				});
 			}
 			const resolved: WeightedSequence = {

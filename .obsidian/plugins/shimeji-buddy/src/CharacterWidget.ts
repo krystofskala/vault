@@ -3,6 +3,7 @@ import {
 	BASIC_MOVEMENT_ROLES,
 	type BasicMovementRole,
 	type BuiltinBehaviorId,
+	type JutsuId,
 	type MovementBehavior,
 	type ScreenCorner,
 	type ScreenEdge,
@@ -67,6 +68,13 @@ const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
 	"mood:bored": "sleep",
 	"mood:angry": "angry",
 	summon: "run", // played while travelling to wherever it was triple-clicked
+};
+
+/** Maps a jutsu placeholder Sequence step's builtinPose (see settings.ts) to the matching CSS pose. */
+const JUTSU_ID_TO_POSE: Record<JutsuId, BuiltinPose> = {
+	"jutsu-clone": "jutsuClone",
+	"jutsu-transform": "jutsuTransform",
+	"jutsu-shuriken": "jutsuShuriken",
 };
 
 /**
@@ -888,14 +896,32 @@ export class CharacterWidget {
 
 		// Sequence timing is driven by the step's own duration (below), not
 		// the clip's natural completion - a no-op onComplete either way.
-		if (step.clip) this.playResolvedAnimation(step.clip, () => {});
+		// builtinPose only matters while there's no clip - a step's own
+		// animation (if the user's replaced the jutsu placeholder with one)
+		// always wins, same as an unfilled Basic movement slot.
+		const builtinPose = !step.clip && step.builtinPose ? JUTSU_ID_TO_POSE[step.builtinPose] : null;
+		if (step.clip) {
+			this.playResolvedAnimation(step.clip, () => {});
+		} else if (builtinPose) {
+			this.playPlaceholder(builtinPose);
+			if (builtinPose === "jutsuShuriken") {
+				window.setTimeout(() => {
+					if (this.currentTrigger === trigger) this.throwShuriken();
+				}, SHURIKEN_THROW_DELAY_MS);
+			}
+		}
 		if (step.movement.kind !== "none") this.applyMovement(step.movement, trigger);
 		if (step.say && this.settings.speechBubbleEnabled) this.showBubble(step.say);
 
 		let duration = step.durationMs;
 		if (duration <= 0) {
-			// No explicit duration: a non-looping clip gets exactly its own playback length; anything else (a loop, or no clip at all) needs a sane fallback since neither ends on its own.
-			duration = step.clip && !step.clip.loop ? (step.clip.frames.length / step.clip.fps) * 1000 : 1200;
+			// No explicit duration: a non-looping clip gets exactly its own
+			// playback length, an unfilled jutsu slot gets its placeholder
+			// pose's own length, anything else (a loop, or no clip/pose at
+			// all) needs a sane fallback since none of those end on their own.
+			if (step.clip && !step.clip.loop) duration = (step.clip.frames.length / step.clip.fps) * 1000;
+			else if (builtinPose) duration = PLACEHOLDER_DURATIONS[builtinPose] || 600;
+			else duration = 1200;
 		}
 
 		this.sequenceStepTimer = window.setTimeout(() => this.runSequenceStep(seq, index + 1, runId, trigger), duration);

@@ -218,8 +218,8 @@ export interface CustomAnimation {
 	fps: number;
 	frames: AtlasFrameRect[];
 	/**
-	 * Marks this as one of the character's four basic-movement gaits instead
-	 * of a regular trigger-driven entry - edited in its own "Basic movement"
+	 * Marks this as one of the character's Basic movement poses instead of a
+	 * regular trigger-driven entry - edited in its own "Basic movement"
 	 * section (not the main Animations list), not assigned triggers/weight of
 	 * its own, but still a plain animation otherwise: still pickable as a
 	 * Sequence step's clip like any other. At most one animation should hold
@@ -227,6 +227,17 @@ export interface CustomAnimation {
 	 */
 	role?: BasicMovementRole;
 }
+
+/** The three jutsu poses (see BuiltinBehaviorId) - too elaborate for a single-clip Basic movement slot (Shuriken jutsu throws a projectile), so they ship as a pre-built placeholder Sequence per character instead - see SequenceStep.builtinPose. */
+export type JutsuId = "jutsu-clone" | "jutsu-transform" | "jutsu-shuriken";
+
+export const JUTSU_IDS: JutsuId[] = ["jutsu-clone", "jutsu-transform", "jutsu-shuriken"];
+
+export const JUTSU_LABELS: Record<JutsuId, string> = {
+	"jutsu-clone": "Multiplication Jutsu",
+	"jutsu-transform": "Transformation Jutsu",
+	"jutsu-shuriken": "Shuriken Jutsu",
+};
 
 /**
  * One beat of a scripted, multi-step reaction - e.g. "vanish in a puff of
@@ -237,9 +248,9 @@ export interface CustomAnimation {
  */
 export interface SequenceStep {
 	id: string;
-	/** An existing Animation's id in this character, or "" for no visible animation (a pure wait/hidden beat). Sequences are a custom-character feature - there's no builtin-placeholder equivalent. */
+	/** An existing Animation's id in this character, or "" for no visible animation (a pure wait/hidden beat, or - if builtinPose is set - a placeholder-pose beat, see below). */
 	animationId: string;
-	/** ms this step lasts. 0 = the animation's own natural length (frame count / fps) - should be set explicitly (>0) when animationId is "" or the clip loops, since neither has a natural end on its own. */
+	/** ms this step lasts. 0 = the animation's own natural length (frame count / fps), or the builtin pose's own duration if animationId is unset and builtinPose is - should be set explicitly (>0) for a pure wait/hidden beat, or a looping clip, since neither has a natural end of its own. */
 	durationMs: number;
 	/** Buddy is invisible for this step - e.g. the "vanished" beat of a disappearing act. */
 	hidden: boolean;
@@ -247,6 +258,8 @@ export interface SequenceStep {
 	movement: MovementBehavior;
 	/** Literal text shown the instant this step starts - deliberately scripted, bypasses the @tag speech-line pool. Empty = nothing said. */
 	say: string;
+	/** Only set on the three built-in jutsu placeholder Sequences (see JUTSU_IDS) - plays the builtin placeholder's own CSS pose for this step while animationId is still unset, exactly like an unfilled Basic movement slot. Replacing animationId with one of the character's own animations overrides it. */
+	builtinPose?: JutsuId;
 }
 
 /** A scripted, multi-step reaction - see SequenceStep. Assignable to triggers and pooled/weighted exactly like a plain CustomAnimation, so the two kinds can mix in the same trigger's pool for variety. */

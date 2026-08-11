@@ -269,6 +269,16 @@ lower-level version: an instant Hide at a chosen edge, then a later step
 tweening to a non-edge landing spot (or, for an exit, just Hide as the
 final step with no landing needed).
 
+Every character also ships with three pre-built, one-step Sequences - the
+three jutsus (Multiplication, Transformation, Shuriken) - assigned to
+"idle" so they occasionally show up in the standby rotation same as
+before. Too elaborate for a single Basic movement slot (Shuriken jutsu
+throws a projectile at your cursor), so instead of a blank slot, their one
+step starts with no animation picked and plays the placeholder's own
+version of that jutsu until you replace it with one of your own - same
+"blank means placeholder, for now" idea as Basic movement, just wearing a
+Sequence instead of a single clip.
+
 ## Speech
 
 **Settings → Shimeji Buddy → Reactions & actions → Speech bubble** has two
