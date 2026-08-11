@@ -128,11 +128,15 @@ off the nearest edge, all without needing anything beyond the picker:
 
 - **Destinations** (travels there once, then stops): Random spot, Back to
   where it started, Move to an edge (a specific side, the nearest one, or a
-  random one), Move to center, Move to a corner, Hide (runs off the nearest
-  edge and disappears), Peek from an edge (slides to just off that edge,
-  leaving an adjustable amount visible - a percentage, since sprite height
-  varies per character). Any of these can skip the travel animation and jump
-  straight there ("Instant").
+  random one - stops touching it, still on-screen), Move to center, Move to
+  a corner, Hide (same edge choices as "Move to an edge," but continues past
+  it, off-screen), Peek from an edge (slides to just off that edge, leaving
+  an adjustable amount visible - a percentage, since sprite height varies
+  per character). Any of these can skip the travel animation and jump
+  straight there ("Instant") - pairing an instant Hide with a non-edge
+  landing spot on the next step/reaction is how a directional entrance or
+  exit (walking, falling, jumping in or out) is built - see "Sequences"
+  below for the full recipe.
 - **Continuous** (keeps moving for as long as this reaction is active): Spin
   around center (facing outward, like a satellite), Walk around the window
   edges (facing the center - the same feet-on-the-boundary orientation
@@ -167,23 +171,29 @@ Each step in a sequence has its own:
   reactions, this is exactly what you typed, not a random pick from the
   speech-lines file - a sequence is already a fully scripted moment.
 
-Worked example - the "vanish, wait, fall back in from elsewhere, say
-something" bit - using only the movement vocabulary above:
+Appearing or vanishing *in place* doesn't need anything beyond the above - a
+plain animation (a puff of smoke, say) plus the Hidden checkbox on the step
+before/after it. A *directional* entrance or exit (walking, running, falling,
+or jumping in or out) needs one more distinction: **"Move to an edge" stops
+touching it (on-screen); "Hide" continues past it (off-screen)**. Pairing a
+Hide at a *specific* edge with a landing spot that *isn't* an edge is the
+whole recipe for any directional entrance:
 
 1. **Poof** - your vanish animation, Movement: Stay put, Say: "Abayo!"
 2. **Wait** - no animation, Hidden on, Duration: 7000
-3. **Reposition** - no animation, Hidden on, Movement: Peek from an edge
-   (pick the edge it should fall from, e.g. Top, visible amount 0%),
-   Instant on - teleports it fully off-screen at that edge while still
-   invisible, so step 4 has somewhere to fall in *from*.
-4. **Fall in** - your falling animation, Hidden off, Movement: Peek from
-   the same edge, visible amount 100% (not instant, so it tweens) - Say:
+3. **Reposition** - no animation, Hidden on, Movement: Hide, Edge: Top,
+   Instant on - teleports it fully off-screen above while still invisible,
+   so step 4 has somewhere to fall in *from*.
+4. **Fall in** - your falling animation, Hidden off, Movement: Random spot
+   (or Center - anything that *isn't* an edge, so it lands out in the open
+   instead of resting pinned to the boundary), not instant, so it tweens in
+   and the screen edge itself reveals it naturally as it crosses in - Say:
    "JK, I'm back!"
 
-That last trick - Peek's visible-amount slider at 0% vs. 100% between two
-steps - is how any "enters from off-screen" effect works, since Peek is the
-one movement that can sit at any point between fully hidden past an edge and
-fully on-screen at it.
+The same two-step shape covers walking/running in from a side (Hide, Edge:
+Left or Right) or jumping in from the bottom (Hide, Edge: Bottom) - swap
+step 3's edge and step 4's animation and it's the same recipe. Reverse the
+order (start on-screen, Hide as the *last* step) for the exit side instead.
 
 ## Speech
 

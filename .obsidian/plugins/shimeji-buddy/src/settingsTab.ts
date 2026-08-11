@@ -81,7 +81,7 @@ const MOVEMENT_KIND_OPTIONS: { kind: MovementBehaviorKind; label: string }[] = [
 	{ kind: "edge", label: "Move to an edge" },
 	{ kind: "center", label: "Move to center" },
 	{ kind: "corner", label: "Move to a corner" },
-	{ kind: "hide", label: "Hide (run off the nearest edge)" },
+	{ kind: "hide", label: "Hide (run off-screen past an edge)" },
 	{ kind: "peek", label: "Peek from an edge" },
 	{ kind: "spin", label: "Spin around center (faces outward)" },
 	{ kind: "patrolWindowEdges", label: "Walk around the window edges (faces the center)" },
@@ -121,6 +121,7 @@ const CORNER_OPTIONS: { corner: ScreenCorner; label: string }[] = [
 function movementDefaultsFor(kind: MovementBehaviorKind): MovementBehavior {
 	switch (kind) {
 		case "edge":
+		case "hide":
 			return { kind, edge: "nearest" };
 		case "corner":
 			return { kind, corner: "nearest" };
@@ -1139,7 +1140,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		const params = containerEl.createDiv({ cls: "sm-slicer-controls sm-movement-params" });
 
-		if (movement.kind === "edge" || movement.kind === "corner" || movement.kind === "peek") {
+		if (movement.kind === "edge" || movement.kind === "hide" || movement.kind === "corner" || movement.kind === "peek") {
 			const fieldWrap = params.createDiv({ cls: "sm-slicer-field" });
 			fieldWrap.createEl("label", { text: movement.kind === "corner" ? "Corner" : "Edge" });
 			const select = fieldWrap.createEl("select");
@@ -1148,7 +1149,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				const value = "corner" in opt ? opt.corner : opt.edge;
 				select.createEl("option", { value, text: opt.label });
 			}
-			select.value = movement.kind === "corner" ? movement.corner ?? "nearest" : movement.edge ?? "top";
+			const edgeDefault = movement.kind === "peek" ? "top" : "nearest";
+			select.value = movement.kind === "corner" ? movement.corner ?? "nearest" : movement.edge ?? edgeDefault;
 			select.addEventListener("change", async () => {
 				if (movement.kind === "corner") await onChange({ ...movement, corner: select.value as ScreenCorner });
 				else await onChange({ ...movement, edge: select.value as ScreenEdge });

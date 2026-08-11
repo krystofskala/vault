@@ -1113,8 +1113,12 @@ export class CharacterWidget {
 				else if (edge === "random") edge = (["top", "bottom", "left", "right"] as const)[Math.floor(Math.random() * 4)];
 				return edgePosition(edge as "top" | "bottom" | "left" | "right", false);
 			}
-			case "hide":
-				return edgePosition(nearestEdge(), true);
+			case "hide": {
+				let edge = movement.edge ?? "nearest";
+				if (edge === "nearest") edge = nearestEdge();
+				else if (edge === "random") edge = (["top", "bottom", "left", "right"] as const)[Math.floor(Math.random() * 4)];
+				return edgePosition(edge as "top" | "bottom" | "left" | "right", true);
+			}
 			case "peek": {
 				const edge = (movement.edge && movement.edge !== "nearest" && movement.edge !== "random" ? movement.edge : "top") as
 					| "top"

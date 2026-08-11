@@ -81,7 +81,7 @@ export type ScreenCorner = "top-left" | "top-right" | "bottom-left" | "bottom-ri
 
 export interface MovementBehavior {
 	kind: MovementBehaviorKind;
-	/** kind "edge" | "peek" | "paceEdge": which edge ("nearest"/"random" only valid for "edge"). */
+	/** kind "edge" | "hide" | "peek" | "paceEdge": which edge - "nearest"/"random" valid for "edge"/"hide" only, "peek"/"paceEdge" need a specific side. "Edge" stops touching it (on-screen); "hide" continues past it (off-screen) - pairing a "hide" at a chosen edge with a non-edge landing elsewhere is how a directional entrance/exit (walking/falling/jumping in or out) is built, entirely from these two destinations. */
 	edge?: ScreenEdge;
 	/** kind "corner". */
 	corner?: ScreenCorner;
