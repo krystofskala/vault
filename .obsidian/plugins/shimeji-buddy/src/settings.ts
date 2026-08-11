@@ -52,9 +52,13 @@ export function commandTriggerId(commandId: string): string {
  * same "Stalk / block cursor" behavior can drive an angry-mood animation
  * directly, or one beat of a longer scripted bit.
  *
- * Split into two families under the hood - "destinations" (edge, center,
+ * Split into three families under the hood - "destinations" (edge, center,
  * corner, hide, peek, random, origin: resolved once, then tweened to like
- * the roaming brain always has) and "continuous" behaviors (spin,
+ * the roaming brain always has), "moveIn" (a one-time atomic entrance:
+ * teleports off-screen past a chosen edge, reveals, then tweens in to an
+ * on-screen landing spot - walking/running/falling/jumping in is entirely a
+ * matter of which edge is chosen and which animation is paired with it, not
+ * a separate kind per verb), and "continuous" behaviors (spin,
  * patrolWindowEdges, paceEdge, follow, stalk, avoid, startleDash: recomputed
  * every frame for as long as the animation/step plays) - but that's purely
  * an implementation detail, exposed as one flat picker either way.
@@ -68,6 +72,7 @@ export type MovementBehaviorKind =
 	| "corner"
 	| "hide"
 	| "peek"
+	| "moveIn"
 	| "spin"
 	| "patrolWindowEdges"
 	| "paceEdge"
@@ -78,10 +83,12 @@ export type MovementBehaviorKind =
 
 export type ScreenEdge = "top" | "bottom" | "left" | "right" | "nearest" | "random";
 export type ScreenCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right" | "nearest";
+/** Which third along the entry edge's perpendicular axis to land at - "second" (the middle third) is the sensible default. */
+export type ScreenThird = "first" | "second" | "third";
 
 export interface MovementBehavior {
 	kind: MovementBehaviorKind;
-	/** kind "edge" | "hide" | "peek" | "paceEdge": which edge - "nearest"/"random" valid for "edge"/"hide" only, "peek"/"paceEdge" need a specific side. "Edge" stops touching it (on-screen); "hide" continues past it (off-screen) - pairing a "hide" at a chosen edge with a non-edge landing elsewhere is how a directional entrance/exit (walking/falling/jumping in or out) is built, entirely from these two destinations. */
+	/** kind "edge" | "hide" | "peek" | "paceEdge" | "moveIn": which edge - "nearest"/"random" valid for "edge"/"hide"/"moveIn" only, "peek"/"paceEdge" need a specific side. "Edge" stops touching it (on-screen); "hide"/"moveIn" continue past it (off-screen). */
 	edge?: ScreenEdge;
 	/** kind "corner". */
 	corner?: ScreenCorner;
@@ -89,6 +96,8 @@ export interface MovementBehavior {
 	peekFraction?: number;
 	/** kind "spin": orbit radius in px around the screen center. */
 	radius?: number;
+	/** kind "moveIn": which third of the entry edge to come in at. */
+	third?: ScreenThird;
 	/** kind "edge" | "center" | "corner" | "randomSpot" | "origin" | "hide": skip the travel tween and jump straight there. */
 	instant?: boolean;
 }
@@ -218,6 +227,12 @@ export interface ShimejiSettings {
 	roamStickToEdges: boolean;
 	/** Builtin-placeholder-only: per-behavior enable/weight for idle gaits and one-off poses (workouts, jutsus). */
 	builtinBehaviors: Record<BuiltinBehaviorId, BuiltinBehaviorSetting>;
+	/** px/sec - the walking pace, used by the builtin "walk" gait and every destination-based MovementBehavior tween (Move to edge/center/corner, "Move in", etc). */
+	walkSpeedPxPerSec: number;
+	/** px/sec - the running pace, used by the builtin "run" gait and "Called over" (triple-click summon). */
+	runSpeedPxPerSec: number;
+	/** % of the character's own height - how high the builtin "jump" gait/pose hops. */
+	jumpHeightPercent: number;
 	speechBubbleEnabled: boolean;
 	/** "obsidian" matches the active theme's own colors; "comic" is a fixed white/black-outline manga-panel look regardless of theme. */
 	speechBubbleStyle: "obsidian" | "comic";
@@ -268,6 +283,9 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	wanderEnabled: true,
 	roamStickToEdges: false,
 	builtinBehaviors: DEFAULT_BUILTIN_BEHAVIORS,
+	walkSpeedPxPerSec: 200,
+	runSpeedPxPerSec: 440,
+	jumpHeightPercent: 32,
 	speechBubbleEnabled: true,
 	speechBubbleStyle: "obsidian",
 	speechLinesFilePath: "",

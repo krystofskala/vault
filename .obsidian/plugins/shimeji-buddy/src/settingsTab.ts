@@ -14,6 +14,7 @@ import {
 	type MovementBehaviorKind,
 	type ScreenCorner,
 	type ScreenEdge,
+	type ScreenThird,
 	type SequenceStep,
 	type TriggerDef,
 } from "./settings";
@@ -83,6 +84,7 @@ const MOVEMENT_KIND_OPTIONS: { kind: MovementBehaviorKind; label: string }[] = [
 	{ kind: "corner", label: "Move to a corner" },
 	{ kind: "hide", label: "Hide (run off-screen past an edge)" },
 	{ kind: "peek", label: "Peek from an edge" },
+	{ kind: "moveIn", label: "Move in (walk/run/fall/jump in from an edge)" },
 	{ kind: "spin", label: "Spin around center (faces outward)" },
 	{ kind: "patrolWindowEdges", label: "Walk around the window edges (faces the center)" },
 	{ kind: "paceEdge", label: "Pace back and forth along an edge" },
@@ -117,6 +119,12 @@ const CORNER_OPTIONS: { corner: ScreenCorner; label: string }[] = [
 	{ corner: "bottom-right", label: "Bottom-right" },
 ];
 
+const THIRD_OPTIONS: { third: ScreenThird; label: string }[] = [
+	{ third: "first", label: "1st third" },
+	{ third: "second", label: "2nd third (center)" },
+	{ third: "third", label: "3rd third" },
+];
+
 /** Sensible defaults for a movement kind's extra fields, applied when the user switches to it. */
 function movementDefaultsFor(kind: MovementBehaviorKind): MovementBehavior {
 	switch (kind) {
@@ -127,6 +135,8 @@ function movementDefaultsFor(kind: MovementBehaviorKind): MovementBehavior {
 			return { kind, corner: "nearest" };
 		case "peek":
 			return { kind, edge: "top", peekFraction: 0.3 };
+		case "moveIn":
+			return { kind, edge: "top", third: "second" };
 		case "paceEdge":
 			return { kind, edge: "bottom" };
 		case "spin":
@@ -407,6 +417,64 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						"the duration above, \"Angry\" if you poke or throw it too much too fast, and \"Normal\" the " +
 						"rest of the time. Each has its own entry in \"Reactions & actions\" below if you want to " +
 						"assign a custom character's own animation to a mood."
+				);
+
+				this.section(
+					body,
+					"Movement speeds",
+					false,
+					(speedBody) => {
+						speedBody.createEl("p", {
+							cls: "setting-item-description",
+							text:
+								"How fast the buddy covers ground - the builtin placeholder's own walk/run gaits, " +
+								"summon/\"Called over\" travel (run pace), and every MovementBehavior destination a " +
+								"custom character's animations use (walk pace) all read from these.",
+						});
+
+						new Setting(speedBody)
+							.setName("Walk speed")
+							.setDesc("px/sec.")
+							.addText((t) =>
+								t.setValue(String(s.walkSpeedPxPerSec)).onChange(async (v) => {
+									const n = Number(v);
+									if (!Number.isNaN(n) && n > 0) {
+										s.walkSpeedPxPerSec = n;
+										await this.plugin.saveSettings();
+										this.plugin.applyLiveSettings();
+									}
+								})
+							);
+
+						new Setting(speedBody)
+							.setName("Run speed")
+							.setDesc("px/sec.")
+							.addText((t) =>
+								t.setValue(String(s.runSpeedPxPerSec)).onChange(async (v) => {
+									const n = Number(v);
+									if (!Number.isNaN(n) && n > 0) {
+										s.runSpeedPxPerSec = n;
+										await this.plugin.saveSettings();
+										this.plugin.applyLiveSettings();
+									}
+								})
+							);
+
+						new Setting(speedBody)
+							.setName("Jump height")
+							.setDesc("% of the character's own height - the builtin placeholder's jump gait/pose hop.")
+							.addText((t) =>
+								t.setValue(String(s.jumpHeightPercent)).onChange(async (v) => {
+									const n = Number(v);
+									if (!Number.isNaN(n) && n > 0) {
+										s.jumpHeightPercent = n;
+										await this.plugin.saveSettings();
+										this.plugin.applyLiveSettings();
+									}
+								})
+							);
+					},
+					"gauge"
 				);
 
 				if (s.characterMode === "builtin") {
@@ -1140,7 +1208,13 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		const params = containerEl.createDiv({ cls: "sm-slicer-controls sm-movement-params" });
 
-		if (movement.kind === "edge" || movement.kind === "hide" || movement.kind === "corner" || movement.kind === "peek") {
+		if (
+			movement.kind === "edge" ||
+			movement.kind === "hide" ||
+			movement.kind === "moveIn" ||
+			movement.kind === "corner" ||
+			movement.kind === "peek"
+		) {
 			const fieldWrap = params.createDiv({ cls: "sm-slicer-field" });
 			fieldWrap.createEl("label", { text: movement.kind === "corner" ? "Corner" : "Edge" });
 			const select = fieldWrap.createEl("select");
@@ -1149,11 +1223,26 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				const value = "corner" in opt ? opt.corner : opt.edge;
 				select.createEl("option", { value, text: opt.label });
 			}
-			const edgeDefault = movement.kind === "peek" ? "top" : "nearest";
+			const edgeDefault = movement.kind === "peek" ? "top" : movement.kind === "moveIn" ? "top" : "nearest";
 			select.value = movement.kind === "corner" ? movement.corner ?? "nearest" : movement.edge ?? edgeDefault;
 			select.addEventListener("change", async () => {
 				if (movement.kind === "corner") await onChange({ ...movement, corner: select.value as ScreenCorner });
 				else await onChange({ ...movement, edge: select.value as ScreenEdge });
+			});
+		}
+
+		if (movement.kind === "moveIn") {
+			const fieldWrap = params.createDiv({ cls: "sm-slicer-field" });
+			fieldWrap.createEl("label", { text: "Enters at" });
+			const select = fieldWrap.createEl("select");
+			for (const opt of THIRD_OPTIONS) select.createEl("option", { value: opt.third, text: opt.label });
+			select.value = movement.third ?? "second";
+			select.addEventListener("change", async () => {
+				await onChange({ ...movement, third: select.value as ScreenThird });
+			});
+			fieldWrap.createSpan({
+				cls: "setting-item-description",
+				text: "Which third along the edge it comes in at - pair with an animation to make it a walk, run, fall, or jump.",
 			});
 		}
 

@@ -133,10 +133,19 @@ off the nearest edge, all without needing anything beyond the picker:
   it, off-screen), Peek from an edge (slides to just off that edge, leaving
   an adjustable amount visible - a percentage, since sprite height varies
   per character). Any of these can skip the travel animation and jump
-  straight there ("Instant") - pairing an instant Hide with a non-edge
-  landing spot on the next step/reaction is how a directional entrance or
-  exit (walking, falling, jumping in or out) is built - see "Sequences"
-  below for the full recipe.
+  straight there ("Instant").
+- **Move in** - a directional entrance in one step: teleports off-screen
+  past a chosen edge (Top/Bottom/Left/Right/Nearest/Random, and which third
+  along it - 1st/2nd/3rd), reveals, then walks/runs/falls/jumps in to a
+  landing spot a little past that edge. Walking vs. running vs. falling vs.
+  jumping in is entirely down to which edge you pick (top falls, bottom
+  jumps, left/right walk or run in) and which animation you've paired with
+  it - the engine doesn't tell those apart beyond that, so any look is just
+  a matter of your own art. (The lower-level version of this - an instant
+  Hide at a chosen edge, followed by a separate step tweening to a
+  non-edge landing spot - still works too, useful when you want the
+  hidden wait and the entrance to be two distinct beats, e.g. inside a
+  Sequence; see "Sequences" below.)
 - **Continuous** (keeps moving for as long as this reaction is active): Spin
   around center (facing outward, like a satellite), Walk around the window
   edges (facing the center - the same feet-on-the-boundary orientation
@@ -145,6 +154,11 @@ off the nearest edge, all without needing anything beyond the picker:
   a lazy distance - good for a bored mood), Stalk / block the cursor (gets
   right in the way - good for an angry mood), Avoid the cursor, Startle
   dash (a quick hop away, then settle).
+
+Walk/run speed (px/sec) and the builtin placeholder's jump height are
+configurable too - **Settings → Standby & idle behavior → Movement speeds**
+- since they drive every destination/Move-in tween and gait, not just the
+builtin placeholder's own idle roaming.
 
 ## Sequences
 
@@ -173,27 +187,24 @@ Each step in a sequence has its own:
 
 Appearing or vanishing *in place* doesn't need anything beyond the above - a
 plain animation (a puff of smoke, say) plus the Hidden checkbox on the step
-before/after it. A *directional* entrance or exit (walking, running, falling,
-or jumping in or out) needs one more distinction: **"Move to an edge" stops
-touching it (on-screen); "Hide" continues past it (off-screen)**. Pairing a
-Hide at a *specific* edge with a landing spot that *isn't* an edge is the
-whole recipe for any directional entrance:
+before/after it. A *directional* entrance (walking, running, falling, or
+jumping in) is exactly what "Move in" (see "Movement" above) is for - the
+whole abayo bit is 3 steps:
 
 1. **Poof** - your vanish animation, Movement: Stay put, Say: "Abayo!"
 2. **Wait** - no animation, Hidden on, Duration: 7000
-3. **Reposition** - no animation, Hidden on, Movement: Hide, Edge: Top,
-   Instant on - teleports it fully off-screen above while still invisible,
-   so step 4 has somewhere to fall in *from*.
-4. **Fall in** - your falling animation, Hidden off, Movement: Random spot
-   (or Center - anything that *isn't* an edge, so it lands out in the open
-   instead of resting pinned to the boundary), not instant, so it tweens in
-   and the screen edge itself reveals it naturally as it crosses in - Say:
-   "JK, I'm back!"
+3. **Fall in** - your falling animation, Hidden off, Movement: Move in,
+   Edge: Top - teleports off-screen above (still hidden from step 2, so no
+   flash), reveals, and falls in to a landing spot below the top edge -
+   Say: "JK, I'm back!"
 
-The same two-step shape covers walking/running in from a side (Hide, Edge:
-Left or Right) or jumping in from the bottom (Hide, Edge: Bottom) - swap
-step 3's edge and step 4's animation and it's the same recipe. Reverse the
-order (start on-screen, Hide as the *last* step) for the exit side instead.
+Same recipe for walking/running in from a side (Edge: Left/Right) or
+jumping in from the bottom (Edge: Bottom) - swap the edge and the paired
+animation. For a directional *exit* instead (or when you want the hidden
+wait and the entrance to be visibly two separate beats), drop to the
+lower-level version: an instant Hide at a chosen edge, then a later step
+tweening to a non-edge landing spot (or, for an exit, just Hide as the
+final step with no landing needed).
 
 ## Speech
 
