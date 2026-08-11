@@ -1,8 +1,11 @@
 import { Vault } from "obsidian";
 import {
+	BASIC_MOVEMENT_ROLE_LABELS,
+	BASIC_MOVEMENT_ROLES,
 	defaultMovementBehavior,
 	type AnimationSequence,
 	type AtlasFrameRect,
+	type BasicMovementRole,
 	type CustomAnimation,
 	type MovementBehavior,
 } from "./settings";
@@ -14,6 +17,8 @@ export interface CharacterFile {
 	name: string;
 	animations: CustomAnimation[];
 	sequences: AnimationSequence[];
+	/** Whether the character's Basic movement (Walk/Run/Jump/Fall) clips are used as the automatic fallback for idle roaming - on by default, since that's the whole point of having them. */
+	basicMovementRoamEnabled: boolean;
 }
 
 /** A resolved animation, ready for CharacterWidget to play. */
@@ -76,6 +81,10 @@ export interface LoadedSpritePack {
 	 * apparent size would jump around between animations.
 	 */
 	maxFrameHeight: number;
+	/** The character's four basic locomotion gaits (see settings.ts's BasicMovementRole), resolved and ready to play - missing an entry if that role's animation has no frames yet. */
+	basicMovement: Partial<Record<BasicMovementRole, ResolvedAnimation>>;
+	/** See CharacterFile.basicMovementRoamEnabled. */
+	basicMovementRoamEnabled: boolean;
 	objectUrls: string[];
 }
 
@@ -415,6 +424,35 @@ function normalizeAnimation(raw: CustomAnimation & { moves?: boolean }): CustomA
 	return { ...rest, movement: moves ? { kind: "randomSpot" } : defaultMovementBehavior() };
 }
 
+function newId(): string {
+	if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+	return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** A blank, unsliced animation for one of the four Basic movement roles - the "Basic movement" section's starting point for a new character, or for a role a pre-existing character.json never had (older files predate this field entirely). */
+function blankBasicMovementAnimation(role: BasicMovementRole): CustomAnimation {
+	return {
+		id: newId(),
+		name: BASIC_MOVEMENT_ROLE_LABELS[role],
+		sourceImage: "",
+		triggers: [],
+		movement: defaultMovementBehavior(),
+		weight: 1,
+		enabled: true,
+		loop: true,
+		fps: 6,
+		frames: [],
+		role,
+	};
+}
+
+/** Fills in any Basic movement role a character.json doesn't have yet (a brand new character, or one written before this field existed) - in place, so load order/ids of everything else stay untouched. */
+function ensureBasicMovementRoles(animations: CustomAnimation[]): CustomAnimation[] {
+	const missing = BASIC_MOVEMENT_ROLES.filter((role) => !animations.some((a) => a.role === role));
+	if (missing.length === 0) return animations;
+	return [...animations, ...missing.map(blankBasicMovementAnimation)];
+}
+
 /** Reads a character's character.json, or a blank one if the folder has none yet. */
 export async function readCharacterFile(vault: Vault, folderPath: string): Promise<CharacterFile> {
 	const path = characterFilePath(folderPath);
@@ -425,8 +463,9 @@ export async function readCharacterFile(vault: Vault, folderPath: string): Promi
 			if (parsed && Array.isArray(parsed.animations)) {
 				return {
 					...parsed,
-					animations: parsed.animations.map(normalizeAnimation),
+					animations: ensureBasicMovementRoles(parsed.animations.map(normalizeAnimation)),
 					sequences: Array.isArray(parsed.sequences) ? parsed.sequences : [],
+					basicMovementRoamEnabled: parsed.basicMovementRoamEnabled !== false,
 				} as CharacterFile;
 			}
 		}
@@ -434,7 +473,12 @@ export async function readCharacterFile(vault: Vault, folderPath: string): Promi
 		console.warn("Shimeji Buddy: could not read character.json, starting fresh", e);
 	}
 	const folderName = folderPath.split("/").pop() || "Character";
-	return { name: folderName, animations: [], sequences: [] };
+	return {
+		name: folderName,
+		animations: ensureBasicMovementRoles([]),
+		sequences: [],
+		basicMovementRoamEnabled: true,
+	};
 }
 
 export async function writeCharacterFile(vault: Vault, folderPath: string, file: CharacterFile): Promise<void> {
@@ -471,7 +515,12 @@ export async function createCharacter(vault: Vault, basePath: string, name: stri
 		suffix++;
 	}
 	await vault.adapter.mkdir(folder);
-	await writeCharacterFile(vault, folder, { name: name.trim() || slug, animations: [], sequences: [] });
+	await writeCharacterFile(vault, folder, {
+		name: name.trim() || slug,
+		animations: ensureBasicMovementRoles([]),
+		sequences: [],
+		basicMovementRoamEnabled: true,
+	});
 	return folder;
 }
 
@@ -534,6 +583,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 
 	const bySlot: Record<string, WeightedReaction[]> = {};
 	const byId: Record<string, WeightedReaction> = {};
+	const basicMovement: Partial<Record<BasicMovementRole, ResolvedAnimation>> = {};
 	let maxFrameHeight = 1;
 
 	for (const anim of file.animations) {
@@ -558,6 +608,10 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 			// normal trigger-driven play is a stricter bar.
 			byId[anim.id] = resolved;
 			for (const f of anim.frames) if (f.h > maxFrameHeight) maxFrameHeight = f.h;
+			if (anim.role) basicMovement[anim.role] = resolved;
+			// Basic-movement animations carry no triggers of their own (see
+			// settings.ts's CustomAnimation.role) - not eligible for the
+			// regular trigger-driven pool, only for basicMovement above.
 			if (anim.enabled && anim.triggers.length > 0) {
 				for (const trigger of anim.triggers) {
 					(bySlot[trigger] ??= []).push(resolved);
@@ -623,7 +677,15 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 		return null;
 	}
 
-	return { name: file.name, bySlot, byId, maxFrameHeight, objectUrls };
+	return {
+		name: file.name,
+		bySlot,
+		byId,
+		maxFrameHeight,
+		basicMovement,
+		basicMovementRoamEnabled: file.basicMovementRoamEnabled,
+		objectUrls,
+	};
 }
 
 export function revokeSpritePack(pack: LoadedSpritePack | null): void {

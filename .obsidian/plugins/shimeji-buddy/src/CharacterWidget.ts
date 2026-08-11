@@ -1,5 +1,5 @@
 import { Notice, type App } from "obsidian";
-import type { BuiltinBehaviorId, MovementBehavior, ScreenCorner, ScreenEdge, ShimejiSettings } from "./settings";
+import type { BasicMovementRole, BuiltinBehaviorId, MovementBehavior, ScreenCorner, ScreenEdge, ShimejiSettings } from "./settings";
 import {
 	pickWeighted,
 	type LoadedSpritePack,
@@ -104,6 +104,18 @@ const BUILTIN_IDLE_BEHAVIORS: BuiltinIdleBehaviorDef[] = [
 // Chance per idle tick that the builtin placeholder does one of the
 // BUILTIN_IDLE_BEHAVIORS above instead of just a plain idle bob.
 const IDLE_BEHAVIOR_CHANCE = 0.45;
+
+// Chance per idle tick that a custom character roams via its Basic movement
+// gaits (see CharacterWidget.basicMovementRoam) instead of re-picking from
+// its own idle pool - roughly an even mix, so a character with its own
+// hand-built idle-roam animation still gets to show it off regularly.
+const BASIC_MOVEMENT_ROAM_CHANCE = 0.4;
+
+// Beyond this ratio of |dy| to |dx|, a Basic movement roam is considered
+// "mostly vertical" and plays Jump/Fall instead of Walk/Run - not exactly
+// 1:1, since screen travel that's only slightly more vertical than
+// horizontal still reads as more of a walk than a hop.
+const BASIC_MOVEMENT_VERTICAL_RATIO = 1.2;
 
 // How far into the throw pose (ms) the shuriken actually leaves the hand.
 const SHURIKEN_THROW_DELAY_MS = 200;
@@ -868,10 +880,25 @@ export class CharacterWidget {
 		if (this.currentTrigger !== "idle") return;
 
 		if (this.pack) {
-			// Re-picking from the idle pool naturally mixes movement in - each
-			// idle animation carries its own MovementBehavior (applied inside
-			// setReaction), so "does this tick roam or rest" just falls out of
-			// how the pool is weighted, instead of a separate dice roll here.
+			// Basic movement (see settings.ts's BasicMovementRole) is the
+			// automatic fallback for idle roaming - a character only needs its
+			// four gait clips built to roam convincingly, without also having
+			// to hand-build a dedicated idle-roam animation. Still only offered
+			// while "Roam style" itself isn't Off, same as every other roaming
+			// path, and can be turned off per-character too.
+			if (
+				this.settings.wanderEnabled &&
+				this.pack.basicMovementRoamEnabled &&
+				Object.keys(this.pack.basicMovement).length > 0 &&
+				Math.random() < BASIC_MOVEMENT_ROAM_CHANCE
+			) {
+				this.basicMovementRoam();
+				return;
+			}
+			// Otherwise, re-picking from the idle pool naturally mixes movement
+			// in - each idle animation carries its own MovementBehavior (applied
+			// inside setReaction), so "does this tick roam or rest" just falls
+			// out of how the pool is weighted.
 			this.setReaction("idle");
 			return;
 		}
@@ -946,6 +973,66 @@ export class CharacterWidget {
 				this.setReaction("idle"); // resets orientation to upright...
 				this.applyEdgeOrientation(edgeSide); // ...so re-apply it: still resting on the edge.
 			}
+		}, duration);
+	}
+
+	/**
+	 * A custom character's idle-roam fallback when it has no dedicated
+	 * roaming animation of its own: travels to a random on-screen spot using
+	 * one of its four Basic movement gaits, picked by the actual direction
+	 * of travel - mostly straight up plays Jump, mostly straight down plays
+	 * Fall, sideways plays Walk (Run if there's no Walk clip to fall back
+	 * to). Deliberately never touches rotation (always upright, left/right
+	 * mirrored only) - that's reserved for the "Walk around the window
+	 * edges" MovementBehavior, not roaming in general.
+	 */
+	private basicMovementRoam(): void {
+		const basicMovement = this.pack?.basicMovement;
+		if (!basicMovement) return;
+
+		const rect = this.containerEl.getBoundingClientRect();
+		const margin = 8;
+		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+		const currentRight = window.innerWidth - rect.right;
+		const currentBottom = window.innerHeight - rect.bottom;
+		const targetRight = margin + Math.random() * (maxRight - margin);
+		const targetBottom = margin + Math.random() * (maxBottom - margin);
+		const dx = targetRight - currentRight; // + = moving left on screen
+		const dy = targetBottom - currentBottom; // + = moving down on screen (bottom offset shrinking = moving up)
+
+		let role: BasicMovementRole;
+		if (Math.abs(dy) > Math.abs(dx) * BASIC_MOVEMENT_VERTICAL_RATIO) role = dy < 0 ? "jump" : "fall";
+		else role = basicMovement.walk ? "walk" : "run";
+		const clip = basicMovement[role] ?? basicMovement.walk ?? basicMovement.run ?? basicMovement.jump ?? basicMovement.fall;
+		if (!clip) return;
+
+		this.currentTrigger = "idle";
+		if (Math.abs(dx) > 1) this.facingLeft = dx > 0;
+		this.playResolvedAnimation(clip, () => {
+			if (this.currentTrigger === "idle") this.setReaction("idle");
+		});
+		this.applyEdgeOrientation(null);
+
+		const gait = role === "run" ? "run" : "walk";
+		const distance = Math.hypot(dx, dy);
+		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / this.gaitSpeed(gait)) * 1000));
+		this.clearTimer("wanderTimer");
+		this.containerEl.addClass("sm-tween");
+		this.containerEl.style.transitionDuration = `${duration}ms`;
+		this.containerEl.style.right = `${targetRight}px`;
+		this.containerEl.style.bottom = `${targetBottom}px`;
+
+		this.wanderTimer = window.setTimeout(() => {
+			if (this.currentTrigger !== "idle") return; // superseded by another reaction mid-travel
+			this.containerEl.removeClass("sm-tween");
+			this.containerEl.style.transitionDuration = "";
+			this.restRight = targetRight;
+			this.restBottom = targetBottom;
+			this.settings.posX = targetRight;
+			this.settings.posY = targetBottom;
+			this.callbacks.onPositionChange(targetRight, targetBottom);
+			this.setReaction("idle");
 		}, duration);
 	}
 

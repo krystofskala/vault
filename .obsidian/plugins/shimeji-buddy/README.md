@@ -74,6 +74,29 @@ animation's own tallest frame, so its size stays consistent and shorter
 poses render shorter in proportion, rather than every pose independently
 stretching up to fill the configured Size.
 
+## Basic movement
+
+Every character has a required **Basic movement** section, shown first in
+the Character editor, above Images/Animations/Sequences - four slots (Walk,
+Run, Jump, Fall) that are the first thing worth slicing frames for on a new
+character. They're plain animations underneath (same fps/loop, still
+pickable as a Sequence step's clip like any other) but carry no
+triggers/weight/Movement of their own - instead, they're the automatic
+fallback for idle roaming whenever nothing more specific is assigned. If
+you haven't built a dedicated idle-roam animation, the buddy roams using
+these instead, picking Walk/Run/Jump/Fall by the actual direction it's
+about to travel - mostly straight up plays Jump, mostly straight down plays
+Fall, sideways plays Walk (Run if there's no Walk clip). It never rotates
+while doing this - always upright, mirrored left/right to face the way
+it's moving - rotation stays reserved for the "Walk around the window
+edges" Movement, not roaming in general. Turn the fallback off per-character
+with "Use for idle roaming" at the bottom of the section, if you'd rather
+only your own hand-built Idle-pool animations ever roam.
+
+Deleting the image a Basic movement slot uses (or its underlying entry, in
+the image editor's own list) blanks the slot back out rather than removing
+it - it's a fixed, required set of four, not something to lose by accident.
+
 Add a new empty animation any time from the **Animations** list in the main
 settings tab ("New animation" - pick a source image, it appears in the list
 immediately, ready for "Edit frames…" to fill it in), and delete one via the

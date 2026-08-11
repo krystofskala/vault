@@ -109,6 +109,24 @@ export function defaultMovementBehavior(): MovementBehavior {
 }
 
 /**
+ * The four basic locomotion gaits every character is expected to have, kept
+ * separate from its regular trigger-driven animation library - see
+ * CustomAnimation.role. Used as the automatic fallback visual for idle
+ * roaming (and, later, other movement-needing situations) whenever the user
+ * hasn't built something more specific of their own.
+ */
+export type BasicMovementRole = "walk" | "run" | "jump" | "fall";
+
+export const BASIC_MOVEMENT_ROLES: BasicMovementRole[] = ["walk", "run", "jump", "fall"];
+
+export const BASIC_MOVEMENT_ROLE_LABELS: Record<BasicMovementRole, string> = {
+	walk: "Walk",
+	run: "Run",
+	jump: "Jump",
+	fall: "Fall",
+};
+
+/**
  * One animation in a character's library. Can be assigned to more than one
  * trigger (e.g. the same "happy hop" plays for both note:create and poke);
  * each trigger it's assigned to draws from a pool of all animations
@@ -129,6 +147,15 @@ export interface CustomAnimation {
 	loop: boolean;
 	fps: number;
 	frames: AtlasFrameRect[];
+	/**
+	 * Marks this as one of the character's four basic-movement gaits instead
+	 * of a regular trigger-driven entry - edited in its own "Basic movement"
+	 * section (not the main Animations list), not assigned triggers/weight of
+	 * its own, but still a plain animation otherwise: still pickable as a
+	 * Sequence step's clip like any other. At most one animation should hold
+	 * a given role; the settings tab enforces that when assigning one.
+	 */
+	role?: BasicMovementRole;
 }
 
 /**

@@ -4,10 +4,13 @@ import { ImageEditorModal } from "./ImageEditorModal";
 import { RemoveBackgroundModal } from "./RemoveBackgroundModal";
 import { speechLinesTemplate } from "./speechLines";
 import {
+	BASIC_MOVEMENT_ROLES,
+	BASIC_MOVEMENT_ROLE_LABELS,
 	BUILTIN_TRIGGERS,
 	commandTriggerId,
 	defaultMovementBehavior,
 	type AnimationSequence,
+	type BasicMovementRole,
 	type BuiltinBehaviorId,
 	type CustomAnimation,
 	type MovementBehavior,
@@ -931,6 +934,39 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		this.section(
 			containerEl,
+			"Basic movement (required)",
+			true,
+			(body) => {
+				body.createEl("p", {
+					cls: "setting-item-description",
+					text:
+						"The four core gaits every character needs - slice these first. They're the automatic " +
+						"fallback for idle roaming whenever nothing more specific is assigned, picked by actual " +
+						"travel direction: mostly straight up plays Jump, mostly straight down plays Fall, " +
+						"sideways plays Walk. They're plain animations underneath, so they're also pickable as a " +
+						"Sequence step's clip like any other, and stay upright (left/right mirrored only, never " +
+						"rotated) - rotation is reserved for \"Walk around the window edges,\" not roaming in general.",
+				});
+				for (const role of BASIC_MOVEMENT_ROLES) this.renderBasicMovementSlot(body, role);
+
+				new Setting(body)
+					.setName("Use for idle roaming")
+					.setDesc(
+						"Off disables the automatic fallback above - only your own Idle-pool animations (if any) roam then."
+					)
+					.addToggle((t) =>
+						t.setValue(this.characterFile?.basicMovementRoamEnabled ?? true).onChange(async (v) => {
+							if (!this.characterFile) return;
+							this.characterFile.basicMovementRoamEnabled = v;
+							await this.persistCharacterFile();
+						})
+					);
+			},
+			"footprints"
+		);
+
+		this.section(
+			containerEl,
 			"Images",
 			true,
 			(body) => {
@@ -959,9 +995,15 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								.onClick(async () => {
 									await deleteCharacterImage(this.app.vault, folder, img);
 									if (this.characterFile) {
-										this.characterFile.animations = this.characterFile.animations.filter(
-											(a) => a.sourceImage !== img
-										);
+										// Basic movement slots (see role below) are a fixed,
+										// required set - blank the slot back out instead of
+										// removing it outright, so it stays a slot to refill
+										// rather than needing character.json to regenerate it.
+										this.characterFile.animations = this.characterFile.animations
+											.filter((a) => a.sourceImage !== img || !!a.role)
+											.map((a) =>
+												a.role && a.sourceImage === img ? { ...a, sourceImage: "", frames: [] } : a
+											);
 										await this.persistCharacterFile();
 									}
 									this.characterImages = await listCharacterImages(this.app.vault, folder);
@@ -1032,13 +1074,17 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						);
 				}
 
-				if (this.characterFile!.animations.length === 0) {
+				// Basic movement (Walk/Run/Jump/Fall) has its own dedicated
+				// section above - not duplicated here, even though they're
+				// otherwise plain CustomAnimation entries same as everything else.
+				const regularAnimations = this.characterFile!.animations.filter((a) => !a.role);
+				if (regularAnimations.length === 0) {
 					body.createEl("p", {
 						cls: "setting-item-description",
 						text: "No animations yet - add one above, or upload/edit an image first.",
 					});
 				}
-				for (const anim of this.characterFile!.animations) {
+				for (const anim of regularAnimations) {
 					this.renderCustomAnimationBlock(body, anim);
 				}
 				this.callout(
@@ -1112,6 +1158,73 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		);
 	}
 
+	/** One of the four required Basic movement slots (see settings.ts's BasicMovementRole) - a lighter-weight editor than a regular animation's block, since it has no triggers/weight/Movement of its own to configure. */
+	private renderBasicMovementSlot(containerEl: HTMLElement, role: BasicMovementRole): void {
+		const anim = this.characterFile?.animations.find((a) => a.role === role);
+		const folder = this.plugin.settings.activeCharacterFolder;
+		if (!anim || !folder) return;
+
+		const setting = new Setting(containerEl)
+			.setName(BASIC_MOVEMENT_ROLE_LABELS[role])
+			.setDesc(
+				anim.sourceImage
+					? `${anim.frames.length === 1 ? "1 frame" : `${anim.frames.length} frames`} from "${anim.sourceImage}"`
+					: "No frames yet - pick a source image, then slice frames for it."
+			);
+
+		if (this.characterImages.length === 0) {
+			setting.descEl.createEl("p", { cls: "setting-item-description", text: "Upload an image below first." });
+		} else {
+			let imageDropdown: DropdownComponent | undefined;
+			setting.addDropdown((d) => {
+				imageDropdown = d;
+				for (const img of this.characterImages) d.addOption(img, img);
+				d.setValue(anim.sourceImage || this.characterImages[0]);
+			});
+			setting.addButton((b) =>
+				b
+					.setButtonText(anim.frames.length > 0 ? "Edit frames…" : "Slice frames…")
+					.setCta()
+					.onClick(async () => {
+						const image = imageDropdown?.getValue();
+						if (!image) return;
+						if (anim.sourceImage !== image) {
+							anim.sourceImage = image;
+							anim.frames = [];
+							await this.persistCharacterFile();
+						}
+						this.openImageEditor(folder, image, anim.id);
+					})
+			);
+		}
+
+		setting.addExtraButton((b) =>
+			b
+				.setIcon("play")
+				.setTooltip("Play now - preview it on the live buddy")
+				.onClick(() => {
+					if (!this.plugin.previewReaction(anim.id)) {
+						new Notice("Nothing to preview yet - add some frames first.");
+					}
+				})
+		);
+
+		const fieldsWrap = containerEl.createDiv({ cls: "sm-slicer-controls" });
+		this.mkLabeledNumber(fieldsWrap, "Speed (fps)", anim.fps, async (n) => {
+			anim.fps = n;
+			await this.persistCharacterFile();
+		});
+		const loopWrap = fieldsWrap.createDiv({ cls: "sm-slicer-field sm-slicer-field-inline" });
+		const loopLabel = loopWrap.createEl("label");
+		const loopCheckbox = loopLabel.createEl("input", { type: "checkbox" });
+		loopCheckbox.checked = anim.loop;
+		loopLabel.appendText(" Loop");
+		loopCheckbox.addEventListener("change", async () => {
+			anim.loop = loopCheckbox.checked;
+			await this.persistCharacterFile();
+		});
+	}
+
 	/** Opens the big dedicated slicing window for one image - freeform drag or grid-pick, plus managing every animation built from it. */
 	private openImageEditor(folder: string, imageName: string, presetAnimationId: string | null): void {
 		const modal = new ImageEditorModal(this.app, {
@@ -1145,7 +1258,16 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			},
 			deleteAnimation: async (id) => {
 				if (!this.characterFile) return;
-				this.characterFile.animations = this.characterFile.animations.filter((a) => a.id !== id);
+				const anim = this.characterFile.animations.find((a) => a.id === id);
+				// Basic movement slots are a fixed, required set - blank the
+				// slot back out instead of deleting it outright (see the same
+				// guard on the Images section's own delete button).
+				if (anim?.role) {
+					anim.sourceImage = "";
+					anim.frames = [];
+				} else {
+					this.characterFile.animations = this.characterFile.animations.filter((a) => a.id !== id);
+				}
 				await this.persistCharacterFile();
 			},
 			addFrames: async (id, frames) => {
@@ -1704,7 +1826,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		// but label it so it's clear it won't actually play until re-enabled.
 		for (const anim of this.characterFile?.animations ?? []) {
 			if (!anim.enabled && anim.id !== step.animationId) continue;
-			const label = anim.enabled ? anim.name || "(unnamed)" : `${anim.name || "(unnamed)"} (disabled)`;
+			let label = anim.role ? BASIC_MOVEMENT_ROLE_LABELS[anim.role] : anim.name || "(unnamed)";
+			if (!anim.enabled) label += " (disabled)";
 			animSelect.createEl("option", { value: anim.id, text: label });
 		}
 		animSelect.value = step.animationId;
