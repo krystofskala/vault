@@ -29,9 +29,10 @@ export interface ImageEditorModalOptions {
  * resize its neighboring cells, or double-clicked to delete it and merge
  * them - for sheets where frames aren't quite uniform. Click a cell
  * (without dragging, and not near a line) to toggle it into the current
- * selection. Obsidian doesn't expose a way for a plugin to pop a settings
- * panel into its own OS window, so this big modal is the closest equivalent
- * to that, instead of the cramped settings-tab column.
+ * selection, or shift-click to reuse it again without removing it.
+ * Obsidian doesn't expose a way for a plugin to pop a settings panel into
+ * its own OS window, so this big modal is the closest equivalent to that,
+ * instead of the cramped settings-tab column.
  */
 export class ImageEditorModal extends Modal {
 	private opts: ImageEditorModalOptions;
@@ -57,9 +58,10 @@ export class ImageEditorModal extends Modal {
 		contentEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"Click a cell to select it (numbered in click order - that's the frame order). Hover a grid " +
-				"line to grab it (cursor changes): drag it to move it, or double-click it to delete it and " +
-				"merge the two cells it separated.",
+				"Click a cell to select it (numbered in click order - that's the frame order); click again to " +
+				"remove it. Shift-click to reuse a cell again instead - handy for a symmetric cycle like " +
+				"1, 2, 3, 2. Hover a grid line to grab it (cursor changes): drag it to move it, or double-click " +
+				"it to delete it and merge the two cells it separated.",
 		});
 
 		const layout = contentEl.createDiv({ cls: "sm-editor-layout" });

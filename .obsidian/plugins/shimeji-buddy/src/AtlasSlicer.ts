@@ -32,7 +32,10 @@ function sameLine(a: LineRef | null, b: LineRef | null): boolean {
  * that problem.) Click a cell (without dragging, and not near a line) to
  * toggle it into the current selection - shown as a numbered blue overlay,
  * numbered in click order, which becomes the animation's frame order;
- * click again to remove it.
+ * click again to remove it. Shift-click instead always appends the cell
+ * again regardless of whether it's already selected, to reuse a frame more
+ * than once in the sequence (e.g. 1,2,3,2 for a symmetric step-cycle) -
+ * a cell used more than once shows all its order numbers together.
  */
 export class AtlasSlicer {
 	private wrapperEl: HTMLElement;
@@ -270,21 +273,22 @@ export class AtlasSlicer {
 
 		this.ctx.textAlign = "center";
 		this.ctx.textBaseline = "middle";
-		this.selectedCells.forEach((cellIndex, order) => {
+		this.orderNumbersByCell().forEach((orders, cellIndex) => {
 			const r = this.detectedRects[cellIndex];
 			if (!r) return;
 			const x = r.x * this.scale;
 			const y = r.y * this.scale;
 			const w = r.w * this.scale;
 			const h = r.h * this.scale;
+			const label = orders.join(",");
 			this.ctx.fillStyle = "rgba(80, 160, 255, 0.35)";
 			this.ctx.fillRect(x, y, w, h);
-			this.ctx.font = `bold ${Math.max(10, Math.min(w, h) * 0.4)}px sans-serif`;
+			this.ctx.font = `bold ${Math.max(9, Math.min(w, h) * (orders.length > 1 ? 0.28 : 0.4))}px sans-serif`;
 			this.ctx.fillStyle = "#ffffff";
 			this.ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
 			this.ctx.lineWidth = 3;
-			this.ctx.strokeText(String(order + 1), x + w / 2, y + h / 2);
-			this.ctx.fillText(String(order + 1), x + w / 2, y + h / 2);
+			this.ctx.strokeText(label, x + w / 2, y + h / 2);
+			this.ctx.fillText(label, x + w / 2, y + h / 2);
 		});
 	}
 
@@ -296,25 +300,27 @@ export class AtlasSlicer {
 		const colX = this.colBoundaries.map((v) => v * this.scale);
 		const rowY = this.rowBoundaries.map((v) => v * this.scale);
 
-		// Highlighted, numbered fills for already-picked cells - the number is
-		// the frame order they'll be added to the animation in.
+		// Highlighted, numbered fills for already-picked cells - the number(s)
+		// are the frame order they'll be added to the animation in (more than
+		// one if the cell was shift-clicked to reuse that frame again).
 		this.ctx.textAlign = "center";
 		this.ctx.textBaseline = "middle";
-		this.selectedCells.forEach((cellIndex, order) => {
+		this.orderNumbersByCell().forEach((orders, cellIndex) => {
 			const col = cellIndex % cols;
 			const row = Math.floor(cellIndex / cols);
 			const x = colX[col];
 			const y = rowY[row];
 			const w = Math.max(1, colX[col + 1] - x - gapXCanvas);
 			const h = Math.max(1, rowY[row + 1] - y - gapYCanvas);
+			const label = orders.join(",");
 			this.ctx.fillStyle = "rgba(80, 160, 255, 0.35)";
 			this.ctx.fillRect(x, y, w, h);
-			this.ctx.font = `bold ${Math.max(10, Math.min(w, h) * 0.4)}px sans-serif`;
+			this.ctx.font = `bold ${Math.max(9, Math.min(w, h) * (orders.length > 1 ? 0.28 : 0.4))}px sans-serif`;
 			this.ctx.fillStyle = "#ffffff";
 			this.ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
 			this.ctx.lineWidth = 3;
-			this.ctx.strokeText(String(order + 1), x + w / 2, y + h / 2);
-			this.ctx.fillText(String(order + 1), x + w / 2, y + h / 2);
+			this.ctx.strokeText(label, x + w / 2, y + h / 2);
+			this.ctx.fillText(label, x + w / 2, y + h / 2);
 		});
 
 		// Excluded padding, shaded so it's obvious at a glance the grid accounts for it.
@@ -386,12 +392,28 @@ export class AtlasSlicer {
 		return best ? { axis: best.axis, index: best.index } : null;
 	}
 
-	private toggleCell(cellIndex: number): void {
-		const at = this.selectedCells.indexOf(cellIndex);
-		if (at >= 0) this.selectedCells.splice(at, 1);
-		else this.selectedCells.push(cellIndex);
+	/** Plain click: toggle the cell in/out of the selection. Shift-click: always append it again, even if it's already selected - a way to reuse a frame more than once in the animation (e.g. a symmetric step-cycle: 1,2,3,2). */
+	private toggleCell(cellIndex: number, appendAgain: boolean): void {
+		if (appendAgain) {
+			this.selectedCells.push(cellIndex);
+		} else {
+			const at = this.selectedCells.indexOf(cellIndex);
+			if (at >= 0) this.selectedCells.splice(at, 1);
+			else this.selectedCells.push(cellIndex);
+		}
 		this.notifyCellSelection();
 		this.redraw();
+	}
+
+	/** Groups selectedCells' occurrences by cell (1-based order numbers) - a frame reused via shift-click draws one highlighted fill with all its order numbers instead of overlapping single-number fills at the same spot. */
+	private orderNumbersByCell(): Map<number, number[]> {
+		const map = new Map<number, number[]>();
+		this.selectedCells.forEach((cellIndex, i) => {
+			const list = map.get(cellIndex);
+			if (list) list.push(i + 1);
+			else map.set(cellIndex, [i + 1]);
+		});
+		return map;
 	}
 
 	/** Moves a dragged line to a new canvas-space position, snapped to the nearest source pixel and (if close) to match another cell's width. */
@@ -490,8 +512,9 @@ export class AtlasSlicer {
 		if (this.draggingLine) {
 			this.draggingLine = null;
 		} else if (this.candidateLine === null && this.downCell !== null && this.cellAt(p) === this.downCell) {
-			// A plain click, not near any line - toggle the cell it landed on.
-			this.toggleCell(this.downCell);
+			// A plain click, not near any line - toggle the cell it landed on
+			// (or, shift-held, append it again regardless of current state).
+			this.toggleCell(this.downCell, e.shiftKey);
 		}
 		this.gestureStartCanvas = null;
 		this.candidateLine = null;

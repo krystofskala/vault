@@ -33,6 +33,9 @@ instead of the cramped settings-tab column). In there:
   padding between frames - excluded from each cell, shown as a shaded red
   band). **Click a cell** to select it (numbered in click order - that
   order becomes the animation's frame order); click again to deselect.
+  **Shift-click** a cell to reuse it again instead of deselecting it -
+  handy for a symmetric step-cycle like 1, 2, 3, 2; a cell used more than
+  once shows all its order numbers together.
   **Drag a grid line** (hover shows a resize cursor) to move it, resizing
   its two neighboring cells, for sheets where frames aren't quite uniform;
   **double-click a line** to delete it, merging those cells back into one.
