@@ -2,7 +2,6 @@ import { App, Notice, PluginSettingTab, Setting, TFile, setIcon, type DropdownCo
 import type ShimejiBuddyPlugin from "./main";
 import { ImageEditorModal } from "./ImageEditorModal";
 import { RemoveBackgroundModal } from "./RemoveBackgroundModal";
-import { speechLinesTemplate } from "./speechLines";
 import {
 	BASIC_MOVEMENT_ROLES,
 	BASIC_MOVEMENT_ROLE_LABELS,
@@ -668,10 +667,9 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						const stats = this.plugin.speechLinesStats;
 						let statusText: string;
 						if (!stats || !stats.configured) {
-							statusText =
-								"Not set - reactions fall back to a small built-in default pool (opening/creating/deleting/editing/renaming a note, search, poke).";
+							statusText = "Not set yet - auto-creates one at your vault's default new-note location on next load, or hit the file-plus button to do it now.";
 						} else if (!stats.fileExists) {
-							statusText = `"${s.speechLinesFilePath}" wasn't found - falling back to the built-in defaults until it exists.`;
+							statusText = `"${s.speechLinesFilePath}" wasn't found - the buddy won't say anything until it exists again. Hit the file-plus button to recreate it there.`;
 						} else {
 							statusText =
 								`${stats.taggedLineCount} line(s) loaded across ${stats.triggerCount} action(s).` +
@@ -1330,21 +1328,11 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		modal.open();
 	}
 
-	/** Creates the speech-lines file (with a starter example) if it doesn't exist yet, then opens it - defaults the path to "Shimeji Speech.md" at the vault root if none is set. */
+	/** Creates the speech-lines file (with a starter example) if it doesn't exist yet - at the vault's own default location for new notes if no path is set yet, or at the existing path if that file's gone missing - then opens it. Shares the actual creation logic with the auto-create-on-load path (see main.ts's ensureSpeechLinesFile). */
 	private async openOrCreateSpeechLinesFile(): Promise<void> {
-		const s = this.plugin.settings;
-		let path = s.speechLinesFilePath.trim();
-		if (!path) {
-			path = "Shimeji Speech.md";
-			s.speechLinesFilePath = path;
-			await this.plugin.saveSettings();
-		}
-		if (!(await this.app.vault.adapter.exists(path))) {
-			const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-			if (folder && !(await this.app.vault.adapter.exists(folder))) await this.app.vault.adapter.mkdir(folder);
-			await this.app.vault.create(path, speechLinesTemplate());
-			await this.plugin.reloadSpeechLines();
-		}
+		await this.plugin.ensureSpeechLinesFile();
+		await this.plugin.reloadSpeechLines();
+		const path = this.plugin.settings.speechLinesFilePath;
 		const file = this.app.vault.getAbstractFileByPath(path);
 		if (file instanceof TFile) await this.app.workspace.getLeaf(true).openFile(file);
 		this.display();

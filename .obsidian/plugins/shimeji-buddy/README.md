@@ -315,14 +315,19 @@ independent things to configure:
   distinction matters). That makes a permanent `> [!tip]` callout a good
   spot for your own tag cheat sheet, and an HTML comment a good spot for
   longer notes to yourself - Obsidian hides those in Reading view too, so
-  they don't clutter what you actually see day to day. Hit **"Create (if
-  needed) and open"** next to the file path to scaffold a starter file
-  organized exactly this way, or **"Reload"** to re-parse on demand - though
-  editing and saving the file in Obsidian itself already reloads it
-  automatically. A trigger with lines in this file uses only those;
-  anything not covered falls back to a small built-in default pool
-  (covering opening/creating/deleting/editing/renaming a note, search, and
-  poke) so reactions never go silent by default.
+  they don't clutter what you actually see day to day.
+
+  **This file is the only source of speech lines** - there's no separate
+  hardcoded fallback pool baked into the plugin. If you haven't set a path
+  yet, one gets created automatically the first time the plugin loads, at
+  your vault's own default location for new notes (the same place Obsidian
+  itself would put a brand new note), seeded with a starter example
+  organized exactly as described above - nothing to set up by hand. Hit
+  the file-plus button next to the path any time to do that on demand (or
+  to recreate the file there if it's gone missing), or the refresh button
+  to re-parse without waiting - though editing and saving the file in
+  Obsidian itself already reloads it automatically. A trigger with no
+  lines for it just stays silent; nothing plays in its place.
 
 ## Features
 

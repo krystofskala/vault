@@ -312,16 +312,6 @@ export const DEFAULT_BUILTIN_BEHAVIORS: Record<BuiltinBehaviorId, BuiltinBehavio
 	"jutsu-shuriken": { enabled: true, weight: 1 },
 };
 
-export interface SpeechLines {
-	"note:open": string[];
-	"note:create": string[];
-	"note:delete": string[];
-	"note:edit": string[];
-	"note:rename": string[];
-	"search:open": string[];
-	poke: string[];
-}
-
 export interface ShimejiSettings {
 	enabled: boolean;
 	size: number; // px, character height
@@ -350,9 +340,8 @@ export interface ShimejiSettings {
 	speechBubbleEnabled: boolean;
 	/** "obsidian" matches the active theme's own colors; "comic" is a fixed white/black-outline manga-panel look regardless of theme. */
 	speechBubbleStyle: "obsidian" | "comic";
-	/** Vault-relative path to a markdown file of user-authored, @tag-assigned speech lines (see speechLines.ts) - takes priority per-trigger over speechLines below, which stays as the built-in fallback pool. Empty = not configured. */
+	/** Vault-relative path to a markdown file of user-authored, @tag-assigned speech lines (see speechLines.ts) - the only source of speech lines, auto-created (see main.ts's ensureSpeechLinesFile) at the vault's own default location for new notes if left empty, rather than falling back to a separate hardcoded pool. */
 	speechLinesFilePath: string;
-	speechLines: SpeechLines;
 	clickThrough: boolean;
 	/** Mobile only: only draggable/pokeable while the active note is in reading view, to avoid misclicks while typing. */
 	mobileReadingViewOnly: boolean;
@@ -368,17 +357,6 @@ export interface ShimejiSettings {
 
 	commandTriggers: CommandTrigger[];
 }
-
-/** Built-in fallback pool, used per-trigger only when the user's own speech-lines file (speechLinesFilePath, see speechLines.ts) doesn't cover that trigger. */
-export const DEFAULT_SPEECH_LINES: SpeechLines = {
-	"note:open": ["Welcome back!", "Let's read this one.", "Yosh!"],
-	"note:create": ["New page, let's go!", "Something new!", "Nice, a fresh note!"],
-	"note:delete": ["Aw, it's gone...", "Poof!", "Byebye, note."],
-	"note:edit": ["Nice edit!", "Looking good.", "Saved it!"],
-	"note:rename": ["Ooh, a new name!", "Whoa, renamed!"],
-	"search:open": ["Hmm, searching...", "Let me think...", "Looking for something?"],
-	poke: ["Hey!", "Stop that!", "Hehe, that tickles.", "Believe it!"],
-};
 
 export const DEFAULT_SETTINGS: ShimejiSettings = {
 	enabled: true,
@@ -403,7 +381,6 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	speechBubbleEnabled: true,
 	speechBubbleStyle: "obsidian",
 	speechLinesFilePath: "",
-	speechLines: DEFAULT_SPEECH_LINES,
 	clickThrough: false,
 	mobileReadingViewOnly: true,
 	clickCounterEnabled: false,

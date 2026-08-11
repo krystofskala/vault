@@ -307,7 +307,7 @@ export class CharacterWidget {
 	private settings: ShimejiSettings;
 	private callbacks: CharacterWidgetCallbacks;
 	private pack: LoadedSpritePack | null = null;
-	/** trigger id -> pool of user-authored lines, parsed from the vault file at settings.speechLinesFilePath (see speechLines.ts). Takes priority per-trigger over settings.speechLines, the built-in fallback pool. */
+	/** trigger id -> pool of user-authored lines, parsed from the vault file at settings.speechLinesFilePath (see speechLines.ts) - the only source of speech lines. */
 	private customSpeechLines: Record<string, string[]> = {};
 
 	/** The trigger id currently being displayed - "idle" covers both resting and roaming. */
@@ -712,18 +712,14 @@ export class CharacterWidget {
 	}
 
 	/**
-	 * Picks a random line for a trigger id: the user's own speech-lines file
-	 * (settings.speechLinesFilePath, see speechLines.ts) wins if it defines
-	 * anything for this trigger, else the built-in fallback pool
-	 * (settings.speechLines) for the handful of triggers it covers, else no
-	 * line at all - most triggers (idle, moods, commands) only ever got a
-	 * bubble once the user's own file started covering them.
+	 * Picks a random line for a trigger id from the user's own speech-lines
+	 * file (settings.speechLinesFilePath, see speechLines.ts) - the only
+	 * source of speech lines. No line at all if it doesn't cover this
+	 * trigger (or hasn't been auto-created/populated yet).
 	 */
 	private resolveSpeechLine(trigger: string): string | undefined {
 		const custom = this.customSpeechLines[trigger];
 		if (custom && custom.length > 0) return custom[Math.floor(Math.random() * custom.length)];
-		const builtin = (this.settings.speechLines as unknown as Record<string, string[] | undefined>)[trigger];
-		if (builtin && builtin.length > 0) return builtin[Math.floor(Math.random() * builtin.length)];
 		return undefined;
 	}
 

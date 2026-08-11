@@ -9,7 +9,7 @@ import {
 } from "./spritePack";
 import { DEFAULT_SETTINGS, DEFAULT_BUILTIN_BEHAVIORS, commandTriggerId, type ShimejiSettings } from "./settings";
 import { ShimejiSettingTab } from "./settingsTab";
-import { parseSpeechLinesMarkdown } from "./speechLines";
+import { parseSpeechLinesMarkdown, speechLinesTemplate } from "./speechLines";
 
 /** Surfaced in Settings -> Reactions & actions -> Speech bubble so the user can see whether their file loaded and how much of it parsed. */
 export interface SpeechLinesStats {
@@ -49,6 +49,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.createWidget();
 			await this.refreshAvailableCharacters();
 			await this.reloadSpritePack();
+			await this.ensureSpeechLinesFile();
 			await this.reloadSpeechLines();
 			this.widget?.react("note:open");
 			this.registerVaultEvents();
@@ -117,7 +118,6 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	async loadSettings(): Promise<void> {
 		const data = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data, {
-			speechLines: Object.assign({}, DEFAULT_SETTINGS.speechLines, data?.speechLines),
 			commandTriggers: data?.commandTriggers ?? [],
 			builtinBehaviors: Object.assign({}, DEFAULT_BUILTIN_BEHAVIORS, data?.builtinBehaviors),
 		});
@@ -228,6 +228,42 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	}
 
 	// ---------- speech lines ----------
+
+	/**
+	 * Ensures there's an actual speech-lines file to read, rather than a
+	 * plugin ever silently falling back to a hardcoded pool of its own:
+	 * - speechLinesFilePath unset: creates one (seeded with the starter
+	 *   template) at the vault's own default location for new notes (same
+	 *   place Obsidian itself would put a brand new note), picking a
+	 *   non-colliding filename if "Shimeji Speech.md" is already taken by
+	 *   something unrelated, and remembers the path.
+	 * - speechLinesFilePath set but the file's gone missing: recreates it at
+	 *   that same path instead, since the user chose it deliberately.
+	 * Called once on load, before the first reloadSpeechLines() - also
+	 * reachable from the settings tab's "Create (if needed) and open" button
+	 * for the same effect on demand.
+	 */
+	async ensureSpeechLinesFile(): Promise<void> {
+		let path = this.settings.speechLinesFilePath.trim();
+		if (!path) {
+			const parent = this.app.fileManager.getNewFileParent("");
+			const folder = parent.path === "/" ? "" : parent.path;
+			let candidate = folder ? `${folder}/Shimeji Speech.md` : "Shimeji Speech.md";
+			let suffix = 2;
+			while (await this.app.vault.adapter.exists(candidate)) {
+				candidate = folder ? `${folder}/Shimeji Speech ${suffix}.md` : `Shimeji Speech ${suffix}.md`;
+				suffix++;
+			}
+			path = candidate;
+			this.settings.speechLinesFilePath = path;
+			await this.saveSettings();
+		}
+		if (!(await this.app.vault.adapter.exists(path))) {
+			const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+			if (folder && !(await this.app.vault.adapter.exists(folder))) await this.app.vault.adapter.mkdir(folder);
+			await this.app.vault.create(path, speechLinesTemplate());
+		}
+	}
 
 	/** (Re)reads and parses settings.speechLinesFilePath (see speechLines.ts), and pushes the result to the widget. Safe to call any time - on load, when the path setting changes, on manual "reload" click, and automatically whenever that exact file is modified (see registerVaultEvents). */
 	async reloadSpeechLines(): Promise<void> {
