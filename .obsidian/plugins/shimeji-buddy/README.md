@@ -83,6 +83,11 @@ actually trigger the real action or leave the settings tab. Works even
 before it's enabled or assigned to anything (as long as it has frames), so
 it's useful mid-edit too.
 
+Next to Play is a **⧉ Duplicate** button - clones the animation/Sequence
+(new id, "(copy)" appended to the name, everything else identical) and
+drops the copy right below the original, ready to tweak into a variant
+instead of rebuilding one from scratch.
+
 The animation engine, idle behaviour, and reactions work identically whether
 the built-in placeholder or a character you've built is active.
 

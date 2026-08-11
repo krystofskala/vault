@@ -38,6 +38,23 @@ function newAnimationId(): string {
 	return `anim-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/** A deep-cloned copy with a fresh id - so editing the copy (frames, movement, ...) never bleeds back into the original via shared object references. */
+function duplicateAnimation(anim: CustomAnimation): CustomAnimation {
+	const clone = JSON.parse(JSON.stringify(anim)) as CustomAnimation;
+	clone.id = newAnimationId();
+	clone.name = `${anim.name || "Animation"} (copy)`;
+	return clone;
+}
+
+/** Same idea as duplicateAnimation, plus fresh ids for every step (steps aren't looked up by id anywhere today, but keeping them unique avoids relying on that). */
+function duplicateSequence(seq: AnimationSequence): AnimationSequence {
+	const clone = JSON.parse(JSON.stringify(seq)) as AnimationSequence;
+	clone.id = newAnimationId();
+	clone.name = `${seq.name || "Sequence"} (copy)`;
+	clone.steps = clone.steps.map((step) => ({ ...step, id: newAnimationId() }));
+	return clone;
+}
+
 /** A stable accent color per animation id, so each one is visually distinct in a long list without needing a fixed palette. */
 function colorForAnimId(id: string): string {
 	let hash = 0;
@@ -1323,6 +1340,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			)
 			.addExtraButton((b) =>
 				b
+					.setIcon("copy")
+					.setTooltip("Duplicate - a starting point for a variant, without rebuilding from scratch")
+					.onClick(async () => {
+						if (!this.characterFile) return;
+						const clone = duplicateAnimation(anim);
+						const index = this.characterFile.animations.findIndex((a) => a.id === anim.id);
+						this.characterFile.animations.splice(index + 1, 0, clone);
+						await this.persistCharacterFile();
+						this.display();
+					})
+			)
+			.addExtraButton((b) =>
+				b
 					.setIcon("trash-2")
 					.setTooltip("Delete this animation")
 					.onClick(async () => {
@@ -1494,6 +1524,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						if (!this.plugin.previewReaction(seq.id)) {
 							new Notice("Nothing to preview yet - add at least one step with an animation first.");
 						}
+					})
+			)
+			.addExtraButton((b) =>
+				b
+					.setIcon("copy")
+					.setTooltip("Duplicate - a starting point for a variant, without rebuilding from scratch")
+					.onClick(async () => {
+						if (!this.characterFile) return;
+						const clone = duplicateSequence(seq);
+						const index = this.characterFile.sequences.findIndex((s) => s.id === seq.id);
+						this.characterFile.sequences.splice(index + 1, 0, clone);
+						await this.persistCharacterFile();
+						this.display();
 					})
 			)
 			.addExtraButton((b) =>
