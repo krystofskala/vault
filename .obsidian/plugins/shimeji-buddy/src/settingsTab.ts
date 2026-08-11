@@ -1,6 +1,7 @@
 import { App, Notice, PluginSettingTab, Setting, setIcon, type DropdownComponent, type TextComponent } from "obsidian";
 import type ShimejiBuddyPlugin from "./main";
 import { ImageEditorModal } from "./ImageEditorModal";
+import { RemoveBackgroundModal } from "./RemoveBackgroundModal";
 import {
 	BUILTIN_TRIGGERS,
 	commandTriggerId,
@@ -13,7 +14,11 @@ import {
 	createCharacter,
 	deleteCharacterImage,
 	listCharacterImages,
+	loadImageForSlicing,
+	previewColorKey,
 	readCharacterFile,
+	removeBackgroundColor,
+	sampleImageColor,
 	writeCharacterFile,
 	type CharacterFile,
 } from "./spritePack";
@@ -615,6 +620,12 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					.addButton((b) =>
 						b.setButtonText("Edit frames…").onClick(() => this.openImageEditor(folder, img, null))
 					)
+					.addButton((b) =>
+						b
+							.setButtonText("Remove background…")
+							.setTooltip("Color-key transparency - turn a flat background color transparent")
+							.onClick(() => this.openRemoveBackground(folder, img))
+					)
 					.addExtraButton((b) =>
 						b
 							.setIcon("trash-2")
@@ -755,6 +766,21 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				await slicer.load(this.app.vault, `${folder}/${imageName}`);
 			},
 			onClosed: () => this.display(),
+		});
+		modal.open();
+	}
+
+	/** Opens the color-key background removal tool for one image. */
+	private openRemoveBackground(folder: string, imageName: string): void {
+		const path = `${folder}/${imageName}`;
+		const modal = new RemoveBackgroundModal(this.app, {
+			folder,
+			imageName,
+			loadImage: () => loadImageForSlicing(this.app.vault, path),
+			sampleColor: (x, y) => sampleImageColor(this.app.vault, path, x, y),
+			preview: (color, tolerance) => previewColorKey(this.app.vault, folder, imageName, color, tolerance),
+			apply: (color, tolerance) => removeBackgroundColor(this.app.vault, folder, imageName, color, tolerance),
+			onApplied: () => this.display(),
 		});
 		modal.open();
 	}

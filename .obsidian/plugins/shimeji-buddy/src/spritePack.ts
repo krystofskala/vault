@@ -48,7 +48,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 	webp: "image/webp",
 };
 
-function mimeTypeForPath(path: string): string {
+export function mimeTypeForPath(path: string): string {
 	const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
 	return MIME_BY_EXTENSION[ext] ?? "image/png";
 }
@@ -57,6 +57,109 @@ async function blobUrlForVaultFile(vault: Vault, path: string): Promise<string> 
 	const bin = await vault.adapter.readBinary(path);
 	const blob = new Blob([bin], { type: mimeTypeForPath(path) });
 	return URL.createObjectURL(blob);
+}
+
+async function decodeVaultImageToCanvas(vault: Vault, path: string): Promise<HTMLCanvasElement> {
+	const bin = await vault.adapter.readBinary(path);
+	const blob = new Blob([bin], { type: mimeTypeForPath(path) });
+	const url = URL.createObjectURL(blob);
+	try {
+		const img = new Image();
+		await new Promise<void>((resolve, reject) => {
+			img.onload = () => resolve();
+			img.onerror = () => reject(new Error("failed to decode image"));
+			img.src = url;
+		});
+		const canvas = document.createElement("canvas");
+		canvas.width = img.naturalWidth;
+		canvas.height = img.naturalHeight;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) throw new Error("canvas 2D context unavailable");
+		ctx.drawImage(img, 0, 0);
+		return canvas;
+	} finally {
+		URL.revokeObjectURL(url);
+	}
+}
+
+export interface RgbColor {
+	r: number;
+	g: number;
+	b: number;
+}
+
+/** Reads a single pixel's color out of a vault image, in its own natural pixel coordinates. */
+export async function sampleImageColor(vault: Vault, path: string, x: number, y: number): Promise<RgbColor> {
+	const canvas = await decodeVaultImageToCanvas(vault, path);
+	const ctx = canvas.getContext("2d")!;
+	const px = ctx.getImageData(
+		Math.max(0, Math.min(x, canvas.width - 1)),
+		Math.max(0, Math.min(y, canvas.height - 1)),
+		1,
+		1
+	).data;
+	return { r: px[0], g: px[1], b: px[2] };
+}
+
+/**
+ * Color-key transparency: makes every pixel close to `color` transparent,
+ * with a small feathered falloff right at the tolerance edge so it doesn't
+ * look too hard-edged. Works on flat, solid backgrounds regardless of the
+ * sprite art's own quality/resolution - it's just picking out one color,
+ * not doing any real background detection.
+ */
+export async function applyColorKey(
+	canvas: HTMLCanvasElement,
+	color: RgbColor,
+	tolerance: number
+): Promise<HTMLCanvasElement> {
+	const ctx = canvas.getContext("2d")!;
+	const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+	const data = imageData.data;
+	const feather = Math.max(1, tolerance * 0.3);
+	for (let i = 0; i < data.length; i += 4) {
+		const dr = data[i] - color.r;
+		const dg = data[i + 1] - color.g;
+		const db = data[i + 2] - color.b;
+		const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+		if (dist <= tolerance) {
+			data[i + 3] = 0;
+		} else if (dist <= tolerance + feather) {
+			const t = (dist - tolerance) / feather; // 0 at the fully-transparent edge, 1 at fully-opaque
+			data[i + 3] = Math.round(data[i + 3] * t);
+		}
+	}
+	ctx.putImageData(imageData, 0, 0);
+	return canvas;
+}
+
+/** Renders a preview canvas (decoded + color-keyed) without touching the vault file. */
+export async function previewColorKey(
+	vault: Vault,
+	folderPath: string,
+	fileName: string,
+	color: RgbColor,
+	tolerance: number
+): Promise<HTMLCanvasElement> {
+	const canvas = await decodeVaultImageToCanvas(vault, `${normalizeFolder(folderPath)}/${fileName}`);
+	return applyColorKey(canvas, color, tolerance);
+}
+
+/** Applies color-key transparency and overwrites the image in place (same filename, so existing animations built from it keep working). Always saved as PNG, since it needs an alpha channel. */
+export async function removeBackgroundColor(
+	vault: Vault,
+	folderPath: string,
+	fileName: string,
+	color: RgbColor,
+	tolerance: number
+): Promise<void> {
+	const path = `${normalizeFolder(folderPath)}/${fileName}`;
+	const canvas = await decodeVaultImageToCanvas(vault, path);
+	await applyColorKey(canvas, color, tolerance);
+	const blob: Blob = await new Promise((resolve, reject) => {
+		canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("failed to encode PNG"))), "image/png");
+	});
+	await vault.adapter.writeBinary(path, await blob.arrayBuffer());
 }
 
 /** Picks a weighted-random entry (falls back to even odds if every weight is 0). */

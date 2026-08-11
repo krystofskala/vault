@@ -43,6 +43,17 @@ instead of the cramped settings-tab column). In there:
 - Every animation built from that image is listed right there too - rename
   or delete any of them without leaving the window.
 
+Got a sprite with a solid-color background instead of a transparent one
+(common with low-res/scraped sheets, where a clean cutout is hard to find)?
+Hit **"Remove background…"** next to an image in the Images list - it's
+color-key transparency: pick (or click the live preview to sample) the
+background color, adjust tolerance, and everything close to that color
+becomes transparent. Works regardless of the art's own resolution or
+quality, since it's only matching a color, not detecting foreground vs
+background - just don't set the tolerance so high it starts eating the
+character too. Overwrites the image in place (same filename), so animations
+already built from it keep working.
+
 Add a new empty animation any time from the **Animations** list in the main
 settings tab ("New animation" - pick a source image, it appears in the list
 immediately, ready for "Edit frames…" to fill it in), and delete one via the
