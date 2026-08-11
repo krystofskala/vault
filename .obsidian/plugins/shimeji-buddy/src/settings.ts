@@ -100,6 +100,8 @@ export interface MovementBehavior {
 	third?: ScreenThird;
 	/** kind "edge" | "center" | "corner" | "randomSpot" | "origin" | "hide": skip the travel tween and jump straight there. */
 	instant?: boolean;
+	/** kind "edge" | "center" | "corner" | "randomSpot" | "origin" | "hide" | "moveIn": which of Settings -> Movement speeds' two paces this travels at (ignored if "instant"). Undefined = "walk", matching every existing config from before this field existed. */
+	gait?: "walk" | "run";
 }
 
 export function defaultMovementBehavior(): MovementBehavior {

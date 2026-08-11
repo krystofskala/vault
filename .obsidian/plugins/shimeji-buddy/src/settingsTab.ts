@@ -1286,6 +1286,30 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			});
 		}
 
+		if (
+			movement.kind === "edge" ||
+			movement.kind === "center" ||
+			movement.kind === "corner" ||
+			movement.kind === "randomSpot" ||
+			movement.kind === "origin" ||
+			movement.kind === "hide" ||
+			movement.kind === "moveIn"
+		) {
+			const fieldWrap = params.createDiv({ cls: "sm-slicer-field" });
+			fieldWrap.createEl("label", { text: "Travel pace" });
+			const select = fieldWrap.createEl("select");
+			select.createEl("option", { value: "walk", text: "Walk speed" });
+			select.createEl("option", { value: "run", text: "Run speed" });
+			select.value = movement.gait ?? "walk";
+			select.addEventListener("change", async () => {
+				await onChange({ ...movement, gait: select.value as "walk" | "run" });
+			});
+			fieldWrap.createSpan({
+				cls: "setting-item-description",
+				text: "Which of Settings -> Standby & idle behavior -> Movement speeds this travels at.",
+			});
+		}
+
 		if (movement.kind === "edge" || movement.kind === "center" || movement.kind === "corner" || movement.kind === "randomSpot" || movement.kind === "origin" || movement.kind === "hide") {
 			const fieldWrap = params.createDiv({ cls: "sm-slicer-field sm-slicer-field-inline" });
 			const label = fieldWrap.createEl("label");

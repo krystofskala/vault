@@ -1074,7 +1074,7 @@ export class CharacterWidget {
 		}
 
 		const distance = Math.hypot(dx, dy);
-		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / this.gaitSpeed("walk")) * 1000));
+		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / this.gaitSpeed(movement.gait ?? "walk")) * 1000));
 		this.applyEdgeOrientation(dest.edgeSide);
 		this.containerEl.addClass("sm-tween");
 		this.containerEl.style.transitionDuration = `${duration}ms`;
@@ -1310,7 +1310,7 @@ export class CharacterWidget {
 		void this.containerEl.offsetHeight;
 
 		const distance = Math.hypot(landingRight - start.right, landingBottom - start.bottom);
-		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / this.gaitSpeed("walk")) * 1000));
+		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / this.gaitSpeed(movement.gait ?? "walk")) * 1000));
 		this.containerEl.addClass("sm-tween");
 		this.containerEl.style.transitionDuration = `${duration}ms`;
 		this.containerEl.style.right = `${landingRight}px`;

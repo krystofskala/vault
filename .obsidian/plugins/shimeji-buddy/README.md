@@ -152,20 +152,23 @@ off the nearest edge, all without needing anything beyond the picker:
   a corner, Hide (same edge choices as "Move to an edge," but continues past
   it, off-screen), Peek from an edge (slides to just off that edge, leaving
   an adjustable amount visible - a percentage, since sprite height varies
-  per character). Any of these can skip the travel animation and jump
-  straight there ("Instant").
+  per character). Each has a **Travel pace** (Walk speed / Run speed, from
+  Settings -> Standby & idle behavior -> Movement speeds) so a "run away"
+  animation can actually travel at run pace instead of always defaulting to
+  walk - and can skip the travel animation entirely and jump straight there
+  ("Instant").
 - **Move in** - a directional entrance in one step: teleports off-screen
   past a chosen edge (Top/Bottom/Left/Right/Nearest/Random, and which third
   along it - 1st/2nd/3rd), reveals, then walks/runs/falls/jumps in to a
-  landing spot a little past that edge. Walking vs. running vs. falling vs.
-  jumping in is entirely down to which edge you pick (top falls, bottom
-  jumps, left/right walk or run in) and which animation you've paired with
-  it - the engine doesn't tell those apart beyond that, so any look is just
-  a matter of your own art. (The lower-level version of this - an instant
-  Hide at a chosen edge, followed by a separate step tweening to a
-  non-edge landing spot - still works too, useful when you want the
-  hidden wait and the entrance to be two distinct beats, e.g. inside a
-  Sequence; see "Sequences" below.)
+  landing spot a little past that edge (also has its own Travel pace).
+  Walking vs. running vs. falling vs. jumping in is entirely down to which
+  edge you pick (top falls, bottom jumps, left/right walk or run in) and
+  which animation you've paired with it - the engine doesn't tell those
+  apart beyond that, so any look is just a matter of your own art. (The
+  lower-level version of this - an instant Hide at a chosen edge, followed
+  by a separate step tweening to a non-edge landing spot - still works too,
+  useful when you want the hidden wait and the entrance to be two distinct
+  beats, e.g. inside a Sequence; see "Sequences" below.)
 - **Continuous** (keeps moving for as long as this reaction is active): Spin
   around center (facing outward, like a satellite), Walk around the window
   edges (facing the center - the same feet-on-the-boundary orientation
