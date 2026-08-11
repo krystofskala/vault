@@ -1610,8 +1610,15 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		animWrap.createEl("label", { text: "Animation" });
 		const animSelect = animWrap.createEl("select");
 		animSelect.createEl("option", { value: "", text: "(none - wait/hidden beat)" });
+		// Disabled animations are skipped when actually resolving a step's clip
+		// (see loadCharacter in spritePack.ts), same as they're skipped for
+		// their own triggers - keep the currently-picked one selectable even if
+		// since disabled, so the step doesn't silently switch under the user,
+		// but label it so it's clear it won't actually play until re-enabled.
 		for (const anim of this.characterFile?.animations ?? []) {
-			animSelect.createEl("option", { value: anim.id, text: anim.name || "(unnamed)" });
+			if (!anim.enabled && anim.id !== step.animationId) continue;
+			const label = anim.enabled ? anim.name || "(unnamed)" : `${anim.name || "(unnamed)"} (disabled)`;
+			animSelect.createEl("option", { value: anim.id, text: label });
 		}
 		animSelect.value = step.animationId;
 		animSelect.addEventListener("change", async () => {

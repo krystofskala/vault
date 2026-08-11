@@ -538,7 +538,10 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 
 	// Each step reuses one of this character's own animations (by id) for its
 	// visual - no separate slicing/upload flow of its own, just a reference.
-	const animationById = new Map(file.animations.map((a) => [a.id, a]));
+	// Only enabled ones are eligible, matching the "Enabled" toggle's promise
+	// that a disabled animation is never picked for anything, sequence steps
+	// included - a step referencing a disabled one just becomes a wait beat.
+	const animationById = new Map(file.animations.filter((a) => a.enabled).map((a) => [a.id, a]));
 	for (const seq of file.sequences) {
 		if (!seq.enabled || seq.steps.length === 0 || seq.triggers.length === 0) continue;
 		try {

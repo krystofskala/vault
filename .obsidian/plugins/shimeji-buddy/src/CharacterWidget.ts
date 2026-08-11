@@ -521,6 +521,7 @@ export class CharacterWidget {
 		this.containerEl.style.right = `${targetRight}px`;
 		this.containerEl.style.bottom = `${targetBottom}px`;
 		this.wanderTimer = window.setTimeout(() => {
+			if (this.currentTrigger !== "summon") return; // superseded by another reaction mid-travel
 			this.containerEl.removeClass("sm-tween");
 			this.containerEl.style.transitionDuration = "";
 			this.restRight = targetRight;
@@ -528,7 +529,7 @@ export class CharacterWidget {
 			this.settings.posX = targetRight;
 			this.settings.posY = targetBottom;
 			this.callbacks.onPositionChange(targetRight, targetBottom);
-			if (this.currentTrigger === "summon") this.setReaction("idle");
+			this.setReaction("idle");
 		}, duration);
 
 		const resolvedMessage = this.resolveSpeechLine("summon");
@@ -768,6 +769,13 @@ export class CharacterWidget {
 
 		const step = seq.steps[index];
 		this.clearTimer("sequenceStepTimer");
+		// A previous step's own destination/moveIn/startleDash tween may still
+		// be in flight if this step's duration was shorter than that tween -
+		// its completion is on this same timer, and (unlike an external
+		// interruption) currentTrigger doesn't change between steps, so only
+		// clearing it here stops it from firing later and clobbering position
+		// (or re-hiding the character) mid-way through a later step.
+		this.clearTimer("wanderTimer");
 		this.stopContinuousMovement();
 		this.applyEdgeOrientation(null);
 		this.containerEl.toggleClass("sm-invisible", step.hidden);
