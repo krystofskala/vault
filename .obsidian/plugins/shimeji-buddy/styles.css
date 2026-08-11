@@ -1019,6 +1019,62 @@
 	border-top: 1px solid var(--background-modifier-border);
 }
 
+/* A checkbox packed into a single <label> (rather than the usual separate label+input fields) just needs its row laid out horizontally instead of .sm-slicer-field's default column stack. */
+.sm-slicer-field-inline {
+	flex-direction: row;
+	align-items: center;
+	gap: 6px;
+}
+.sm-slicer-field-inline label {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--text-normal);
+}
+
+/* ---------- sequence steps (Character -> Sequences) ---------- */
+
+.sm-seq-step {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	margin: 8px 0;
+	padding: 8px 10px;
+	background: var(--background-primary);
+}
+
+.sm-seq-step-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 6px;
+}
+
+.sm-seq-step-number {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 11px;
+	font-weight: 700;
+	flex-shrink: 0;
+}
+
+.sm-seq-step-controls {
+	display: flex;
+	gap: 4px;
+}
+
+.sm-seq-step-controls button {
+	padding: 2px 8px;
+	font-size: 12px;
+	line-height: 1.4;
+	cursor: pointer;
+}
+
 .sm-chip-row {
 	display: flex;
 	flex-wrap: wrap;

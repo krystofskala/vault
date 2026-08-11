@@ -6,12 +6,15 @@ import { speechLinesTemplate } from "./speechLines";
 import {
 	BUILTIN_TRIGGERS,
 	commandTriggerId,
+	defaultMovementBehavior,
+	type AnimationSequence,
 	type BuiltinBehaviorId,
 	type CustomAnimation,
 	type MovementBehavior,
 	type MovementBehaviorKind,
 	type ScreenCorner,
 	type ScreenEdge,
+	type SequenceStep,
 	type TriggerDef,
 } from "./settings";
 import {
@@ -962,6 +965,65 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			},
 			"film"
 		);
+
+		this.section(
+			containerEl,
+			"Sequences",
+			true,
+			(body) => {
+				body.createEl("p", {
+					cls: "setting-item-description",
+					text:
+						"Multi-step scripted reactions - a timeline of beats (each with its own animation, movement, " +
+						"timing, and optional line) instead of one clip. E.g. vanish, wait 7s, reappear elsewhere, say " +
+						"something. Assignable to actions and pooled/weighted exactly like a plain animation - the two " +
+						"can mix in the same action's pool for variety.",
+				});
+
+				if (this.characterFile!.animations.length === 0) {
+					body.createEl("p", {
+						cls: "setting-item-description",
+						text: "Build at least one animation above first - each step reuses one of your own animations.",
+					});
+				} else {
+					let newSeqName: TextComponent | undefined;
+					new Setting(body)
+						.setName("New sequence")
+						.setDesc("Adds an empty sequence - add steps to it below.")
+						.addText((t) => {
+							newSeqName = t;
+							t.setPlaceholder("Name");
+						})
+						.addButton((b) =>
+							b
+								.setButtonText("+ Add")
+								.setCta()
+								.onClick(async () => {
+									if (!this.characterFile) return;
+									const seq: AnimationSequence = {
+										id: newAnimationId(),
+										name: newSeqName?.getValue().trim() || `Sequence ${this.characterFile.sequences.length + 1}`,
+										triggers: [],
+										weight: 1,
+										enabled: true,
+										steps: [],
+									};
+									this.characterFile.sequences.push(seq);
+									await this.persistCharacterFile();
+									this.display();
+								})
+						);
+				}
+
+				if (this.characterFile!.sequences.length === 0) {
+					body.createEl("p", { cls: "setting-item-description", text: "No sequences yet." });
+				}
+				for (const seq of this.characterFile!.sequences) {
+					this.renderSequenceBlock(body, seq);
+				}
+			},
+			"clapperboard"
+		);
 	}
 
 	/** Opens the big dedicated slicing window for one image - freeform drag or grid-pick, plus managing every animation built from it. */
@@ -1292,6 +1354,217 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					}
 				})
 			);
+	}
+
+	private renderSequenceBlock(containerEl: HTMLElement, seq: AnimationSequence): void {
+		const details = containerEl.createEl("details", { cls: "sm-anim-block" });
+		details.style.setProperty("--sm-anim-color", colorForAnimId(seq.id));
+		if (!this.collapsedAnimIds.has(seq.id)) details.setAttr("open", "");
+		details.addEventListener("toggle", () => {
+			if (details.open) this.collapsedAnimIds.delete(seq.id);
+			else this.collapsedAnimIds.add(seq.id);
+		});
+
+		const summary = details.createEl("summary", { cls: "sm-anim-summary" });
+		summary.createSpan({ cls: "sm-anim-summary-dot" });
+		summary.createSpan({ cls: "sm-anim-summary-name", text: seq.name || "(unnamed)" });
+		const stepLabel = seq.steps.length === 1 ? "1 step" : `${seq.steps.length} steps`;
+		const triggerLabel = seq.triggers.length === 0 ? "unassigned" : `${seq.triggers.length} action${seq.triggers.length === 1 ? "" : "s"}`;
+		summary.createSpan({
+			cls: "sm-anim-summary-meta",
+			text: `${stepLabel} · ${triggerLabel}${seq.enabled ? "" : " · disabled"}`,
+		});
+
+		const wrap = details.createDiv({ cls: "sm-anim-body" });
+
+		new Setting(wrap)
+			.setName("Name")
+			.addText((t) =>
+				t.setValue(seq.name).onChange(async (v) => {
+					seq.name = v;
+					await this.persistCharacterFile();
+				})
+			)
+			.addExtraButton((b) =>
+				b
+					.setIcon("trash-2")
+					.setTooltip("Delete this sequence")
+					.onClick(async () => {
+						if (!this.characterFile) return;
+						this.characterFile.sequences = this.characterFile.sequences.filter((s) => s.id !== seq.id);
+						await this.persistCharacterFile();
+						this.display();
+					})
+			);
+
+		const allKnown = this.allKnownTriggers();
+		const chipRow = wrap.createDiv({ cls: "sm-chip-row" });
+		if (seq.triggers.length === 0) {
+			chipRow.createSpan({ cls: "setting-item-description", text: "Not assigned to anything yet." });
+		}
+		for (const triggerId of seq.triggers) {
+			const label = allKnown.find((k) => k.id === triggerId)?.label ?? triggerId;
+			const chip = chipRow.createSpan({ cls: "sm-chip" });
+			chip.createSpan({ text: label });
+			const remove = chip.createSpan({ cls: "sm-chip-remove", text: "×" });
+			remove.onclick = async () => {
+				seq.triggers = seq.triggers.filter((x) => x !== triggerId);
+				await this.persistCharacterFile();
+				this.display();
+			};
+		}
+
+		const remaining = allKnown.filter((k) => !seq.triggers.includes(k.id));
+		if (remaining.length > 0) {
+			let addDropdown: DropdownComponent | undefined;
+			new Setting(wrap)
+				.setName("Add trigger")
+				.setDesc("Assign this sequence to another action too.")
+				.addDropdown((d) => {
+					addDropdown = d;
+					for (const t of remaining) d.addOption(t.id, t.label);
+				})
+				.addButton((b) =>
+					b.setButtonText("Add").onClick(async () => {
+						const value = addDropdown?.getValue();
+						if (!value) return;
+						seq.triggers.push(value);
+						await this.persistCharacterFile();
+						this.display();
+					})
+				);
+		}
+
+		new Setting(wrap)
+			.setName("Probability weight")
+			.setDesc("Relative chance of being picked vs. other enabled animations/sequences sharing any of the same actions.")
+			.addText((t) =>
+				t.setValue(String(seq.weight)).onChange(async (v) => {
+					const n = Number(v);
+					if (!Number.isNaN(n) && n >= 0) {
+						seq.weight = n;
+						await this.persistCharacterFile();
+					}
+				})
+			);
+
+		new Setting(wrap)
+			.setName("Enabled")
+			.setDesc("Off skips this sequence entirely - it's never picked for any of its actions, but stays here for later.")
+			.addToggle((t) =>
+				t.setValue(seq.enabled).onChange(async (v) => {
+					seq.enabled = v;
+					await this.persistCharacterFile();
+				})
+			);
+
+		wrap.createEl("h4", { text: "Steps" });
+		if (seq.steps.length === 0) {
+			wrap.createEl("p", { cls: "setting-item-description", text: "No steps yet - add one below." });
+		}
+		const stepsEl = wrap.createDiv();
+		seq.steps.forEach((step, index) => this.renderSequenceStep(stepsEl, seq, step, index));
+
+		new Setting(wrap).addButton((b) =>
+			b.setButtonText("+ Add step").onClick(async () => {
+				seq.steps.push({
+					id: newAnimationId(),
+					animationId: "",
+					durationMs: 1000,
+					hidden: false,
+					movement: defaultMovementBehavior(),
+					say: "",
+				});
+				await this.persistCharacterFile();
+				this.display();
+			})
+		);
+	}
+
+	private renderSequenceStep(containerEl: HTMLElement, seq: AnimationSequence, step: SequenceStep, index: number): void {
+		const stepEl = containerEl.createDiv({ cls: "sm-seq-step" });
+
+		const header = stepEl.createDiv({ cls: "sm-seq-step-header" });
+		header.createSpan({ cls: "sm-seq-step-number", text: String(index + 1) });
+		const controls = header.createDiv({ cls: "sm-seq-step-controls" });
+		if (index > 0) {
+			controls
+				.createEl("button", { text: "↑", attr: { "aria-label": "Move step up" } })
+				.addEventListener("click", async () => {
+					[seq.steps[index - 1], seq.steps[index]] = [seq.steps[index], seq.steps[index - 1]];
+					await this.persistCharacterFile();
+					this.display();
+				});
+		}
+		if (index < seq.steps.length - 1) {
+			controls
+				.createEl("button", { text: "↓", attr: { "aria-label": "Move step down" } })
+				.addEventListener("click", async () => {
+					[seq.steps[index + 1], seq.steps[index]] = [seq.steps[index], seq.steps[index + 1]];
+					await this.persistCharacterFile();
+					this.display();
+				});
+		}
+		controls
+			.createEl("button", { text: "✕", cls: "sm-chip-remove", attr: { "aria-label": "Delete step" } })
+			.addEventListener("click", async () => {
+				seq.steps.splice(index, 1);
+				await this.persistCharacterFile();
+				this.display();
+			});
+
+		const fieldsWrap = stepEl.createDiv({ cls: "sm-slicer-controls" });
+
+		const animWrap = fieldsWrap.createDiv({ cls: "sm-slicer-field" });
+		animWrap.createEl("label", { text: "Animation" });
+		const animSelect = animWrap.createEl("select");
+		animSelect.createEl("option", { value: "", text: "(none - wait/hidden beat)" });
+		for (const anim of this.characterFile?.animations ?? []) {
+			animSelect.createEl("option", { value: anim.id, text: anim.name || "(unnamed)" });
+		}
+		animSelect.value = step.animationId;
+		animSelect.addEventListener("change", async () => {
+			step.animationId = animSelect.value;
+			await this.persistCharacterFile();
+		});
+
+		const durationWrap = fieldsWrap.createDiv({ cls: "sm-slicer-field" });
+		durationWrap.createEl("label", { text: "Duration (ms, 0 = auto)" });
+		const durationInput = durationWrap.createEl("input", { type: "number", attr: { min: "0", step: "100" } });
+		durationInput.value = String(step.durationMs);
+		durationInput.addEventListener("change", async () => {
+			step.durationMs = Math.max(0, Number(durationInput.value) || 0);
+			await this.persistCharacterFile();
+		});
+
+		const hiddenWrap = fieldsWrap.createDiv({ cls: "sm-slicer-field sm-slicer-field-inline" });
+		const hiddenLabel = hiddenWrap.createEl("label");
+		const hiddenCheckbox = hiddenLabel.createEl("input", { type: "checkbox" });
+		hiddenCheckbox.checked = step.hidden;
+		hiddenLabel.appendText(" Hidden this step");
+		hiddenCheckbox.addEventListener("change", async () => {
+			step.hidden = hiddenCheckbox.checked;
+			await this.persistCharacterFile();
+		});
+
+		new Setting(stepEl)
+			.setName("Say")
+			.setDesc("Literal text shown the instant this step starts - deliberately scripted, not randomized.")
+			.addText((t) =>
+				t
+					.setPlaceholder("Nothing")
+					.setValue(step.say)
+					.onChange(async (v) => {
+						step.say = v;
+						await this.persistCharacterFile();
+					})
+			);
+
+		this.renderMovementPicker(stepEl, step.movement, async (next) => {
+			step.movement = next;
+			await this.persistCharacterFile();
+			this.display();
+		});
 	}
 
 	private refreshFrameCountText(animId: string): void {

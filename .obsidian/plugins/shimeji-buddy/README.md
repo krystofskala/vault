@@ -142,6 +142,49 @@ off the nearest edge, all without needing anything beyond the picker:
   right in the way - good for an angry mood), Avoid the cursor, Startle
   dash (a quick hop away, then settle).
 
+## Sequences
+
+A single animation is one clip; a **Sequence** (Character → Sequences,
+alongside Animations) is a scripted *timeline* of beats for when one clip
+isn't enough - "vanish in a puff of smoke, wait 7 seconds, fall back in from
+across the screen, say something." Assignable to actions and pooled/weighted
+exactly like a plain animation, so the two mix freely in the same action's
+pool (e.g. 70% of the time a note gets deleted it's just a quick poof, 30%
+of the time it's the whole bit).
+
+Each step in a sequence has its own:
+
+- **Animation** - one of this character's own animations, or none at all
+  (a pure wait/hidden beat).
+- **Duration** - in ms, or 0 to use the animation's own natural length.
+  Set it explicitly whenever you want exact timing (like "wait 7 seconds")
+  or the animation loops, since a looping clip has no natural end of its own.
+- **Hidden** - invisible for this step, however long it lasts.
+- **Movement** - the exact same picker plain animations use (see
+  "Movement" above) - so a step can vanish in place, travel somewhere,
+  spin, follow the cursor, whatever fits that beat.
+- **Say** - literal text shown the instant the step starts. Unlike normal
+  reactions, this is exactly what you typed, not a random pick from the
+  speech-lines file - a sequence is already a fully scripted moment.
+
+Worked example - the "vanish, wait, fall back in from elsewhere, say
+something" bit - using only the movement vocabulary above:
+
+1. **Poof** - your vanish animation, Movement: Stay put, Say: "Abayo!"
+2. **Wait** - no animation, Hidden on, Duration: 7000
+3. **Reposition** - no animation, Hidden on, Movement: Peek from an edge
+   (pick the edge it should fall from, e.g. Top, visible amount 0%),
+   Instant on - teleports it fully off-screen at that edge while still
+   invisible, so step 4 has somewhere to fall in *from*.
+4. **Fall in** - your falling animation, Hidden off, Movement: Peek from
+   the same edge, visible amount 100% (not instant, so it tweens) - Say:
+   "JK, I'm back!"
+
+That last trick - Peek's visible-amount slider at 0% vs. 100% between two
+steps - is how any "enters from off-screen" effect works, since Peek is the
+one movement that can sit at any point between fully hidden past an edge and
+fully on-screen at it.
+
 ## Speech
 
 **Settings → Shimeji Buddy → Reactions & actions → Speech bubble** has two

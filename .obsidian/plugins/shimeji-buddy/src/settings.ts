@@ -129,9 +129,9 @@ export interface CustomAnimation {
  */
 export interface SequenceStep {
 	id: string;
-	/** An existing Animation's id in this character, a builtin pose keyword (only used while characterMode is "builtin"), or "" for no visible animation (a pure wait/hidden beat). */
+	/** An existing Animation's id in this character, or "" for no visible animation (a pure wait/hidden beat). Sequences are a custom-character feature - there's no builtin-placeholder equivalent. */
 	animationId: string;
-	/** ms this step lasts. 0 = the animation's own natural length (frame count / fps) - required (>0) when animationId is "". */
+	/** ms this step lasts. 0 = the animation's own natural length (frame count / fps) - should be set explicitly (>0) when animationId is "" or the clip loops, since neither has a natural end on its own. */
 	durationMs: number;
 	/** Buddy is invisible for this step - e.g. the "vanished" beat of a disappearing act. */
 	hidden: boolean;

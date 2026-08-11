@@ -1,6 +1,12 @@
 import { Notice, type App } from "obsidian";
 import type { BuiltinBehaviorId, MovementBehavior, ScreenCorner, ScreenEdge, ShimejiSettings } from "./settings";
-import { pickWeighted, type LoadedSpritePack, type ResolvedAnimation } from "./spritePack";
+import {
+	pickWeighted,
+	type LoadedSpritePack,
+	type ResolvedAnimation,
+	type WeightedAnimation,
+	type WeightedSequence,
+} from "./spritePack";
 
 /** The built-in placeholder character's fixed set of hand-authored CSS poses. */
 type BuiltinPose =
@@ -276,6 +282,9 @@ export class CharacterWidget {
 	private restBottom = 0;
 	/** Drives any of the continuous MovementBehavior kinds (spin, patrolWindowEdges, paceEdge, follow, stalk, avoid) - a single rAF loop, replaced (never stacked) each time a new reaction starts. */
 	private movementRafId: number | null = null;
+	private sequenceStepTimer: number | null = null;
+	/** Bumped on every playSequence() call - a scheduled step only runs if it still matches, so an interrupted sequence (poked, dragged, a new reaction) can't advance itself after the fact. */
+	private sequenceRunId = 0;
 
 	/** Forces click-through regardless of the user's own setting - e.g. mobile edit-view lockout. */
 	private autoClickThrough = false;
@@ -482,8 +491,11 @@ export class CharacterWidget {
 		const dx = targetRight - currentRight;
 		if (Math.abs(dx) > 1) this.facingLeft = dx > 0;
 
-		const pool = this.pack?.bySlot.summon;
-		const chosen = pool && pool.length > 0 ? pickWeighted(pool) : null;
+		// Sequences aren't offered here - "summon" is fundamentally "travel to
+		// this exact clicked point," which doesn't compose with a sequence's
+		// own per-step movement. Assign a plain animation to get a custom look.
+		const pool = (this.pack?.bySlot.summon ?? []).filter((c): c is WeightedAnimation => c.kind === "animation");
+		const chosen = pool.length > 0 ? pickWeighted(pool) : null;
 		if (chosen) {
 			this.playResolvedAnimation(chosen, () => {
 				if (this.currentTrigger === "summon") this.setReaction("idle");
@@ -520,6 +532,7 @@ export class CharacterWidget {
 		this.clearTimer("oneShotRevertTimer");
 		this.clearTimer("spriteFrameTimer");
 		this.clearTimer("wanderTimer");
+		this.clearTimer("sequenceStepTimer");
 		this.stopContinuousMovement();
 		window.removeEventListener("resize", this.boundResize);
 		window.removeEventListener("pointermove", this.boundTrackPointer);
@@ -534,6 +547,7 @@ export class CharacterWidget {
 	private setReaction(trigger: string, message?: string): void {
 		this.currentTrigger = trigger;
 		this.clearTimer("oneShotRevertTimer");
+		this.clearTimer("sequenceStepTimer");
 		this.stopContinuousMovement();
 		this.containerEl.removeClass("sm-invisible"); // any new reaction un-hides; a "Hide" movement re-applies it once it arrives
 		// Any discrete reaction/pose stands upright - only edge-patrol wander
@@ -549,7 +563,9 @@ export class CharacterWidget {
 		const pool = this.pack?.bySlot[lookupTrigger];
 		const chosen = pool && pool.length > 0 ? pickWeighted(pool) : null;
 
-		if (chosen) {
+		if (chosen?.kind === "sequence") {
+			this.playSequence(chosen, trigger);
+		} else if (chosen) {
 			this.playResolvedAnimation(chosen, () => {
 				if (this.currentTrigger === trigger) this.setReaction("idle");
 			});
@@ -557,7 +573,9 @@ export class CharacterWidget {
 		} else if (this.pack) {
 			// Pack active but nothing assigned to this trigger: fall back to its
 			// idle pool (a resting entry if one exists), else the placeholder.
-			const idlePool = this.pack.bySlot.idle ?? [];
+			// Sequences are excluded from this fallback - nothing assigned to a
+			// trigger shouldn't randomly kick off a whole scripted bit.
+			const idlePool = (this.pack.bySlot.idle ?? []).filter((c): c is WeightedAnimation => c.kind === "animation");
 			const restingIdle = idlePool.filter((c) => c.movement.kind === "none");
 			const idleChosen = pickWeighted(restingIdle.length > 0 ? restingIdle : idlePool);
 			if (idleChosen) {
@@ -720,6 +738,43 @@ export class CharacterWidget {
 		(this.bubbleEl as any)._smHideTimer = window.setTimeout(() => {
 			this.bubbleEl.style.display = "none";
 		}, 2200);
+	}
+
+	// ---------- scripted sequences (see settings.ts's AnimationSequence) ----------
+
+	/** Kicks off a scripted, multi-step reaction - each step plays like a small one-shot reaction (its own visual, movement, and optional line), advancing on the step's own timer rather than waiting for the clip to finish naturally, so an explicit "wait 7 seconds" is honored precisely. */
+	private playSequence(seq: WeightedSequence, trigger: string): void {
+		const runId = ++this.sequenceRunId;
+		this.runSequenceStep(seq, 0, runId, trigger);
+	}
+
+	private runSequenceStep(seq: WeightedSequence, index: number, runId: number, trigger: string): void {
+		// Stale if something else (a poke, a drag, mood change, another reaction) has taken over since this step was scheduled.
+		if (runId !== this.sequenceRunId || this.currentTrigger !== trigger) return;
+		if (index >= seq.steps.length) {
+			if (this.currentTrigger === trigger) this.setReaction("idle");
+			return;
+		}
+
+		const step = seq.steps[index];
+		this.clearTimer("sequenceStepTimer");
+		this.stopContinuousMovement();
+		this.applyEdgeOrientation(null);
+		this.containerEl.toggleClass("sm-invisible", step.hidden);
+
+		// Sequence timing is driven by the step's own duration (below), not
+		// the clip's natural completion - a no-op onComplete either way.
+		if (step.clip) this.playResolvedAnimation(step.clip, () => {});
+		if (step.movement.kind !== "none") this.applyMovement(step.movement, trigger);
+		if (step.say && this.settings.speechBubbleEnabled) this.showBubble(step.say);
+
+		let duration = step.durationMs;
+		if (duration <= 0) {
+			// No explicit duration: a non-looping clip gets exactly its own playback length; anything else (a loop, or no clip at all) needs a sane fallback since neither ends on its own.
+			duration = step.clip && !step.clip.loop ? (step.clip.frames.length / step.clip.fps) * 1000 : 1200;
+		}
+
+		this.sequenceStepTimer = window.setTimeout(() => this.runSequenceStep(seq, index + 1, runId, trigger), duration);
 	}
 
 	// ---------- idle / standby brain ----------
@@ -1596,7 +1651,7 @@ export class CharacterWidget {
 	}
 
 	private clearTimer(
-		name: "idleTimer" | "moodCheckTimer" | "oneShotRevertTimer" | "spriteFrameTimer" | "wanderTimer"
+		name: "idleTimer" | "moodCheckTimer" | "oneShotRevertTimer" | "spriteFrameTimer" | "wanderTimer" | "sequenceStepTimer"
 	): void {
 		const id = this[name];
 		if (id !== null) {

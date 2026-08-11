@@ -1,5 +1,11 @@
 import { Vault } from "obsidian";
-import { defaultMovementBehavior, type AtlasFrameRect, type CustomAnimation, type MovementBehavior } from "./settings";
+import {
+	defaultMovementBehavior,
+	type AnimationSequence,
+	type AtlasFrameRect,
+	type CustomAnimation,
+	type MovementBehavior,
+} from "./settings";
 
 const CHARACTER_FILE_NAME = "character.json";
 
@@ -7,6 +13,7 @@ const CHARACTER_FILE_NAME = "character.json";
 export interface CharacterFile {
 	name: string;
 	animations: CustomAnimation[];
+	sequences: AnimationSequence[];
 }
 
 /** A resolved animation, ready for CharacterWidget to play. */
@@ -20,14 +27,34 @@ export interface ResolvedAnimation {
 }
 
 export interface WeightedAnimation extends ResolvedAnimation {
+	kind: "animation";
 	weight: number;
 	movement: MovementBehavior;
 }
 
+/** One resolved beat of a WeightedSequence - see settings.ts's SequenceStep. */
+export interface ResolvedSequenceStep {
+	/** null = no visible animation this step (a pure wait/hidden beat). */
+	clip: ResolvedAnimation | null;
+	durationMs: number;
+	hidden: boolean;
+	movement: MovementBehavior;
+	say: string;
+}
+
+export interface WeightedSequence {
+	kind: "sequence";
+	weight: number;
+	steps: ResolvedSequenceStep[];
+}
+
+/** One pool entry: either a plain animation clip or a whole scripted sequence - pickWeighted() only needs .weight, so both mix freely in the same trigger's pool. */
+export type WeightedReaction = WeightedAnimation | WeightedSequence;
+
 export interface LoadedSpritePack {
 	name: string;
 	/** Keyed by trigger id; each array is a weighted pool of candidates for that trigger. */
-	bySlot: Record<string, WeightedAnimation[]>;
+	bySlot: Record<string, WeightedReaction[]>;
 	objectUrls: string[];
 }
 
@@ -375,14 +402,18 @@ export async function readCharacterFile(vault: Vault, folderPath: string): Promi
 			const raw = await vault.adapter.read(path);
 			const parsed = JSON.parse(raw);
 			if (parsed && Array.isArray(parsed.animations)) {
-				return { ...parsed, animations: parsed.animations.map(normalizeAnimation) } as CharacterFile;
+				return {
+					...parsed,
+					animations: parsed.animations.map(normalizeAnimation),
+					sequences: Array.isArray(parsed.sequences) ? parsed.sequences : [],
+				} as CharacterFile;
 			}
 		}
 	} catch (e) {
 		console.warn("Shimeji Buddy: could not read character.json, starting fresh", e);
 	}
 	const folderName = folderPath.split("/").pop() || "Character";
-	return { name: folderName, animations: [] };
+	return { name: folderName, animations: [], sequences: [] };
 }
 
 export async function writeCharacterFile(vault: Vault, folderPath: string, file: CharacterFile): Promise<void> {
@@ -419,7 +450,7 @@ export async function createCharacter(vault: Vault, basePath: string, name: stri
 		suffix++;
 	}
 	await vault.adapter.mkdir(folder);
-	await writeCharacterFile(vault, folder, { name: name.trim() || slug, animations: [] });
+	await writeCharacterFile(vault, folder, { name: name.trim() || slug, animations: [], sequences: [] });
 	return folder;
 }
 
@@ -462,7 +493,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 	if (!(await vault.adapter.exists(normalized))) return null;
 
 	const file = await readCharacterFile(vault, normalized);
-	if (file.animations.length === 0) return null;
+	if (file.animations.length === 0 && file.sequences.length === 0) return null;
 
 	const objectUrls: string[] = [];
 	const imageCache = new Map<string, Promise<{ url: string; width: number; height: number }>>();
@@ -480,13 +511,14 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 		return promise;
 	};
 
-	const bySlot: Record<string, WeightedAnimation[]> = {};
+	const bySlot: Record<string, WeightedReaction[]> = {};
 
 	for (const anim of file.animations) {
 		if (!anim.enabled || !anim.sourceImage || anim.frames.length === 0 || anim.triggers.length === 0) continue;
 		try {
 			const img = await loadImage(anim.sourceImage);
 			const resolved: WeightedAnimation = {
+				kind: "animation",
 				imageUrl: img.url,
 				imageWidth: img.width,
 				imageHeight: img.height,
@@ -501,6 +533,44 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 			}
 		} catch (e) {
 			console.warn(`Shimeji Buddy: could not load "${anim.sourceImage}" for animation "${anim.name}"`, e);
+		}
+	}
+
+	// Each step reuses one of this character's own animations (by id) for its
+	// visual - no separate slicing/upload flow of its own, just a reference.
+	const animationById = new Map(file.animations.map((a) => [a.id, a]));
+	for (const seq of file.sequences) {
+		if (!seq.enabled || seq.steps.length === 0 || seq.triggers.length === 0) continue;
+		try {
+			const steps: ResolvedSequenceStep[] = [];
+			for (const step of seq.steps) {
+				const anim = step.animationId ? animationById.get(step.animationId) : undefined;
+				let clip: ResolvedAnimation | null = null;
+				if (anim && anim.sourceImage && anim.frames.length > 0) {
+					const img = await loadImage(anim.sourceImage);
+					clip = {
+						imageUrl: img.url,
+						imageWidth: img.width,
+						imageHeight: img.height,
+						frames: anim.frames,
+						fps: Math.max(1, anim.fps),
+						loop: anim.loop,
+					};
+				}
+				steps.push({
+					clip,
+					durationMs: Math.max(0, step.durationMs),
+					hidden: step.hidden,
+					movement: step.movement,
+					say: step.say,
+				});
+			}
+			const resolved: WeightedSequence = { kind: "sequence", weight: Math.max(0, seq.weight), steps };
+			for (const trigger of seq.triggers) {
+				(bySlot[trigger] ??= []).push(resolved);
+			}
+		} catch (e) {
+			console.warn(`Shimeji Buddy: could not load sequence "${seq.name}"`, e);
 		}
 	}
 
