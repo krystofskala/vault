@@ -1,5 +1,5 @@
 import { Notice, type App } from "obsidian";
-import type { BuiltinBehaviorId, ShimejiSettings } from "./settings";
+import type { BuiltinBehaviorId, MovementBehavior, ScreenCorner, ScreenEdge, ShimejiSettings } from "./settings";
 import { pickWeighted, type LoadedSpritePack, type ResolvedAnimation } from "./spritePack";
 
 /** The built-in placeholder character's fixed set of hand-authored CSS poses. */
@@ -49,6 +49,7 @@ const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
 	"mood:happy": "happy",
 	"mood:bored": "sleep",
 	"mood:angry": "angry",
+	summon: "run", // played while travelling to wherever it was triple-clicked
 };
 
 /**
@@ -270,6 +271,12 @@ export class CharacterWidget {
 	private spriteFrameTimer: number | null = null;
 	private wanderTimer: number | null = null;
 
+	/** The last place the buddy came to rest - what MovementBehavior "origin" returns to. */
+	private restRight = 0;
+	private restBottom = 0;
+	/** Drives any of the continuous MovementBehavior kinds (spin, patrolWindowEdges, paceEdge, follow, stalk, avoid) - a single rAF loop, replaced (never stacked) each time a new reaction starts. */
+	private movementRafId: number | null = null;
+
 	/** Forces click-through regardless of the user's own setting - e.g. mobile edit-view lockout. */
 	private autoClickThrough = false;
 
@@ -332,6 +339,8 @@ export class CharacterWidget {
 		this.applyBubbleStyleClass();
 		this.applySize(settings.size);
 		this.applyPosition(settings.posX, settings.posY);
+		this.restRight = settings.posX;
+		this.restBottom = settings.posY;
 		this.setReaction("idle");
 		this.startMoodWatcher();
 		window.addEventListener("resize", this.boundResize);
@@ -447,12 +456,71 @@ export class CharacterWidget {
 		this.setReaction(trigger, message);
 	}
 
+	/**
+	 * Called over: triple-clicked outside the editor (see main.ts's summon
+	 * watcher). Unlike every other trigger, its destination is wherever was
+	 * clicked, not a MovementBehavior preset - a raw click point isn't
+	 * something you'd pick from a dropdown - so it travels there directly
+	 * instead of going through applyMovement/resolveDestination.
+	 */
+	summonTo(clientX: number, clientY: number): void {
+		this.lastActivity = Date.now();
+		this.currentTrigger = "summon";
+		this.clearTimer("oneShotRevertTimer");
+		this.stopContinuousMovement();
+		this.containerEl.removeClass("sm-invisible");
+		this.applyEdgeOrientation(null);
+
+		const rect = this.containerEl.getBoundingClientRect();
+		const margin = 8;
+		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+		const targetRight = Math.min(Math.max(window.innerWidth - clientX - rect.width / 2, margin), maxRight);
+		const targetBottom = Math.min(Math.max(window.innerHeight - clientY - rect.height / 2, margin), maxBottom);
+		const currentRight = window.innerWidth - rect.right;
+		const currentBottom = window.innerHeight - rect.bottom;
+		const dx = targetRight - currentRight;
+		if (Math.abs(dx) > 1) this.facingLeft = dx > 0;
+
+		const pool = this.pack?.bySlot.summon;
+		const chosen = pool && pool.length > 0 ? pickWeighted(pool) : null;
+		if (chosen) {
+			this.playResolvedAnimation(chosen, () => {
+				if (this.currentTrigger === "summon") this.setReaction("idle");
+			});
+		} else {
+			this.playBuiltinForTrigger("summon");
+		}
+
+		const distance = Math.hypot(dx, targetBottom - currentBottom);
+		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / GAIT_SPEED_PX_PER_SEC.run) * 1000));
+		this.clearTimer("wanderTimer");
+		this.containerEl.addClass("sm-tween");
+		this.containerEl.style.transitionDuration = `${duration}ms`;
+		this.containerEl.style.right = `${targetRight}px`;
+		this.containerEl.style.bottom = `${targetBottom}px`;
+		this.wanderTimer = window.setTimeout(() => {
+			this.containerEl.removeClass("sm-tween");
+			this.containerEl.style.transitionDuration = "";
+			this.restRight = targetRight;
+			this.restBottom = targetBottom;
+			this.settings.posX = targetRight;
+			this.settings.posY = targetBottom;
+			this.callbacks.onPositionChange(targetRight, targetBottom);
+			if (this.currentTrigger === "summon") this.setReaction("idle");
+		}, duration);
+
+		const resolvedMessage = this.resolveSpeechLine("summon");
+		if (resolvedMessage && this.settings.speechBubbleEnabled) this.showBubble(resolvedMessage);
+	}
+
 	destroy(): void {
 		this.clearTimer("idleTimer");
 		this.clearTimer("moodCheckTimer");
 		this.clearTimer("oneShotRevertTimer");
 		this.clearTimer("spriteFrameTimer");
 		this.clearTimer("wanderTimer");
+		this.stopContinuousMovement();
 		window.removeEventListener("resize", this.boundResize);
 		window.removeEventListener("pointermove", this.boundTrackPointer);
 		this.detachDragListeners();
@@ -466,6 +534,8 @@ export class CharacterWidget {
 	private setReaction(trigger: string, message?: string): void {
 		this.currentTrigger = trigger;
 		this.clearTimer("oneShotRevertTimer");
+		this.stopContinuousMovement();
+		this.containerEl.removeClass("sm-invisible"); // any new reaction un-hides; a "Hide" movement re-applies it once it arrives
 		// Any discrete reaction/pose stands upright - only edge-patrol wander
 		// (which re-applies its own orientation right after this) stays rotated.
 		this.applyEdgeOrientation(null);
@@ -483,14 +553,19 @@ export class CharacterWidget {
 			this.playResolvedAnimation(chosen, () => {
 				if (this.currentTrigger === trigger) this.setReaction("idle");
 			});
+			this.applyMovement(chosen.movement, trigger);
 		} else if (this.pack) {
 			// Pack active but nothing assigned to this trigger: fall back to its
 			// idle pool (a resting entry if one exists), else the placeholder.
 			const idlePool = this.pack.bySlot.idle ?? [];
-			const restingIdle = idlePool.filter((c) => !c.moves);
+			const restingIdle = idlePool.filter((c) => c.movement.kind === "none");
 			const idleChosen = pickWeighted(restingIdle.length > 0 ? restingIdle : idlePool);
-			if (idleChosen) this.playResolvedAnimation(idleChosen, () => {});
-			else this.playBuiltinForTrigger(lookupTrigger);
+			if (idleChosen) {
+				this.playResolvedAnimation(idleChosen, () => {});
+				this.applyMovement(idleChosen.movement, trigger);
+			} else {
+				this.playBuiltinForTrigger(lookupTrigger);
+			}
 		} else {
 			this.playBuiltinForTrigger(lookupTrigger);
 		}
@@ -673,10 +748,10 @@ export class CharacterWidget {
 		if (this.currentTrigger !== "idle") return;
 
 		if (this.pack) {
-			if (this.settings.wanderEnabled && Math.random() < 0.35) {
-				this.wander();
-				return;
-			}
+			// Re-picking from the idle pool naturally mixes movement in - each
+			// idle animation carries its own MovementBehavior (applied inside
+			// setReaction), so "does this tick roam or rest" just falls out of
+			// how the pool is weighted, instead of a separate dice roll here.
 			this.setReaction("idle");
 			return;
 		}
@@ -709,27 +784,14 @@ export class CharacterWidget {
 		return pickWeighted(candidates);
 	}
 
+	/** The builtin placeholder's own roaming gaits (walk/run/jump) - a custom pack's idle roaming goes through setReaction()'s MovementBehavior handling instead (see applyMovement). */
 	private wander(builtinBehavior?: BuiltinIdleBehaviorDef): void {
-		let speed: number;
-		let render: () => void;
-
-		if (this.pack) {
-			const movable = (this.pack.bySlot.idle ?? []).filter((c) => c.moves);
-			const chosen = pickWeighted(movable);
-			if (!chosen) return; // nothing to roam with this tick; stay put
-			speed = GAIT_SPEED_PX_PER_SEC.walk;
-			render = () => {
-				this.currentTrigger = "idle";
-				this.playResolvedAnimation(chosen, () => {});
-			};
-		} else {
-			const pose = builtinBehavior?.pose ?? "walk";
-			speed = GAIT_SPEED_PX_PER_SEC[pose as "walk" | "run" | "jump"] ?? GAIT_SPEED_PX_PER_SEC.walk;
-			render = () => {
-				this.currentTrigger = "idle";
-				this.playPlaceholder(pose);
-			};
-		}
+		const pose = builtinBehavior?.pose ?? "walk";
+		const speed = GAIT_SPEED_PX_PER_SEC[pose as "walk" | "run" | "jump"] ?? GAIT_SPEED_PX_PER_SEC.walk;
+		const render = () => {
+			this.currentTrigger = "idle";
+			this.playPlaceholder(pose);
+		};
 
 		const rect = this.containerEl.getBoundingClientRect();
 		const { newRight, newBottom, edgeSide } = this.pickWanderDestination(rect);
@@ -757,6 +819,8 @@ export class CharacterWidget {
 			this.containerEl.style.transitionDuration = "";
 			this.settings.posX = newRight;
 			this.settings.posY = newBottom;
+			this.restRight = newRight;
+			this.restBottom = newBottom;
 			this.callbacks.onPositionChange(this.settings.posX, this.settings.posY);
 			if (this.currentTrigger === "idle") {
 				this.setReaction("idle"); // resets orientation to upright...
@@ -827,6 +891,366 @@ export class CharacterWidget {
 			newRight: Math.min(Math.max(right, margin), maxRight),
 			newBottom: Math.min(Math.max(bottom, margin), maxBottom),
 		};
+	}
+
+	// ---------- MovementBehavior engine (pre-scripted movement, see settings.ts) ----------
+
+	/** Dispatches a chosen animation's MovementBehavior - a one-shot travel-to-a-destination, or a continuous per-frame behavior that runs for as long as this reaction stays current. Called from setReaction() for whichever animation it just picked. */
+	private applyMovement(movement: MovementBehavior, trigger: string): void {
+		switch (movement.kind) {
+			case "none":
+				return;
+			case "randomSpot":
+			case "origin":
+			case "edge":
+			case "center":
+			case "corner":
+			case "hide":
+			case "peek":
+				this.runDestinationMovement(movement, trigger);
+				return;
+			case "startleDash":
+				this.runStartleDash();
+				return;
+			case "spin":
+			case "patrolWindowEdges":
+			case "paceEdge":
+			case "follow":
+			case "stalk":
+			case "avoid":
+				this.runContinuousMovement(movement, trigger);
+				return;
+		}
+	}
+
+	private stopContinuousMovement(): void {
+		if (this.movementRafId !== null) window.cancelAnimationFrame(this.movementRafId);
+		this.movementRafId = null;
+	}
+
+	/** Travels once to a resolved destination (or jumps straight there if movement.instant), reusing the same CSS-transition tween the idle-roam brain always has. */
+	private runDestinationMovement(movement: MovementBehavior, trigger: string): void {
+		const rect = this.containerEl.getBoundingClientRect();
+		const dest = this.resolveDestination(movement, rect);
+		const currentRight = window.innerWidth - rect.right;
+		const currentBottom = window.innerHeight - rect.bottom;
+		const dx = dest.right - currentRight;
+		const dy = dest.bottom - currentBottom;
+		if (Math.abs(dx) > 1) this.facingLeft = dx > 0;
+
+		this.clearTimer("wanderTimer");
+		this.containerEl.removeClass("sm-tween");
+		this.containerEl.style.transitionDuration = "";
+
+		if (movement.instant) {
+			this.containerEl.style.right = `${dest.right}px`;
+			this.containerEl.style.bottom = `${dest.bottom}px`;
+			this.applyEdgeOrientation(dest.edgeSide);
+			this.finishDestinationMovement(dest, trigger, movement);
+			return;
+		}
+
+		const distance = Math.hypot(dx, dy);
+		const duration = Math.min(RUN_MAX_DURATION_MS, Math.max(RUN_MIN_DURATION_MS, (distance / GAIT_SPEED_PX_PER_SEC.walk) * 1000));
+		this.applyEdgeOrientation(dest.edgeSide);
+		this.containerEl.addClass("sm-tween");
+		this.containerEl.style.transitionDuration = `${duration}ms`;
+		this.containerEl.style.right = `${dest.right}px`;
+		this.containerEl.style.bottom = `${dest.bottom}px`;
+
+		this.wanderTimer = window.setTimeout(() => {
+			this.containerEl.removeClass("sm-tween");
+			this.containerEl.style.transitionDuration = "";
+			this.finishDestinationMovement(dest, trigger, movement);
+		}, duration);
+	}
+
+	private finishDestinationMovement(
+		dest: { right: number; bottom: number; edgeSide: PerimeterSide | null },
+		trigger: string,
+		movement: MovementBehavior
+	): void {
+		this.settings.posX = dest.right;
+		this.settings.posY = dest.bottom;
+		this.callbacks.onPositionChange(dest.right, dest.bottom);
+		// "Hide"/"Peek" are deliberately not normal resting spots - "origin" shouldn't return to one of them.
+		if (movement.kind !== "hide" && movement.kind !== "peek") {
+			this.restRight = dest.right;
+			this.restBottom = dest.bottom;
+		}
+		if (movement.kind === "hide") this.containerEl.addClass("sm-invisible");
+		if (trigger === "idle" && this.currentTrigger === trigger) {
+			this.setReaction("idle"); // resets orientation to upright...
+			this.applyEdgeOrientation(dest.edgeSide); // ...so re-apply it: still resting on the edge, if any.
+		}
+	}
+
+	/** Where a one-shot MovementBehavior destination resolves to, in the same right/bottom offset space the container's own position lives in. */
+	private resolveDestination(
+		movement: MovementBehavior,
+		rect: DOMRect
+	): { right: number; bottom: number; edgeSide: PerimeterSide | null } {
+		const margin = 8;
+		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+		const currentRight = window.innerWidth - rect.right;
+		const currentBottom = window.innerHeight - rect.bottom;
+		const containerTopY = window.innerHeight - currentBottom - rect.height;
+		const containerLeftX = window.innerWidth - currentRight - rect.width;
+		const distTop = Math.max(0, containerTopY);
+		const distBottom = Math.max(0, currentBottom);
+		const distLeft = Math.max(0, containerLeftX);
+		const distRight = Math.max(0, currentRight);
+
+		const nearestEdge = (): "top" | "bottom" | "left" | "right" => {
+			const min = Math.min(distTop, distBottom, distLeft, distRight);
+			if (min === distTop) return "top";
+			if (min === distBottom) return "bottom";
+			if (min === distLeft) return "left";
+			return "right";
+		};
+
+		const edgePosition = (
+			edge: "top" | "bottom" | "left" | "right",
+			offscreen: boolean
+		): { right: number; bottom: number; edgeSide: PerimeterSide } => {
+			const along = margin + Math.random() * Math.max(0, maxRight - margin);
+			const alongV = margin + Math.random() * Math.max(0, maxBottom - margin);
+			switch (edge) {
+				case "top":
+					return { right: along, bottom: offscreen ? window.innerHeight : maxBottom, edgeSide: "top" };
+				case "bottom":
+					return { right: along, bottom: offscreen ? -rect.height : margin, edgeSide: "bottom" };
+				case "left":
+					return { right: offscreen ? window.innerWidth : maxRight, bottom: alongV, edgeSide: "left" };
+				case "right":
+					return { right: offscreen ? -rect.width : margin, bottom: alongV, edgeSide: "right" };
+			}
+		};
+
+		switch (movement.kind) {
+			case "randomSpot": {
+				const { newRight, newBottom, edgeSide } = this.pickWanderDestination(rect);
+				return { right: newRight, bottom: newBottom, edgeSide };
+			}
+			case "origin":
+				return {
+					right: Math.min(Math.max(this.restRight, margin), maxRight),
+					bottom: Math.min(Math.max(this.restBottom, margin), maxBottom),
+					edgeSide: null,
+				};
+			case "center":
+				return { right: (window.innerWidth - rect.width) / 2, bottom: (window.innerHeight - rect.height) / 2, edgeSide: null };
+			case "corner": {
+				const corner: ScreenCorner =
+					!movement.corner || movement.corner === "nearest"
+						? (`${distTop <= distBottom ? "top" : "bottom"}-${distLeft <= distRight ? "left" : "right"}` as ScreenCorner)
+						: movement.corner;
+				return {
+					right: corner.endsWith("left") ? maxRight : margin,
+					bottom: corner.startsWith("top") ? maxBottom : margin,
+					edgeSide: null,
+				};
+			}
+			case "edge": {
+				let edge = movement.edge ?? "nearest";
+				if (edge === "nearest") edge = nearestEdge();
+				else if (edge === "random") edge = (["top", "bottom", "left", "right"] as const)[Math.floor(Math.random() * 4)];
+				return edgePosition(edge as "top" | "bottom" | "left" | "right", false);
+			}
+			case "hide":
+				return edgePosition(nearestEdge(), true);
+			case "peek": {
+				const edge = (movement.edge && movement.edge !== "nearest" && movement.edge !== "random" ? movement.edge : "top") as
+					| "top"
+					| "bottom"
+					| "left"
+					| "right";
+				return { ...this.resolvePeekOffset(edge, movement.peekFraction ?? 0.3, rect), edgeSide: null };
+			}
+			default:
+				return { right: currentRight, bottom: currentBottom, edgeSide: null };
+		}
+	}
+
+	/** How far off an edge to sit so only `fraction` of the sprite still shows - a fraction rather than fixed px since sprite height/width varies per character. */
+	private resolvePeekOffset(edge: ScreenEdge, fraction: number, rect: DOMRect): { right: number; bottom: number } {
+		const f = Math.min(1, Math.max(0, fraction));
+		const currentRight = window.innerWidth - rect.right;
+		const currentBottom = window.innerHeight - rect.bottom;
+		switch (edge) {
+			case "top":
+				return { right: currentRight, bottom: window.innerHeight - f * rect.height };
+			case "bottom":
+				return { right: currentRight, bottom: -(1 - f) * rect.height };
+			case "left":
+				return { right: window.innerWidth - f * rect.width, bottom: currentBottom };
+			case "right":
+				return { right: -(1 - f) * rect.width, bottom: currentBottom };
+			default:
+				return { right: currentRight, bottom: currentBottom };
+		}
+	}
+
+	/** A quick short hop away from wherever it currently is, then settles - a startle/flinch reaction. */
+	private runStartleDash(): void {
+		const rect = this.containerEl.getBoundingClientRect();
+		const margin = 8;
+		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+		const currentRight = window.innerWidth - rect.right;
+		const currentBottom = window.innerHeight - rect.bottom;
+		const angle = Math.random() * Math.PI * 2;
+		const hopDistance = 140;
+		const newRight = Math.min(Math.max(currentRight + Math.cos(angle) * hopDistance, margin), maxRight);
+		const newBottom = Math.min(Math.max(currentBottom + Math.sin(angle) * hopDistance, margin), maxBottom);
+		if (Math.abs(newRight - currentRight) > 1) this.facingLeft = newRight > currentRight;
+
+		this.clearTimer("wanderTimer");
+		this.containerEl.addClass("sm-tween");
+		this.containerEl.style.transitionDuration = "180ms";
+		this.containerEl.style.right = `${newRight}px`;
+		this.containerEl.style.bottom = `${newBottom}px`;
+		this.wanderTimer = window.setTimeout(() => {
+			this.containerEl.removeClass("sm-tween");
+			this.containerEl.style.transitionDuration = "";
+			this.restRight = newRight;
+			this.restBottom = newBottom;
+			this.settings.posX = newRight;
+			this.settings.posY = newBottom;
+			this.callbacks.onPositionChange(newRight, newBottom);
+		}, 180);
+	}
+
+	/**
+	 * Drives spin / patrolWindowEdges / paceEdge / follow / stalk / avoid - a
+	 * single rAF loop recomputing position every frame for as long as this
+	 * exact reaction stays current (stopped by the next setReaction() call,
+	 * whatever triggers it - a new reaction, a drag, mood change, etc).
+	 */
+	private runContinuousMovement(movement: MovementBehavior, trigger: string): void {
+		const startRect = this.containerEl.getBoundingClientRect();
+		this.containerEl.removeClass("sm-tween");
+		this.containerEl.style.transitionDuration = "";
+		let right = window.innerWidth - startRect.right;
+		let bottom = window.innerHeight - startRect.bottom;
+		let angle = Math.random() * Math.PI * 2;
+		let perimeterT = Math.random();
+		let perimeterDir: 1 | -1 = 1;
+		let lastTime = performance.now();
+
+		const step = (now: number) => {
+			if (this.currentTrigger !== trigger || this.isDragging || this.isFlinging || this.isClickHopping) {
+				this.movementRafId = null;
+				// Persisted once here, not every frame - same pattern the drag/fling loops use (settlePosition), rather than writing to disk 60x/sec.
+				this.restRight = right;
+				this.restBottom = bottom;
+				this.settings.posX = right;
+				this.settings.posY = bottom;
+				this.callbacks.onPositionChange(right, bottom);
+				return;
+			}
+			const dt = Math.min((now - lastTime) / 1000, 0.05);
+			lastTime = now;
+			const rect = this.containerEl.getBoundingClientRect();
+			const margin = 8;
+			const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
+			const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
+
+			switch (movement.kind) {
+				case "spin": {
+					const radius = movement.radius ?? 120;
+					angle += dt * 1.2;
+					const cx = (window.innerWidth - rect.width) / 2;
+					const cy = (window.innerHeight - rect.height) / 2;
+					const x = cx + Math.cos(angle) * radius;
+					const y = cy + Math.sin(angle) * radius;
+					right = Math.min(Math.max(window.innerWidth - x - rect.width, margin), maxRight);
+					bottom = Math.min(Math.max(window.innerHeight - y - rect.height, margin), maxBottom);
+					// Faces outward (away from center) - the opposite convention from edge-patrol, which faces inward.
+					this.visualEl.style.transform = `rotate(${(angle * 180) / Math.PI + 90}deg)`;
+					break;
+				}
+				case "patrolWindowEdges": {
+					perimeterT += perimeterDir * dt * 0.08;
+					const point = pointOnRegionPerimeter(
+						new DOMRect(0, 0, window.innerWidth, window.innerHeight),
+						rect.width,
+						rect.height,
+						perimeterT,
+						margin
+					);
+					if (point) {
+						right = window.innerWidth - point.left - rect.width;
+						bottom = window.innerHeight - point.top - rect.height;
+						this.applyEdgeOrientation(point.side);
+					}
+					break;
+				}
+				case "paceEdge": {
+					const edge = movement.edge && movement.edge !== "nearest" && movement.edge !== "random" ? movement.edge : "bottom";
+					perimeterT += perimeterDir * dt * 0.3;
+					if (perimeterT > 1) {
+						perimeterT = 1;
+						perimeterDir = -1;
+					} else if (perimeterT < 0) {
+						perimeterT = 0;
+						perimeterDir = 1;
+					}
+					if (edge === "top" || edge === "bottom") {
+						right = margin + perimeterT * Math.max(0, maxRight - margin);
+						bottom = edge === "top" ? maxBottom : margin;
+						this.applyEdgeOrientation(edge);
+					} else {
+						bottom = margin + perimeterT * Math.max(0, maxBottom - margin);
+						right = edge === "left" ? maxRight : margin;
+						this.applyEdgeOrientation(edge);
+					}
+					break;
+				}
+				case "follow":
+				case "stalk": {
+					const targetRight = window.innerWidth - this.lastPointerX - rect.width / 2;
+					const targetBottom = window.innerHeight - this.lastPointerY - rect.height / 2;
+					const keepDistance = movement.kind === "follow" ? 70 : 0;
+					const speed = movement.kind === "follow" ? 90 : 260;
+					const dRight = targetRight - right;
+					const dBottom = targetBottom - bottom;
+					const dist = Math.hypot(dRight, dBottom);
+					if (dist > keepDistance + 4) {
+						const move = Math.min(dist - keepDistance, speed * dt);
+						right += (dRight / dist) * move;
+						bottom += (dBottom / dist) * move;
+						if (Math.abs(dRight) > 1) this.facingLeft = dRight < 0;
+					}
+					right = Math.min(Math.max(right, margin), maxRight);
+					bottom = Math.min(Math.max(bottom, margin), maxBottom);
+					break;
+				}
+				case "avoid": {
+					const cursorRight = window.innerWidth - this.lastPointerX - rect.width / 2;
+					const cursorBottom = window.innerHeight - this.lastPointerY - rect.height / 2;
+					const dRight = right - cursorRight;
+					const dBottom = bottom - cursorBottom;
+					const dist = Math.hypot(dRight, dBottom);
+					const triggerDistance = 160;
+					if (dist < triggerDistance && dist > 0.01) {
+						const move = 260 * dt;
+						right += (dRight / dist) * move;
+						bottom += (dBottom / dist) * move;
+						if (Math.abs(dRight) > 1) this.facingLeft = dRight > 0;
+					}
+					right = Math.min(Math.max(right, margin), maxRight);
+					bottom = Math.min(Math.max(bottom, margin), maxBottom);
+					break;
+				}
+			}
+
+			this.containerEl.style.right = `${right}px`;
+			this.containerEl.style.bottom = `${bottom}px`;
+			this.movementRafId = window.requestAnimationFrame(step);
+		};
+		this.movementRafId = window.requestAnimationFrame(step);
 	}
 
 	// ---------- sleep watcher ----------

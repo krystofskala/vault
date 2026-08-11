@@ -116,6 +116,32 @@ same way it would to plain "idle" (see "Reactions & actions" above):
 - **Normal** - the rest of the time, between the happy window and the bored
   threshold.
 
+## Movement
+
+Every animation you build has a **Movement** picker (right below its trigger
+chips) - a pre-scripted way of moving around the screen while it plays,
+independent of what it looks like. Pick "Stay put" and it plays in place,
+like today; pick anything else and it's tied to *that* animation regardless
+of which action(s) it's assigned to - an angry-mood animation can stalk the
+cursor, a bored one can idly follow it, a note-delete animation can vanish
+off the nearest edge, all without needing anything beyond the picker:
+
+- **Destinations** (travels there once, then stops): Random spot, Back to
+  where it started, Move to an edge (a specific side, the nearest one, or a
+  random one), Move to center, Move to a corner, Hide (runs off the nearest
+  edge and disappears), Peek from an edge (slides to just off that edge,
+  leaving an adjustable amount visible - a percentage, since sprite height
+  varies per character). Any of these can skip the travel animation and jump
+  straight there ("Instant").
+- **Continuous** (keeps moving for as long as this reaction is active): Spin
+  around center (facing outward, like a satellite), Walk around the window
+  edges (facing the center - the same feet-on-the-boundary orientation
+  "Along window edges" roaming already uses, just for any animation, not
+  only idle), Pace back and forth along one edge, Follow the cursor (keeps
+  a lazy distance - good for a bored mood), Stalk / block the cursor (gets
+  right in the way - good for an angry mood), Avoid the cursor, Startle
+  dash (a quick hop away, then settle).
+
 ## Speech
 
 **Settings → Shimeji Buddy → Reactions & actions → Speech bubble** has two
@@ -189,6 +215,12 @@ independent things to configure:
   on/off): while on, clicking the buddy tallies a running count in a
   speech bubble and hops it to a new nearby spot each click, instead of the
   normal poke reaction.
+- **Triple-click to call over** (Settings → General → Interaction & touch,
+  on by default) - triple-click anywhere outside a note's content (empty
+  pane space, a sidebar, the tab bar) and the buddy runs over to that spot -
+  the "Called over" action, assignable its own animation like any other.
+  Never fires inside the editor or reading view, since triple-click is the
+  standard "select this paragraph" gesture there.
 - **Draggable on a leash** - click and drag to move it anywhere; it eases
   toward the pointer rather than snapping to it, so the further behind it's
   fallen the faster it catches up. Release mid-motion and it flies off with

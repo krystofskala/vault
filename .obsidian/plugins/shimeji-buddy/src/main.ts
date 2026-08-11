@@ -33,11 +33,15 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	availableCharactersLoaded = false;
 	private customSpeechLines: Record<string, string[]> = {};
 	speechLinesStats: SpeechLinesStats | null = null;
+	private summonClickCount = 0;
+	private summonClickTimer: number | null = null;
+	private summonClickPos = { x: 0, y: 0 };
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		this.addSettingTab(new ShimejiSettingTab(this.app, this));
 		this.registerCommandHook();
+		this.registerSummonWatcher();
 
 		this.app.workspace.onLayoutReady(async () => {
 			this.createWidget();
@@ -320,5 +324,40 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		this.unpatchCommands = () => {
 			commands.executeCommandById = original;
 		};
+	}
+
+	// ---------- triple-click to summon ----------
+
+	/**
+	 * Triple-clicking is the standard "select this paragraph" gesture inside
+	 * any editor/rendered text, so this only fires for clicks outside note
+	 * content entirely (empty pane space, sidebars, tab bar, etc) - never
+	 * source/reading view or anything else editable - to avoid hijacking
+	 * that. registerDomEvent auto-unregisters on unload.
+	 */
+	private registerSummonWatcher(): void {
+		const EXCLUDED_SELECTOR =
+			".sm-container, .sm-bubble, .markdown-source-view, .markdown-reading-view, .cm-editor, [contenteditable='true'], input, textarea";
+		const CLICK_RADIUS_PX = 16;
+		const CLICK_WINDOW_MS = 500;
+
+		this.registerDomEvent(document, "click", (e: MouseEvent) => {
+			if (!this.settings.summonEnabled) return;
+			const target = e.target as HTMLElement | null;
+			if (!target || target.closest(EXCLUDED_SELECTOR)) return;
+
+			const closeEnough = Math.hypot(e.clientX - this.summonClickPos.x, e.clientY - this.summonClickPos.y) < CLICK_RADIUS_PX;
+			this.summonClickCount = this.summonClickCount > 0 && closeEnough ? this.summonClickCount + 1 : 1;
+			this.summonClickPos = { x: e.clientX, y: e.clientY };
+
+			if (this.summonClickTimer) window.clearTimeout(this.summonClickTimer);
+			this.summonClickTimer = window.setTimeout(() => (this.summonClickCount = 0), CLICK_WINDOW_MS);
+
+			if (this.summonClickCount >= 3) {
+				this.summonClickCount = 0;
+				if (this.summonClickTimer) window.clearTimeout(this.summonClickTimer);
+				this.widget?.summonTo(e.clientX, e.clientY);
+			}
+		});
 	}
 }

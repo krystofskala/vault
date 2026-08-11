@@ -31,6 +31,7 @@ export const BUILTIN_TRIGGERS: TriggerDef[] = [
 	{ id: "mood:happy", label: "Mood: Happy (energetic - recent typing/vault activity)" },
 	{ id: "mood:bored", label: "Mood: Bored (long inactivity)" },
 	{ id: "mood:angry", label: "Mood: Angry (poked or thrown too much, too fast)" },
+	{ id: "summon", label: "Called over (triple-clicked outside the editor)" },
 ];
 
 /** A user-added trigger tied to a specific Obsidian command id, so any command (yours or another plugin's) can be reacted to without hand-listing them. */
@@ -41,6 +42,59 @@ export interface CommandTrigger {
 
 export function commandTriggerId(commandId: string): string {
 	return `command:${commandId}`;
+}
+
+/**
+ * A named, pre-scripted way of moving around the screen - "how" an
+ * animation moves while it plays, independent of "what" it looks like.
+ * Attachable to any plain animation (replacing the old moves:true/false
+ * flag) or any sequence step (see AnimationSequence below), so e.g. the
+ * same "Stalk / block cursor" behavior can drive an angry-mood animation
+ * directly, or one beat of a longer scripted bit.
+ *
+ * Split into two families under the hood - "destinations" (edge, center,
+ * corner, hide, peek, random, origin: resolved once, then tweened to like
+ * the roaming brain always has) and "continuous" behaviors (spin,
+ * patrolWindowEdges, paceEdge, follow, stalk, avoid, startleDash: recomputed
+ * every frame for as long as the animation/step plays) - but that's purely
+ * an implementation detail, exposed as one flat picker either way.
+ */
+export type MovementBehaviorKind =
+	| "none"
+	| "randomSpot"
+	| "origin"
+	| "edge"
+	| "center"
+	| "corner"
+	| "hide"
+	| "peek"
+	| "spin"
+	| "patrolWindowEdges"
+	| "paceEdge"
+	| "follow"
+	| "stalk"
+	| "avoid"
+	| "startleDash";
+
+export type ScreenEdge = "top" | "bottom" | "left" | "right" | "nearest" | "random";
+export type ScreenCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right" | "nearest";
+
+export interface MovementBehavior {
+	kind: MovementBehaviorKind;
+	/** kind "edge" | "peek" | "paceEdge": which edge ("nearest"/"random" only valid for "edge"). */
+	edge?: ScreenEdge;
+	/** kind "corner". */
+	corner?: ScreenCorner;
+	/** kind "peek": 0-1, how much of the sprite stays visible - a fraction rather than a fixed px amount since sprite height varies per character. */
+	peekFraction?: number;
+	/** kind "spin": orbit radius in px around the screen center. */
+	radius?: number;
+	/** kind "edge" | "center" | "corner" | "randomSpot" | "origin" | "hide": skip the travel tween and jump straight there. */
+	instant?: boolean;
+}
+
+export function defaultMovementBehavior(): MovementBehavior {
+	return { kind: "none" };
 }
 
 /**
@@ -57,13 +111,44 @@ export interface CustomAnimation {
 	/** Filename (within the character's folder) this animation's frames are cropped from. */
 	sourceImage: string;
 	triggers: string[];
-	/** Only meaningful when "idle" is among triggers: roam to a new spot while playing vs. play in place. */
-	moves: boolean;
+	/** How it moves (if at all) while playing - see MovementBehavior. Replaces the old moves:true/false flag (still read for migration - see spritePack.ts). */
+	movement: MovementBehavior;
 	weight: number;
 	enabled: boolean;
 	loop: boolean;
 	fps: number;
 	frames: AtlasFrameRect[];
+}
+
+/**
+ * One beat of a scripted, multi-step reaction - e.g. "vanish in a puff of
+ * smoke, wait 7s, fall back in from the opposite edge, say something."
+ * Plays like a plain CustomAnimation for trigger/weight purposes (see
+ * AnimationSequence), but as an ordered timeline of these instead of one
+ * clip.
+ */
+export interface SequenceStep {
+	id: string;
+	/** An existing Animation's id in this character, a builtin pose keyword (only used while characterMode is "builtin"), or "" for no visible animation (a pure wait/hidden beat). */
+	animationId: string;
+	/** ms this step lasts. 0 = the animation's own natural length (frame count / fps) - required (>0) when animationId is "". */
+	durationMs: number;
+	/** Buddy is invisible for this step - e.g. the "vanished" beat of a disappearing act. */
+	hidden: boolean;
+	/** How (and whether) the buddy moves during this step - same MovementBehavior plain animations use. */
+	movement: MovementBehavior;
+	/** Literal text shown the instant this step starts - deliberately scripted, bypasses the @tag speech-line pool. Empty = nothing said. */
+	say: string;
+}
+
+/** A scripted, multi-step reaction - see SequenceStep. Assignable to triggers and pooled/weighted exactly like a plain CustomAnimation, so the two kinds can mix in the same trigger's pool for variety. */
+export interface AnimationSequence {
+	id: string;
+	name: string;
+	triggers: string[];
+	weight: number;
+	enabled: boolean;
+	steps: SequenceStep[];
 }
 
 export type CharacterMode = "builtin" | "character";
@@ -144,6 +229,8 @@ export interface ShimejiSettings {
 	mobileReadingViewOnly: boolean;
 	/** While on, clicking the buddy counts clicks and hops it to a new spot each time, instead of the normal poke reaction. Toggle here or via the "Toggle click counter mode" command (bind a hotkey in Settings -> Hotkeys). */
 	clickCounterEnabled: boolean;
+	/** Triple-clicking anywhere outside the editor/note content calls the buddy over to that spot (the "summon" trigger). */
+	summonEnabled: boolean;
 
 	characterMode: CharacterMode;
 
@@ -188,6 +275,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	clickThrough: false,
 	mobileReadingViewOnly: true,
 	clickCounterEnabled: false,
+	summonEnabled: true,
 
 	characterMode: "builtin",
 	activeCharacterFolder: "",

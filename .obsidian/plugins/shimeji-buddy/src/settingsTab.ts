@@ -8,6 +8,10 @@ import {
 	commandTriggerId,
 	type BuiltinBehaviorId,
 	type CustomAnimation,
+	type MovementBehavior,
+	type MovementBehaviorKind,
+	type ScreenCorner,
+	type ScreenEdge,
 	type TriggerDef,
 } from "./settings";
 import {
@@ -65,6 +69,68 @@ const BUILTIN_BEHAVIOR_LABELS: Record<BuiltinBehaviorId, string> = {
 	"jutsu-transform": "Transformation Jutsu",
 	"jutsu-shuriken": "Shuriken Jutsu (throws at your pointer)",
 };
+
+/** Display order + labels for every pre-scripted movement behavior - shared between a plain animation's own movement picker and (later) sequence steps. */
+const MOVEMENT_KIND_OPTIONS: { kind: MovementBehaviorKind; label: string }[] = [
+	{ kind: "none", label: "Stay put" },
+	{ kind: "randomSpot", label: "Random spot on screen" },
+	{ kind: "origin", label: "Back to where it started" },
+	{ kind: "edge", label: "Move to an edge" },
+	{ kind: "center", label: "Move to center" },
+	{ kind: "corner", label: "Move to a corner" },
+	{ kind: "hide", label: "Hide (run off the nearest edge)" },
+	{ kind: "peek", label: "Peek from an edge" },
+	{ kind: "spin", label: "Spin around center (faces outward)" },
+	{ kind: "patrolWindowEdges", label: "Walk around the window edges (faces the center)" },
+	{ kind: "paceEdge", label: "Pace back and forth along an edge" },
+	{ kind: "follow", label: "Follow the cursor (keeps a distance - bored)" },
+	{ kind: "stalk", label: "Stalk / block the cursor (a nuisance - angry)" },
+	{ kind: "avoid", label: "Avoid the cursor" },
+	{ kind: "startleDash", label: "Startle dash (quick hop away)" },
+];
+
+const EDGE_OPTIONS: { edge: ScreenEdge; label: string }[] = [
+	{ edge: "nearest", label: "Nearest edge" },
+	{ edge: "random", label: "Random edge" },
+	{ edge: "top", label: "Top" },
+	{ edge: "bottom", label: "Bottom" },
+	{ edge: "left", label: "Left" },
+	{ edge: "right", label: "Right" },
+];
+
+/** Peeking needs one specific side to poke out from - "nearest"/"random" don't make sense here. */
+const PEEK_EDGE_OPTIONS: { edge: ScreenEdge; label: string }[] = [
+	{ edge: "top", label: "Top" },
+	{ edge: "bottom", label: "Bottom" },
+	{ edge: "left", label: "Left" },
+	{ edge: "right", label: "Right" },
+];
+
+const CORNER_OPTIONS: { corner: ScreenCorner; label: string }[] = [
+	{ corner: "nearest", label: "Nearest corner" },
+	{ corner: "top-left", label: "Top-left" },
+	{ corner: "top-right", label: "Top-right" },
+	{ corner: "bottom-left", label: "Bottom-left" },
+	{ corner: "bottom-right", label: "Bottom-right" },
+];
+
+/** Sensible defaults for a movement kind's extra fields, applied when the user switches to it. */
+function movementDefaultsFor(kind: MovementBehaviorKind): MovementBehavior {
+	switch (kind) {
+		case "edge":
+			return { kind, edge: "nearest" };
+		case "corner":
+			return { kind, corner: "nearest" };
+		case "peek":
+			return { kind, edge: "top", peekFraction: 0.3 };
+		case "paceEdge":
+			return { kind, edge: "bottom" };
+		case "spin":
+			return { kind, radius: 120 };
+		default:
+			return { kind };
+	}
+}
 
 export class ShimejiSettingTab extends PluginSettingTab {
 	plugin: ShimejiBuddyPlugin;
@@ -254,6 +320,21 @@ export class ShimejiSettingTab extends PluginSettingTab {
 							.addToggle((t) =>
 								t.setValue(s.clickCounterEnabled).onChange(async (v) => {
 									await this.plugin.setClickCounterEnabled(v);
+								})
+							);
+
+						new Setting(interactionBody)
+							.setName("Triple-click to call over")
+							.setDesc(
+								"Triple-clicking anywhere outside a note's content (empty pane space, sidebars, tab bar) " +
+									"calls the buddy over to that spot - the \"Called over\" action, assignable to its own " +
+									"animation like any other. Never fires inside the editor/reading view, since triple-click " +
+									"is the standard \"select this paragraph\" gesture there."
+							)
+							.addToggle((t) =>
+								t.setValue(s.summonEnabled).onChange(async (v) => {
+									s.summonEnabled = v;
+									await this.plugin.saveSettings();
 								})
 							);
 					},
@@ -848,7 +929,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 										name: newAnimName?.getValue().trim() || `Animation ${this.characterFile.animations.length + 1}`,
 										sourceImage,
 										triggers: ["idle"],
-										moves: true,
+										movement: { kind: "randomSpot" },
 										weight: 1,
 										enabled: true,
 										loop: true,
@@ -897,7 +978,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					name: name || `Animation ${(this.characterFile?.animations.length ?? 0) + 1}`,
 					sourceImage: imageName,
 					triggers: ["idle"],
-					moves: true,
+					movement: { kind: "randomSpot" },
 					weight: 1,
 					enabled: true,
 					loop: true,
@@ -969,6 +1050,82 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		const file = this.app.vault.getAbstractFileByPath(path);
 		if (file instanceof TFile) await this.app.workspace.getLeaf(true).openFile(file);
 		this.display();
+	}
+
+	/**
+	 * A picker for MovementBehavior - one dropdown of every pre-scripted
+	 * movement, plus whichever extra fields that kind needs (edge, corner,
+	 * peek amount, orbit radius...). Shared between a plain animation's own
+	 * movement and (once sequences land) each step's movement, so the
+	 * vocabulary and its UI only exist in one place.
+	 */
+	private renderMovementPicker(
+		containerEl: HTMLElement,
+		movement: MovementBehavior,
+		onChange: (next: MovementBehavior) => void | Promise<void>
+	): void {
+		new Setting(containerEl)
+			.setName("Movement")
+			.setDesc("How (if at all) the buddy moves while this plays.")
+			.addDropdown((d) => {
+				for (const opt of MOVEMENT_KIND_OPTIONS) d.addOption(opt.kind, opt.label);
+				d.setValue(movement.kind);
+				d.onChange(async (v) => {
+					await onChange(movementDefaultsFor(v as MovementBehaviorKind));
+				});
+			});
+
+		const params = containerEl.createDiv({ cls: "sm-slicer-controls sm-movement-params" });
+
+		if (movement.kind === "edge" || movement.kind === "corner" || movement.kind === "peek") {
+			const fieldWrap = params.createDiv({ cls: "sm-slicer-field" });
+			fieldWrap.createEl("label", { text: movement.kind === "corner" ? "Corner" : "Edge" });
+			const select = fieldWrap.createEl("select");
+			const options = movement.kind === "corner" ? CORNER_OPTIONS : movement.kind === "peek" ? PEEK_EDGE_OPTIONS : EDGE_OPTIONS;
+			for (const opt of options) {
+				const value = "corner" in opt ? opt.corner : opt.edge;
+				select.createEl("option", { value, text: opt.label });
+			}
+			select.value = movement.kind === "corner" ? movement.corner ?? "nearest" : movement.edge ?? "top";
+			select.addEventListener("change", async () => {
+				if (movement.kind === "corner") await onChange({ ...movement, corner: select.value as ScreenCorner });
+				else await onChange({ ...movement, edge: select.value as ScreenEdge });
+			});
+		}
+
+		if (movement.kind === "peek") {
+			const fieldWrap = params.createDiv({ cls: "sm-slicer-field" });
+			fieldWrap.createEl("label", { text: "Visible amount" });
+			const input = fieldWrap.createEl("input", { type: "number", attr: { min: "5", max: "95", step: "5" } });
+			input.value = String(Math.round((movement.peekFraction ?? 0.3) * 100));
+			input.addEventListener("change", async () => {
+				const n = Math.max(5, Math.min(95, Number(input.value) || 30));
+				await onChange({ ...movement, peekFraction: n / 100 });
+			});
+			fieldWrap.createSpan({ cls: "setting-item-description", text: "% - sprites vary in height, so this is a fraction, not fixed pixels." });
+		}
+
+		if (movement.kind === "spin") {
+			const fieldWrap = params.createDiv({ cls: "sm-slicer-field" });
+			fieldWrap.createEl("label", { text: "Orbit radius (px)" });
+			const input = fieldWrap.createEl("input", { type: "number", attr: { min: "20" } });
+			input.value = String(movement.radius ?? 120);
+			input.addEventListener("change", async () => {
+				const n = Math.max(20, Number(input.value) || 120);
+				await onChange({ ...movement, radius: n });
+			});
+		}
+
+		if (movement.kind === "edge" || movement.kind === "center" || movement.kind === "corner" || movement.kind === "randomSpot" || movement.kind === "origin" || movement.kind === "hide") {
+			const fieldWrap = params.createDiv({ cls: "sm-slicer-field sm-slicer-field-inline" });
+			const label = fieldWrap.createEl("label");
+			const checkbox = label.createEl("input", { type: "checkbox" });
+			checkbox.checked = !!movement.instant;
+			label.appendText(" Instant (skip the travel animation)");
+			checkbox.addEventListener("change", async () => {
+				await onChange({ ...movement, instant: checkbox.checked });
+			});
+		}
 	}
 
 	private renderCustomAnimationBlock(containerEl: HTMLElement, anim: CustomAnimation): void {
@@ -1051,17 +1208,11 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				);
 		}
 
-		if (anim.triggers.includes("idle")) {
-			new Setting(wrap)
-				.setName("Moves around the screen")
-				.setDesc("On: played while roaming to a new spot. Off: played in place, like resting.")
-				.addToggle((t) =>
-					t.setValue(anim.moves).onChange(async (v) => {
-						anim.moves = v;
-						await this.persistCharacterFile();
-					})
-				);
-		}
+		this.renderMovementPicker(wrap, anim.movement, async (next) => {
+			anim.movement = next;
+			await this.persistCharacterFile();
+			this.display();
+		});
 
 		new Setting(wrap)
 			.setName("Probability weight")

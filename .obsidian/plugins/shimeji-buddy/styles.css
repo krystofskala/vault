@@ -33,6 +33,12 @@
 	pointer-events: none;
 }
 
+/* MovementBehavior "Hide" - opacity, not display:none, so getBoundingClientRect() stays meaningful for whatever movement brings it back. */
+.sm-container.sm-invisible {
+	opacity: 0;
+	pointer-events: none;
+}
+
 /* Holds shadow/char/spritestage only (not the speech bubble) so edge-patrol
    rotation ("feet face the edge") can turn just this, without ever touching
    sm-container's own layout box - drag/wander position math stays simple. */

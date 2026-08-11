@@ -1,5 +1,5 @@
 import { Vault } from "obsidian";
-import type { AtlasFrameRect, CustomAnimation } from "./settings";
+import { defaultMovementBehavior, type AtlasFrameRect, type CustomAnimation, type MovementBehavior } from "./settings";
 
 const CHARACTER_FILE_NAME = "character.json";
 
@@ -21,7 +21,7 @@ export interface ResolvedAnimation {
 
 export interface WeightedAnimation extends ResolvedAnimation {
 	weight: number;
-	moves: boolean;
+	movement: MovementBehavior;
 }
 
 export interface LoadedSpritePack {
@@ -360,6 +360,13 @@ export function characterFilePath(folderPath: string): string {
 	return `${normalizeFolder(folderPath)}/${CHARACTER_FILE_NAME}`;
 }
 
+/** Migrates a raw (possibly pre-"movement") animation record from disk: older character.json files have `moves: boolean` instead of the current `movement: MovementBehavior`. */
+function normalizeAnimation(raw: CustomAnimation & { moves?: boolean }): CustomAnimation {
+	if (raw.movement) return raw;
+	const { moves, ...rest } = raw;
+	return { ...rest, movement: moves ? { kind: "randomSpot" } : defaultMovementBehavior() };
+}
+
 /** Reads a character's character.json, or a blank one if the folder has none yet. */
 export async function readCharacterFile(vault: Vault, folderPath: string): Promise<CharacterFile> {
 	const path = characterFilePath(folderPath);
@@ -367,7 +374,9 @@ export async function readCharacterFile(vault: Vault, folderPath: string): Promi
 		if (await vault.adapter.exists(path)) {
 			const raw = await vault.adapter.read(path);
 			const parsed = JSON.parse(raw);
-			if (parsed && Array.isArray(parsed.animations)) return parsed as CharacterFile;
+			if (parsed && Array.isArray(parsed.animations)) {
+				return { ...parsed, animations: parsed.animations.map(normalizeAnimation) } as CharacterFile;
+			}
 		}
 	} catch (e) {
 		console.warn("Shimeji Buddy: could not read character.json, starting fresh", e);
@@ -485,7 +494,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 				fps: Math.max(1, anim.fps),
 				loop: anim.loop,
 				weight: Math.max(0, anim.weight),
-				moves: anim.moves,
+				movement: anim.movement,
 			};
 			for (const trigger of anim.triggers) {
 				(bySlot[trigger] ??= []).push(resolved);
