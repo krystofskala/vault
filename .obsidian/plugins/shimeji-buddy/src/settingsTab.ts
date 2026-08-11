@@ -1,7 +1,8 @@
-import { App, Notice, PluginSettingTab, Setting, setIcon, type DropdownComponent, type TextComponent } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, TFile, setIcon, type DropdownComponent, type TextComponent } from "obsidian";
 import type ShimejiBuddyPlugin from "./main";
 import { ImageEditorModal } from "./ImageEditorModal";
 import { RemoveBackgroundModal } from "./RemoveBackgroundModal";
+import { speechLinesTemplate } from "./speechLines";
 import {
 	BUILTIN_TRIGGERS,
 	commandTriggerId,
@@ -418,6 +419,82 @@ export class ShimejiSettingTab extends PluginSettingTab {
 									await this.plugin.saveSettings();
 								})
 							);
+
+						new Setting(bubbleBody)
+							.setName("Bubble style")
+							.setDesc(
+								"\"Obsidian\" matches your theme's own colors. \"Comic\" is a fixed white bubble with a " +
+									"bold black outline and a stylized font, manga-panel style, regardless of theme."
+							)
+							.addDropdown((d) => {
+								d.addOption("obsidian", "Obsidian (matches theme)");
+								d.addOption("comic", "Comic (manga-style)");
+								d.setValue(s.speechBubbleStyle);
+								d.onChange(async (v) => {
+									s.speechBubbleStyle = v as "obsidian" | "comic";
+									await this.plugin.saveSettings();
+									this.plugin.applyLiveSettings();
+								});
+							});
+
+						new Setting(bubbleBody)
+							.setName("Speech lines file")
+							.setDesc(
+								"A markdown file anywhere in your vault with your own lines - tag each with @ plus an " +
+									"action id to say when it's eligible, e.g. \"Hurá! @happy\" or \"Zzzz... @bored\". A " +
+									"line can carry more than one tag. Lines/headings with no recognized @tag are " +
+									"ignored, so notes and organization are safe to leave in the file."
+							)
+							.addText((t) => {
+								t.setPlaceholder("Shimeji Speech.md");
+								t.setValue(s.speechLinesFilePath);
+								t.onChange(async (v) => {
+									s.speechLinesFilePath = v.trim();
+									await this.plugin.saveSettings();
+									await this.plugin.reloadSpeechLines();
+									this.display();
+								});
+							})
+							.addExtraButton((b) =>
+								b
+									.setIcon("file-plus")
+									.setTooltip("Create (if needed) and open, with an example to start from")
+									.onClick(() => this.openOrCreateSpeechLinesFile())
+							)
+							.addExtraButton((b) =>
+								b
+									.setIcon("refresh-cw")
+									.setTooltip("Reload from disk")
+									.onClick(async () => {
+										await this.plugin.reloadSpeechLines();
+										this.display();
+									})
+							);
+
+						const stats = this.plugin.speechLinesStats;
+						let statusText: string;
+						if (!stats || !stats.configured) {
+							statusText =
+								"Not set - reactions fall back to a small built-in default pool (opening/creating/deleting/editing/renaming a note, search, poke).";
+						} else if (!stats.fileExists) {
+							statusText = `"${s.speechLinesFilePath}" wasn't found - falling back to the built-in defaults until it exists.`;
+						} else {
+							statusText =
+								`${stats.taggedLineCount} line(s) loaded across ${stats.triggerCount} action(s).` +
+								(stats.untaggedLines.length > 0
+									? ` ${stats.untaggedLines.length} line(s) had no recognized @tag and were skipped.`
+									: "");
+						}
+						bubbleBody.createEl("p", { cls: "setting-item-description", text: statusText });
+
+						this.callout(
+							bubbleBody,
+							"tip",
+							"Friendly shortcuts: @happy, @bored / @sleeping, @angry, @normal, @poke, @idle. Anything " +
+								"else must match an action id exactly from \"Full action reference\" below, e.g. " +
+								"@note:open, @note:create, @search:open, or @command:your-command-id for a custom " +
+								"command trigger you've added."
+						);
 					},
 					"message-circle"
 				);
@@ -869,6 +946,26 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			onApplied: () => this.display(),
 		});
 		modal.open();
+	}
+
+	/** Creates the speech-lines file (with a starter example) if it doesn't exist yet, then opens it - defaults the path to "Shimeji Speech.md" at the vault root if none is set. */
+	private async openOrCreateSpeechLinesFile(): Promise<void> {
+		const s = this.plugin.settings;
+		let path = s.speechLinesFilePath.trim();
+		if (!path) {
+			path = "Shimeji Speech.md";
+			s.speechLinesFilePath = path;
+			await this.plugin.saveSettings();
+		}
+		if (!(await this.app.vault.adapter.exists(path))) {
+			const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+			if (folder && !(await this.app.vault.adapter.exists(folder))) await this.app.vault.adapter.mkdir(folder);
+			await this.app.vault.create(path, speechLinesTemplate());
+			await this.plugin.reloadSpeechLines();
+		}
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (file instanceof TFile) await this.app.workspace.getLeaf(true).openFile(file);
+		this.display();
 	}
 
 	private renderCustomAnimationBlock(containerEl: HTMLElement, anim: CustomAnimation): void {

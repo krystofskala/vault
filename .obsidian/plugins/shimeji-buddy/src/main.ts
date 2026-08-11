@@ -7,14 +7,18 @@ import {
 	type LoadedSpritePack,
 	type CharacterInfo,
 } from "./spritePack";
-import {
-	DEFAULT_SETTINGS,
-	DEFAULT_BUILTIN_BEHAVIORS,
-	commandTriggerId,
-	type ShimejiSettings,
-	type SpeechLines,
-} from "./settings";
+import { DEFAULT_SETTINGS, DEFAULT_BUILTIN_BEHAVIORS, commandTriggerId, type ShimejiSettings } from "./settings";
 import { ShimejiSettingTab } from "./settingsTab";
+import { parseSpeechLinesMarkdown } from "./speechLines";
+
+/** Surfaced in Settings -> Reactions & actions -> Speech bubble so the user can see whether their file loaded and how much of it parsed. */
+export interface SpeechLinesStats {
+	configured: boolean;
+	fileExists: boolean;
+	taggedLineCount: number;
+	triggerCount: number;
+	untaggedLines: string[];
+}
 
 const MODIFY_DEBOUNCE_MS = 1500;
 
@@ -27,6 +31,8 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	private unpatchCommands: (() => void) | null = null;
 	availableCharacters: CharacterInfo[] = [];
 	availableCharactersLoaded = false;
+	private customSpeechLines: Record<string, string[]> = {};
+	speechLinesStats: SpeechLinesStats | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -37,7 +43,8 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.createWidget();
 			await this.refreshAvailableCharacters();
 			await this.reloadSpritePack();
-			this.reactWithLine("note:open");
+			await this.reloadSpeechLines();
+			this.widget?.react("note:open");
 			this.registerVaultEvents();
 			this.registerWorkspaceEvents();
 			this.registerMobileInteractivityWatcher();
@@ -46,7 +53,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		this.addCommand({
 			id: "shimeji-buddy-poke",
 			name: "Poke the buddy",
-			callback: () => this.reactWithLine("poke"),
+			callback: () => this.widget?.react("poke"),
 		});
 
 		this.addCommand({
@@ -175,6 +182,42 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		return `${this.app.vault.configDir}/plugins/${this.manifest.id}/characters`;
 	}
 
+	// ---------- speech lines ----------
+
+	/** (Re)reads and parses settings.speechLinesFilePath (see speechLines.ts), and pushes the result to the widget. Safe to call any time - on load, when the path setting changes, on manual "reload" click, and automatically whenever that exact file is modified (see registerVaultEvents). */
+	async reloadSpeechLines(): Promise<void> {
+		const path = this.settings.speechLinesFilePath.trim();
+		if (!path) {
+			this.customSpeechLines = {};
+			this.speechLinesStats = { configured: false, fileExists: false, taggedLineCount: 0, triggerCount: 0, untaggedLines: [] };
+			this.widget?.setCustomSpeechLines(this.customSpeechLines);
+			return;
+		}
+		if (!(await this.app.vault.adapter.exists(path))) {
+			this.customSpeechLines = {};
+			this.speechLinesStats = { configured: true, fileExists: false, taggedLineCount: 0, triggerCount: 0, untaggedLines: [] };
+			this.widget?.setCustomSpeechLines(this.customSpeechLines);
+			return;
+		}
+		try {
+			const raw = await this.app.vault.adapter.read(path);
+			const parsed = parseSpeechLinesMarkdown(raw);
+			this.customSpeechLines = parsed.pool;
+			this.speechLinesStats = {
+				configured: true,
+				fileExists: true,
+				taggedLineCount: parsed.taggedLineCount,
+				triggerCount: Object.keys(parsed.pool).length,
+				untaggedLines: parsed.untaggedLines,
+			};
+		} catch (e) {
+			console.warn("Shimeji Buddy: could not read speech lines file", e);
+			this.customSpeechLines = {};
+			this.speechLinesStats = { configured: true, fileExists: true, taggedLineCount: 0, triggerCount: 0, untaggedLines: [] };
+		}
+		this.widget?.setCustomSpeechLines(this.customSpeechLines);
+	}
+
 	async refreshAvailableCharacters(): Promise<CharacterInfo[]> {
 		this.availableCharacters = await listCharacters(this.app.vault, this.getCharactersDir());
 		this.availableCharactersLoaded = true;
@@ -188,7 +231,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.app.vault.on("create", (file) => {
 				if (!(file instanceof TFile)) return;
 				if (!this.settings.reactToCreate) return;
-				this.reactWithLine("note:create");
+				this.widget?.react("note:create");
 			})
 		);
 
@@ -196,7 +239,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.app.vault.on("delete", (file) => {
 				if (!(file instanceof TFile)) return;
 				if (!this.settings.reactToDelete) return;
-				this.reactWithLine("note:delete");
+				this.widget?.react("note:delete");
 			})
 		);
 
@@ -204,7 +247,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.app.vault.on("rename", (file) => {
 				if (!(file instanceof TFile)) return;
 				if (!this.settings.reactToRename) return;
-				this.reactWithLine("note:rename");
+				this.widget?.react("note:rename");
 			})
 		);
 
@@ -214,8 +257,20 @@ export default class ShimejiBuddyPlugin extends Plugin {
 				if (!this.settings.reactToModify) return;
 				if (this.modifyDebounce) window.clearTimeout(this.modifyDebounce);
 				this.modifyDebounce = window.setTimeout(() => {
-					this.reactWithLine("note:edit");
+					this.widget?.react("note:edit");
 				}, MODIFY_DEBOUNCE_MS);
+			})
+		);
+
+		// Hot-reloads the speech-lines file the moment it's saved, so editing
+		// it in Obsidian itself (the expected workflow) shows up immediately -
+		// no reopening settings or restarting the plugin required.
+		this.registerEvent(
+			this.app.vault.on("modify", (file) => {
+				if (!(file instanceof TFile)) return;
+				if (this.settings.speechLinesFilePath && file.path === this.settings.speechLinesFilePath) {
+					this.reloadSpeechLines();
+				}
 			})
 		);
 	}
@@ -225,7 +280,7 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			this.app.workspace.on("file-open", (file) => {
 				if (!file) return;
 				if (!this.settings.reactToOpen) return;
-				this.reactWithLine("note:open");
+				this.widget?.react("note:open");
 			})
 		);
 
@@ -237,15 +292,9 @@ export default class ShimejiBuddyPlugin extends Plugin {
 				const now = Date.now();
 				if (now - this.lastSearchReactAt < 4000) return;
 				this.lastSearchReactAt = now;
-				this.reactWithLine("search:open");
+				this.widget?.react("search:open");
 			})
 		);
-	}
-
-	private reactWithLine(trigger: keyof SpeechLines): void {
-		const lines = this.settings.speechLines[trigger];
-		const line = lines && lines.length ? lines[Math.floor(Math.random() * lines.length)] : undefined;
-		this.widget?.react(trigger, line);
 	}
 
 	// ---------- command triggers ----------

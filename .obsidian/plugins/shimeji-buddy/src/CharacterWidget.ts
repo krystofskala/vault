@@ -257,6 +257,8 @@ export class CharacterWidget {
 	private settings: ShimejiSettings;
 	private callbacks: CharacterWidgetCallbacks;
 	private pack: LoadedSpritePack | null = null;
+	/** trigger id -> pool of user-authored lines, parsed from the vault file at settings.speechLinesFilePath (see speechLines.ts). Takes priority per-trigger over settings.speechLines, the built-in fallback pool. */
+	private customSpeechLines: Record<string, string[]> = {};
 
 	/** The trigger id currently being displayed - "idle" covers both resting and roaming. */
 	private currentTrigger = "idle";
@@ -327,6 +329,7 @@ export class CharacterWidget {
 		this.callbacks = callbacks;
 		this.containerEl = this.buildDom();
 		this.updateClickThroughClass();
+		this.applyBubbleStyleClass();
 		this.applySize(settings.size);
 		this.applyPosition(settings.posX, settings.posY);
 		this.setReaction("idle");
@@ -400,9 +403,15 @@ export class CharacterWidget {
 		this.setReaction(this.currentTrigger === "sleep" ? "sleep" : "idle");
 	}
 
+	/** Called by the plugin after (re)parsing the user's speech-lines markdown file (see speechLines.ts). */
+	setCustomSpeechLines(pool: Record<string, string[]>): void {
+		this.customSpeechLines = pool;
+	}
+
 	updateSettings(settings: ShimejiSettings): void {
 		this.settings = settings;
 		this.updateClickThroughClass();
+		this.applyBubbleStyleClass();
 		this.applySize(settings.size);
 		this.restartIdleBrain();
 	}
@@ -416,6 +425,10 @@ export class CharacterWidget {
 
 	private updateClickThroughClass(): void {
 		this.containerEl.toggleClass("sm-clickthrough", this.settings.clickThrough || this.autoClickThrough);
+	}
+
+	private applyBubbleStyleClass(): void {
+		this.bubbleEl.toggleClass("sm-bubble-style-comic", this.settings.speechBubbleStyle === "comic");
 	}
 
 	setVisible(visible: boolean): void {
@@ -482,7 +495,24 @@ export class CharacterWidget {
 			this.playBuiltinForTrigger(lookupTrigger);
 		}
 
-		if (message && this.settings.speechBubbleEnabled) this.showBubble(message);
+		const resolvedMessage = message ?? this.resolveSpeechLine(lookupTrigger);
+		if (resolvedMessage && this.settings.speechBubbleEnabled) this.showBubble(resolvedMessage);
+	}
+
+	/**
+	 * Picks a random line for a trigger id: the user's own speech-lines file
+	 * (settings.speechLinesFilePath, see speechLines.ts) wins if it defines
+	 * anything for this trigger, else the built-in fallback pool
+	 * (settings.speechLines) for the handful of triggers it covers, else no
+	 * line at all - most triggers (idle, moods, commands) only ever got a
+	 * bubble once the user's own file started covering them.
+	 */
+	private resolveSpeechLine(trigger: string): string | undefined {
+		const custom = this.customSpeechLines[trigger];
+		if (custom && custom.length > 0) return custom[Math.floor(Math.random() * custom.length)];
+		const builtin = (this.settings.speechLines as unknown as Record<string, string[] | undefined>)[trigger];
+		if (builtin && builtin.length > 0) return builtin[Math.floor(Math.random() * builtin.length)];
+		return undefined;
 	}
 
 	/** Which trigger id "idle" actually resolves to, based on the current mood - "normal" is just plain "idle". */
@@ -970,9 +1000,7 @@ export class CharacterWidget {
 			if (this.settings.clickCounterEnabled) {
 				this.registerClickCounterClick();
 			} else {
-				const lines = this.settings.speechLines.poke;
-				const line = lines.length ? lines[Math.floor(Math.random() * lines.length)] : undefined;
-				this.setReaction("poke", line);
+				this.setReaction("poke");
 				this.registerProvocation();
 			}
 		}

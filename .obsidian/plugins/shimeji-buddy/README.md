@@ -116,8 +116,42 @@ same way it would to plain "idle" (see "Reactions & actions" above):
 - **Normal** - the rest of the time, between the happy window and the bored
   threshold.
 
-*Planned, not built yet:* scripted/idle speech lines beyond the current
-simple per-action text pool.
+## Speech
+
+**Settings → Shimeji Buddy → Reactions & actions → Speech bubble** has two
+independent things to configure:
+
+- **Bubble style** - "Obsidian" (default) matches your theme's own colors;
+  "Comic" is a fixed white bubble with a bold black ink outline and a
+  stylized font, manga-panel style, the same in light or dark mode.
+- **Speech lines file** - a markdown file, anywhere in your vault, of your
+  own lines. Each line is one thing the buddy can say, tagged with `@` plus
+  an action id to say when it's eligible - deliberately `@`, not `#`, since
+  `#` already means something in Obsidian. A line can carry more than one
+  tag (so it can play for several actions), and lines/headings with no
+  recognized `@tag` are just ignored, so notes and organization are safe to
+  keep in the file too:
+
+  ```markdown
+  Hurá! @happy
+  Zzzz... @bored @sleeping
+  Grrr! @angry @poke
+  Welcome back! @note:open
+  ```
+
+  A few friendly shortcuts are built in - `@happy`, `@bored`/`@sleeping`,
+  `@angry`, `@normal`, `@poke`, `@idle` - for the moods and idle state, since
+  their real action ids (`mood:happy`, etc.) are more technical. Anything
+  else has to match an action id exactly from "Full action reference" in the
+  same section, including `@note:open`/`@note:create`/etc. and
+  `@command:your-command-id` for any custom command trigger you've added.
+  Hit **"Create (if needed) and open"** next to the file path to scaffold a
+  starter file with the full format explained inline, or **"Reload"** to
+  re-parse on demand - though editing and saving the file in Obsidian itself
+  already reloads it automatically. A trigger with lines in this file uses
+  only those; anything not covered falls back to a small built-in default
+  pool (covering opening/creating/deleting/editing/renaming a note, search,
+  and poke) so reactions never go silent by default.
 
 ## Features
 
@@ -198,5 +232,7 @@ Source lives in `src/`:
   trigger-id → weighted-animation-pool shape for CharacterWidget to play.
 - `AtlasSlicer.ts` - the canvas-based drag-to-select tool used in settings to
   slice frames out of whichever image is being edited.
+- `speechLines.ts` - parses the user's @tag-annotated speech-lines markdown
+  file into a trigger-id → line-pool map.
 - `settingsTab.ts` - the settings UI, including the character editor.
 - `settings.ts` - settings types and defaults.

@@ -134,6 +134,10 @@ export interface ShimejiSettings {
 	/** Builtin-placeholder-only: per-behavior enable/weight for idle gaits and one-off poses (workouts, jutsus). */
 	builtinBehaviors: Record<BuiltinBehaviorId, BuiltinBehaviorSetting>;
 	speechBubbleEnabled: boolean;
+	/** "obsidian" matches the active theme's own colors; "comic" is a fixed white/black-outline manga-panel look regardless of theme. */
+	speechBubbleStyle: "obsidian" | "comic";
+	/** Vault-relative path to a markdown file of user-authored, @tag-assigned speech lines (see speechLines.ts) - takes priority per-trigger over speechLines below, which stays as the built-in fallback pool. Empty = not configured. */
+	speechLinesFilePath: string;
 	speechLines: SpeechLines;
 	clickThrough: boolean;
 	/** Mobile only: only draggable/pokeable while the active note is in reading view, to avoid misclicks while typing. */
@@ -149,6 +153,7 @@ export interface ShimejiSettings {
 	commandTriggers: CommandTrigger[];
 }
 
+/** Built-in fallback pool, used per-trigger only when the user's own speech-lines file (speechLinesFilePath, see speechLines.ts) doesn't cover that trigger. */
 export const DEFAULT_SPEECH_LINES: SpeechLines = {
 	"note:open": ["Welcome back!", "Let's read this one.", "Yosh!"],
 	"note:create": ["New page, let's go!", "Something new!", "Nice, a fresh note!"],
@@ -177,6 +182,8 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	roamStickToEdges: false,
 	builtinBehaviors: DEFAULT_BUILTIN_BEHAVIORS,
 	speechBubbleEnabled: true,
+	speechBubbleStyle: "obsidian",
+	speechLinesFilePath: "",
 	speechLines: DEFAULT_SPEECH_LINES,
 	clickThrough: false,
 	mobileReadingViewOnly: true,

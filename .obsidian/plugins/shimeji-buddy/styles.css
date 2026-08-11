@@ -732,6 +732,32 @@
 	transform: rotate(45deg);
 }
 
+/* "Comic" bubble style - a fixed white/black-ink manga-panel look, deliberately
+   ignoring the active Obsidian theme's own colors (unlike the default style
+   above) so it reads the same in light or dark mode. Uses a widely-installed
+   system "comic" font as a lightweight stand-in for real manga lettering,
+   rather than bundling a font file. */
+.sm-bubble.sm-bubble-style-comic {
+	background: #ffffff;
+	color: #111111;
+	border: 2.5px solid #111111;
+	border-radius: 16px 18px 20px 14px / 12px 16px 14px 18px;
+	box-shadow: 2px 3px 0 rgba(17, 17, 17, 0.9);
+	font-family: "Comic Sans MS", "Comic Neue", "Segoe Print", cursive, sans-serif;
+	font-weight: 700;
+	padding: 7px 12px;
+}
+
+.sm-bubble.sm-bubble-style-comic::after {
+	background: #ffffff;
+	border-right: 2.5px solid #111111;
+	border-bottom: 2.5px solid #111111;
+	width: 12px;
+	height: 12px;
+	margin-left: -6px;
+	bottom: -7px;
+}
+
 /* ---------- atlas slicer (settings tab) ---------- */
 
 .sm-slicer {
