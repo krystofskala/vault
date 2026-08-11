@@ -88,6 +88,16 @@ export interface RgbColor {
 	b: number;
 }
 
+export function rgbToHex(c: RgbColor): string {
+	const h = (n: number) => n.toString(16).padStart(2, "0");
+	return `#${h(c.r)}${h(c.g)}${h(c.b)}`;
+}
+
+export function hexToRgb(hex: string): RgbColor {
+	const n = parseInt(hex.slice(1), 16);
+	return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
 /** Reads a single pixel's color out of a vault image, in its own natural pixel coordinates. */
 export async function sampleImageColor(vault: Vault, path: string, x: number, y: number): Promise<RgbColor> {
 	const canvas = await decodeVaultImageToCanvas(vault, path);
@@ -102,15 +112,17 @@ export async function sampleImageColor(vault: Vault, path: string, x: number, y:
 }
 
 /**
- * Color-key transparency: makes every pixel close to `color` transparent,
- * with a small feathered falloff right at the tolerance edge so it doesn't
- * look too hard-edged. Works on flat, solid backgrounds regardless of the
- * sprite art's own quality/resolution - it's just picking out one color,
- * not doing any real background detection.
+ * Color-key transparency: makes every pixel close to any of `colors`
+ * transparent, with a small feathered falloff right at the tolerance edge
+ * so it doesn't look too hard-edged. Works on flat, solid backgrounds
+ * regardless of the sprite art's own quality/resolution - it's just picking
+ * out colors, not doing any real background detection. Accepting a list
+ * (not just one color) covers sheets whose background/matte isn't perfectly
+ * uniform (e.g. a couple of near-white shades from JPEG artifacting).
  */
 export async function applyColorKey(
 	canvas: HTMLCanvasElement,
-	color: RgbColor,
+	colors: RgbColor[],
 	tolerance: number
 ): Promise<HTMLCanvasElement> {
 	const ctx = canvas.getContext("2d")!;
@@ -118,14 +130,18 @@ export async function applyColorKey(
 	const data = imageData.data;
 	const feather = Math.max(1, tolerance * 0.3);
 	for (let i = 0; i < data.length; i += 4) {
-		const dr = data[i] - color.r;
-		const dg = data[i + 1] - color.g;
-		const db = data[i + 2] - color.b;
-		const dist = Math.sqrt(dr * dr + dg * dg + db * db);
-		if (dist <= tolerance) {
+		let minDist = Infinity;
+		for (const color of colors) {
+			const dr = data[i] - color.r;
+			const dg = data[i + 1] - color.g;
+			const db = data[i + 2] - color.b;
+			const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+			if (dist < minDist) minDist = dist;
+		}
+		if (minDist <= tolerance) {
 			data[i + 3] = 0;
-		} else if (dist <= tolerance + feather) {
-			const t = (dist - tolerance) / feather; // 0 at the fully-transparent edge, 1 at fully-opaque
+		} else if (minDist <= tolerance + feather) {
+			const t = (minDist - tolerance) / feather; // 0 at the fully-transparent edge, 1 at fully-opaque
 			data[i + 3] = Math.round(data[i + 3] * t);
 		}
 	}
@@ -138,11 +154,11 @@ export async function previewColorKey(
 	vault: Vault,
 	folderPath: string,
 	fileName: string,
-	color: RgbColor,
+	colors: RgbColor[],
 	tolerance: number
 ): Promise<HTMLCanvasElement> {
 	const canvas = await decodeVaultImageToCanvas(vault, `${normalizeFolder(folderPath)}/${fileName}`);
-	return applyColorKey(canvas, color, tolerance);
+	return applyColorKey(canvas, colors, tolerance);
 }
 
 /** Applies color-key transparency and overwrites the image in place (same filename, so existing animations built from it keep working). Always saved as PNG, since it needs an alpha channel. */
@@ -150,16 +166,177 @@ export async function removeBackgroundColor(
 	vault: Vault,
 	folderPath: string,
 	fileName: string,
-	color: RgbColor,
+	colors: RgbColor[],
 	tolerance: number
 ): Promise<void> {
 	const path = `${normalizeFolder(folderPath)}/${fileName}`;
 	const canvas = await decodeVaultImageToCanvas(vault, path);
-	await applyColorKey(canvas, color, tolerance);
+	await applyColorKey(canvas, colors, tolerance);
 	const blob: Blob = await new Promise((resolve, reject) => {
 		canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("failed to encode PNG"))), "image/png");
 	});
 	await vault.adapter.writeBinary(path, await blob.arrayBuffer());
+}
+
+interface DetectedBox {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+export interface DetectFramesOptions {
+	/** Any color(s) treated as "empty space" between sprites - already-transparent pixels always count too. */
+	backgroundColors: RgbColor[];
+	tolerance: number;
+	/** Discards components smaller than this many pixels - filters out noise/dithering specks. */
+	minArea: number;
+	/** Bounding boxes separated by no more than this many pixels get merged into one - reunites a sprite whose limbs/parts got split by background gaps within its own silhouette. */
+	mergeDistance: number;
+}
+
+function boxGap(a: DetectedBox, b: DetectedBox): number {
+	const dx = Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w), 0);
+	const dy = Math.max(a.y - (b.y + b.h), b.y - (a.y + a.h), 0);
+	return Math.max(dx, dy);
+}
+
+function mergeBoxes(a: DetectedBox, b: DetectedBox): DetectedBox {
+	const x = Math.min(a.x, b.x);
+	const y = Math.min(a.y, b.y);
+	const right = Math.max(a.x + a.w, b.x + b.w);
+	const bottom = Math.max(a.y + a.h, b.y + b.h);
+	return { x, y, w: right - x, h: bottom - y };
+}
+
+/** Iteratively merges any two boxes within `distance` of each other, until no more merges apply. */
+function mergeCloseBoxes(boxes: DetectedBox[], distance: number): DetectedBox[] {
+	const result = boxes.slice();
+	let merged = true;
+	while (merged) {
+		merged = false;
+		outer: for (let i = 0; i < result.length; i++) {
+			for (let j = i + 1; j < result.length; j++) {
+				if (boxGap(result[i], result[j]) <= distance) {
+					const combined = mergeBoxes(result[i], result[j]);
+					result.splice(j, 1);
+					result.splice(i, 1);
+					result.push(combined);
+					merged = true;
+					break outer;
+				}
+			}
+		}
+	}
+	return result;
+}
+
+/** Orders boxes roughly top-to-bottom, left-to-right - grouping into "rows" by vertical overlap first, since sprite sheets are usually laid out that way even when frames aren't in a perfectly uniform grid. */
+function sortReadingOrder(boxes: DetectedBox[]): DetectedBox[] {
+	const byTop = boxes.slice().sort((a, b) => a.y - b.y);
+	const rows: DetectedBox[][] = [];
+	for (const box of byTop) {
+		const row = rows.find((r) => {
+			const ref = r[0];
+			const overlap = Math.min(box.y + box.h, ref.y + ref.h) - Math.max(box.y, ref.y);
+			return overlap > 0.5 * Math.min(box.h, ref.h);
+		});
+		if (row) row.push(box);
+		else rows.push([box]);
+	}
+	rows.sort((a, b) => Math.min(...a.map((r) => r.y)) - Math.min(...b.map((r) => r.y)));
+	const result: DetectedBox[] = [];
+	for (const row of rows) {
+		row.sort((a, b) => a.x - b.x);
+		result.push(...row);
+	}
+	return result;
+}
+
+/**
+ * Auto-detects individual sprite frames on a large/messy sheet, the way the
+ * "Spriter's Resource" sprite-splitter tool does: any pixel matching one of
+ * the given background colors (or already transparent) is treated as empty
+ * space, then a flood-fill finds each connected blob of remaining
+ * (foreground) pixels and returns its bounding box - no manual grid needed.
+ * Typed arrays keep this fast even on a several-thousand-pixel-wide sheet.
+ */
+export async function detectFrames(
+	vault: Vault,
+	imagePath: string,
+	options: DetectFramesOptions
+): Promise<AtlasFrameRect[]> {
+	const canvas = await decodeVaultImageToCanvas(vault, imagePath);
+	const { width, height } = canvas;
+	const ctx = canvas.getContext("2d")!;
+	const data = ctx.getImageData(0, 0, width, height).data;
+	const tolerance = options.tolerance;
+
+	const isBackground = (pixelIdx: number): boolean => {
+		if (data[pixelIdx + 3] === 0) return true;
+		const r = data[pixelIdx];
+		const g = data[pixelIdx + 1];
+		const b = data[pixelIdx + 2];
+		for (const c of options.backgroundColors) {
+			const dr = r - c.r;
+			const dg = g - c.g;
+			const db = b - c.b;
+			if (Math.sqrt(dr * dr + dg * dg + db * db) <= tolerance) return true;
+		}
+		return false;
+	};
+
+	const visited = new Uint8Array(width * height);
+	const queue = new Int32Array(width * height);
+	const boxes: (DetectedBox & { area: number })[] = [];
+
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const idx = y * width + x;
+			if (visited[idx]) continue;
+			visited[idx] = 1;
+			if (isBackground(idx * 4)) continue;
+
+			let head = 0;
+			let tail = 0;
+			queue[tail++] = idx;
+			let minX = x;
+			let maxX = x;
+			let minY = y;
+			let maxY = y;
+			let area = 0;
+			while (head < tail) {
+				const cur = queue[head++];
+				const cx = cur % width;
+				const cy = (cur - cx) / width;
+				area++;
+				if (cx < minX) minX = cx;
+				if (cx > maxX) maxX = cx;
+				if (cy < minY) minY = cy;
+				if (cy > maxY) maxY = cy;
+				for (let dy = -1; dy <= 1; dy++) {
+					for (let dx = -1; dx <= 1; dx++) {
+						if (dx === 0 && dy === 0) continue;
+						const nx = cx + dx;
+						const ny = cy + dy;
+						if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+						const nIdx = ny * width + nx;
+						if (visited[nIdx]) continue;
+						visited[nIdx] = 1;
+						if (isBackground(nIdx * 4)) continue;
+						queue[tail++] = nIdx;
+					}
+				}
+			}
+			boxes.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, area });
+		}
+	}
+
+	const minArea = Math.max(1, options.minArea);
+	let rects: DetectedBox[] = boxes.filter((b) => b.area >= minArea).map(({ x, y, w, h }) => ({ x, y, w, h }));
+	if (options.mergeDistance > 0) rects = mergeCloseBoxes(rects, options.mergeDistance);
+
+	return sortReadingOrder(rects);
 }
 
 /** Picks a weighted-random entry (falls back to even odds if every weight is 0). */

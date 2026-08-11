@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Setting, type DropdownComponent, type TextComponent } from "obsidian";
 import { AtlasSlicer } from "./AtlasSlicer";
-import { generateStripFrames } from "./spritePack";
+import { generateStripFrames, hexToRgb, rgbToHex, type DetectFramesOptions, type RgbColor } from "./spritePack";
 import type { AtlasFrameRect, CustomAnimation } from "./settings";
 
 const NEW_ANIM_VALUE = "__new__";
@@ -16,6 +16,8 @@ export interface ImageEditorModalOptions {
 	deleteAnimation: (id: string) => Promise<void>;
 	addFrames: (animationId: string, frames: AtlasFrameRect[]) => Promise<void>;
 	loadSlicerImage: (slicer: AtlasSlicer) => Promise<void>;
+	sampleColor: (x: number, y: number) => Promise<RgbColor>;
+	detectFrames: (options: DetectFramesOptions) => Promise<AtlasFrameRect[]>;
 	/** Called when the modal closes, so the settings tab can refresh its own view. */
 	onClosed: () => void;
 }
@@ -38,6 +40,8 @@ export class ImageEditorModal extends Modal {
 	private animListEl!: HTMLElement;
 	private cellCountEl!: HTMLElement;
 	private targetDropdown?: DropdownComponent;
+	private detectColors: RgbColor[] = [];
+	private detectColorListEl!: HTMLElement;
 
 	constructor(app: App, opts: ImageEditorModalOptions) {
 		super(app);
@@ -101,6 +105,64 @@ export class ImageEditorModal extends Modal {
 				"X/Y to that padding's width in source-image pixels.",
 		});
 		applyGrid(); // start from an even grid immediately
+
+		// ---------- auto-detect frames ----------
+
+		sideCol.createEl("h4", { text: "Auto-detect frames" });
+		sideCol.createEl("p", {
+			cls: "setting-item-description",
+			text:
+				"For large, messy sheets where frames aren't in a clean grid: treats one or more background " +
+				"colors as empty space and finds each separate sprite's bounding box automatically. Switching " +
+				"back to a grid (\"Apply grid\" above) discards this.",
+		});
+
+		this.detectColors = [await this.opts.sampleColor(0, 0)];
+		const detectColorSection = sideCol.createDiv({ cls: "sm-slicer-controls" });
+		detectColorSection.createEl("label", { text: "Background color(s)" });
+		this.detectColorListEl = detectColorSection.createDiv({ cls: "sm-bg-color-list" });
+		this.renderDetectColorList();
+		const addColorWrap = detectColorSection.createDiv({ cls: "sm-slicer-field" });
+		const addColorInput = addColorWrap.createEl("input", { type: "color" });
+		addColorWrap.createEl("button", { text: "+ Add color" }).addEventListener("click", () => {
+			this.detectColors.push(hexToRgb(addColorInput.value));
+			this.renderDetectColorList();
+		});
+
+		let toleranceInput: HTMLInputElement;
+		let minAreaInput: HTMLInputElement;
+		let mergeDistInput: HTMLInputElement;
+		const detectFieldsWrap = sideCol.createDiv({ cls: "sm-slicer-controls" });
+		const mkDetectField = (label: string, defaultValue: string, min: string): HTMLInputElement => {
+			const wrap = detectFieldsWrap.createDiv({ cls: "sm-slicer-field" });
+			wrap.createEl("label", { text: label });
+			const input = wrap.createEl("input", { type: "number", attr: { min } });
+			input.value = defaultValue;
+			return input;
+		};
+		toleranceInput = mkDetectField("Tolerance", "30", "0");
+		minAreaInput = mkDetectField("Min area (px²)", "16", "0");
+		mergeDistInput = mkDetectField("Merge gap (px)", "4", "0");
+		detectFieldsWrap
+			.createEl("button", { text: "Detect frames", cls: "mod-cta" })
+			.addEventListener("click", async () => {
+				if (this.detectColors.length === 0) {
+					new Notice("Add at least one background color first.");
+					return;
+				}
+				const rects = await this.opts.detectFrames({
+					backgroundColors: this.detectColors,
+					tolerance: Math.max(0, Number(toleranceInput.value) || 0),
+					minArea: Math.max(1, Number(minAreaInput.value) || 1),
+					mergeDistance: Math.max(0, Number(mergeDistInput.value) || 0),
+				});
+				if (rects.length === 0) {
+					new Notice("No frames detected - try raising tolerance or adding more background colors.");
+					return;
+				}
+				this.slicer.setAutoDetectedCells(rects);
+				new Notice(`Detected ${rects.length} frame(s) - click any to select, in the order you want them.`);
+			});
 
 		this.cellCountEl = sideCol.createEl("p", { cls: "setting-item-description" });
 		this.slicer.onCellSelectionChange((count) => {
@@ -180,6 +242,21 @@ export class ImageEditorModal extends Modal {
 		sideCol.createEl("h4", { text: "Animations from this image" });
 		this.animListEl = sideCol.createDiv();
 		this.refreshAnimList();
+	}
+
+	private renderDetectColorList(): void {
+		this.detectColorListEl.empty();
+		this.detectColors.forEach((c, i) => {
+			const chip = this.detectColorListEl.createDiv({ cls: "sm-bg-color-chip" });
+			chip.createDiv({ cls: "sm-bg-color-swatch" }).style.backgroundColor = rgbToHex(c);
+			chip.createSpan({ text: rgbToHex(c) });
+			if (this.detectColors.length > 1) {
+				chip.createEl("button", { text: "×", cls: "sm-bg-color-remove" }).addEventListener("click", () => {
+					this.detectColors.splice(i, 1);
+					this.renderDetectColorList();
+				});
+			}
+		});
 	}
 
 	private refreshTargetDropdown(): void {

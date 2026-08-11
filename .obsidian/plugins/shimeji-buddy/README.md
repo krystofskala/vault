@@ -40,16 +40,28 @@ instead of the cramped settings-tab column). In there:
   when you get close to one, so it's easy to land on a clean, consistent
   size. The slicer also magnifies small pixel-art sheets heavily (up to
   24x) so individual cells on a 16x16 or 32x32 sheet are still clickable.
+- For a large, messy sheet where frames aren't laid out in any clean grid
+  (a common shape for full-character sheets scraped from elsewhere), use
+  **"Auto-detect frames"** instead: pick one or more background colors
+  (defaults to the top-left corner's color; add more with the color picker
+  if the background isn't perfectly uniform), a tolerance, a minimum area
+  to ignore small noise/dithering specks, and a merge gap so a sprite whose
+  limbs got separated by background gaps within its own silhouette still
+  comes back together as one box. Hit **Detect frames** and it finds every
+  separate sprite's bounding box on its own - click any of them (numbered,
+  same as the grid) to build your selection. Switching back to a grid
+  ("Apply grid") discards the detected boxes.
 - Every animation built from that image is listed right there too - rename
   or delete any of them without leaving the window.
 
 Got a sprite with a solid-color background instead of a transparent one
 (common with low-res/scraped sheets, where a clean cutout is hard to find)?
 Hit **"Remove background…"** next to an image in the Images list - it's
-color-key transparency: pick (or click the live preview to sample) the
-background color, adjust tolerance, and everything close to that color
-becomes transparent. Works regardless of the art's own resolution or
-quality, since it's only matching a color, not detecting foreground vs
+color-key transparency: pick (or click the live preview to sample - each
+click adds another color, for backgrounds that aren't perfectly uniform)
+the background color(s), adjust tolerance, and everything close to any of
+them becomes transparent. Works regardless of the art's own resolution or
+quality, since it's only matching colors, not detecting foreground vs
 background - just don't set the tolerance so high it starts eating the
 character too. Overwrites the image in place (same filename), so animations
 already built from it keep working.

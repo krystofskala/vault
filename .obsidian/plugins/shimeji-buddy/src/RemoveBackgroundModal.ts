@@ -1,48 +1,40 @@
 import { App, Modal, Notice } from "obsidian";
-import { previewColorKey, removeBackgroundColor, sampleImageColor, type RgbColor } from "./spritePack";
+import { hexToRgb, rgbToHex, type RgbColor } from "./spritePack";
 
 const MAX_PREVIEW_WIDTH = 480;
 const MAX_UPSCALE = 8;
 const DEFAULT_TOLERANCE = 30;
 const REFRESH_DEBOUNCE_MS = 120;
 
-function toHex(c: RgbColor): string {
-	const h = (n: number) => n.toString(16).padStart(2, "0");
-	return `#${h(c.r)}${h(c.g)}${h(c.b)}`;
-}
-
-function fromHex(hex: string): RgbColor {
-	const n = parseInt(hex.slice(1), 16);
-	return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-}
-
 export interface RemoveBackgroundModalOptions {
 	folder: string;
 	imageName: string;
 	loadImage: () => Promise<{ width: number; height: number } | null>;
 	sampleColor: (x: number, y: number) => Promise<RgbColor>;
-	preview: (color: RgbColor, tolerance: number) => Promise<HTMLCanvasElement>;
-	apply: (color: RgbColor, tolerance: number) => Promise<void>;
+	preview: (colors: RgbColor[], tolerance: number) => Promise<HTMLCanvasElement>;
+	apply: (colors: RgbColor[], tolerance: number) => Promise<void>;
 	onApplied: () => void;
 }
 
 /**
- * Color-key background removal: pick (or click to sample) the background
- * color, adjust tolerance, and preview the result live before committing.
- * Works regardless of the sprite art's own quality/resolution - it's only
- * matching a color, not doing real background detection - so it's well
- * suited to flat-background sprite sheets that are otherwise hard to find
- * pre-cleaned versions of.
+ * Color-key background removal: pick (or click to sample) one or more
+ * background colors, adjust tolerance, and preview the result live before
+ * committing. Works regardless of the sprite art's own quality/resolution -
+ * it's only matching colors, not doing real background detection - so it's
+ * well suited to flat-background sprite sheets that are otherwise hard to
+ * find pre-cleaned versions of. Supporting more than one color covers sheets
+ * whose background isn't perfectly uniform (a couple of near-white shades
+ * from JPEG artifacting, or a sheet that mixes two matte colors).
  */
 export class RemoveBackgroundModal extends Modal {
 	private opts: RemoveBackgroundModalOptions;
 	private naturalWidth = 0;
 	private naturalHeight = 0;
 	private scale = 1;
-	private color: RgbColor = { r: 255, g: 255, b: 255 };
+	private colors: RgbColor[] = [];
 	private tolerance = DEFAULT_TOLERANCE;
 	private previewCanvasHost!: HTMLElement;
-	private colorInput!: HTMLInputElement;
+	private colorListEl!: HTMLElement;
 	private refreshTimer: number | null = null;
 
 	constructor(app: App, opts: RemoveBackgroundModalOptions) {
@@ -58,10 +50,11 @@ export class RemoveBackgroundModal extends Modal {
 		contentEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"Color-key transparency: everything close to the picked color becomes see-through. Works on " +
-				"flat, solid backgrounds no matter how low-res the sprite art is - it only needs to match a " +
+				"Color-key transparency: everything close to any of the picked colors becomes see-through. Works " +
+				"on flat, solid backgrounds no matter how low-res the sprite art is - it only needs to match a " +
 				"color, not actually detect what's foreground vs background. Click anywhere on the preview to " +
-				"pick a different color; nothing is saved until you hit Apply.",
+				"add another color to key out (handy if the background isn't perfectly uniform); nothing is " +
+				"saved until you hit Apply.",
 		});
 
 		const size = await this.opts.loadImage();
@@ -74,7 +67,7 @@ export class RemoveBackgroundModal extends Modal {
 		this.scale = Math.min(MAX_PREVIEW_WIDTH / this.naturalWidth, MAX_UPSCALE);
 		this.scale = Math.max(this.scale, 0.05);
 
-		this.color = await this.opts.sampleColor(0, 0);
+		this.colors = [await this.opts.sampleColor(0, 0)];
 
 		const layout = contentEl.createDiv({ cls: "sm-editor-layout" });
 		const previewCol = layout.createDiv({ cls: "sm-editor-slicer-col" });
@@ -84,11 +77,14 @@ export class RemoveBackgroundModal extends Modal {
 		this.previewCanvasHost.addEventListener("click", (e) => this.onPreviewClick(e));
 
 		const colorRow = controlsCol.createDiv({ cls: "sm-slicer-controls" });
-		const swatchWrap = colorRow.createDiv({ cls: "sm-slicer-field" });
-		swatchWrap.createEl("label", { text: "Background color" });
-		this.colorInput = swatchWrap.createEl("input", { type: "color" });
-		this.colorInput.addEventListener("input", () => {
-			this.color = fromHex(this.colorInput.value);
+		const colorWrap = colorRow.createDiv({ cls: "sm-slicer-field" });
+		colorWrap.createEl("label", { text: "Background colors" });
+		this.colorListEl = colorWrap.createDiv({ cls: "sm-bg-color-list" });
+		this.renderColorList();
+		const addColorInput = colorWrap.createEl("input", { type: "color" });
+		colorWrap.createEl("button", { text: "+ Add color" }).addEventListener("click", () => {
+			this.colors.push(hexToRgb(addColorInput.value));
+			this.renderColorList();
 			this.scheduleRefresh();
 		});
 
@@ -110,15 +106,16 @@ export class RemoveBackgroundModal extends Modal {
 		});
 
 		const buttonRow = controlsCol.createDiv({ cls: "sm-slicer-controls" });
-		buttonRow.createEl("button", { text: "Resample top-left corner" }).addEventListener("click", async () => {
-			this.color = await this.opts.sampleColor(0, 0);
+		buttonRow.createEl("button", { text: "Reset to top-left corner color" }).addEventListener("click", async () => {
+			this.colors = [await this.opts.sampleColor(0, 0)];
+			this.renderColorList();
 			this.refresh();
 		});
 		const applyButton = buttonRow.createEl("button", { text: "Apply - overwrite image", cls: "mod-cta" });
 		applyButton.addEventListener("click", async () => {
 			applyButton.disabled = true;
 			try {
-				await this.opts.apply(this.color, this.tolerance);
+				await this.opts.apply(this.colors, this.tolerance);
 				new Notice(`Background removed from "${this.opts.imageName}".`);
 				this.opts.onApplied();
 				this.close();
@@ -132,14 +129,29 @@ export class RemoveBackgroundModal extends Modal {
 		this.refresh();
 	}
 
+	private renderColorList(): void {
+		this.colorListEl.empty();
+		this.colors.forEach((c, i) => {
+			const chip = this.colorListEl.createDiv({ cls: "sm-bg-color-chip" });
+			chip.createDiv({ cls: "sm-bg-color-swatch" }).style.backgroundColor = rgbToHex(c);
+			chip.createSpan({ text: rgbToHex(c) });
+			if (this.colors.length > 1) {
+				chip.createEl("button", { text: "×", cls: "sm-bg-color-remove" }).addEventListener("click", () => {
+					this.colors.splice(i, 1);
+					this.renderColorList();
+					this.scheduleRefresh();
+				});
+			}
+		});
+	}
+
 	private scheduleRefresh(): void {
 		if (this.refreshTimer) window.clearTimeout(this.refreshTimer);
 		this.refreshTimer = window.setTimeout(() => this.refresh(), REFRESH_DEBOUNCE_MS);
 	}
 
 	private async refresh(): Promise<void> {
-		this.colorInput.value = toHex(this.color);
-		const canvas = await this.opts.preview(this.color, this.tolerance);
+		const canvas = await this.opts.preview(this.colors, this.tolerance);
 		canvas.style.width = `${Math.max(1, Math.round(this.naturalWidth * this.scale))}px`;
 		canvas.style.height = `${Math.max(1, Math.round(this.naturalHeight * this.scale))}px`;
 		canvas.style.imageRendering = "pixelated";
@@ -154,7 +166,9 @@ export class RemoveBackgroundModal extends Modal {
 		const rect = canvas.getBoundingClientRect();
 		const x = Math.round(((e.clientX - rect.left) / rect.width) * this.naturalWidth);
 		const y = Math.round(((e.clientY - rect.top) / rect.height) * this.naturalHeight);
-		this.color = await this.opts.sampleColor(x, y);
+		const sampled = await this.opts.sampleColor(x, y);
+		this.colors.push(sampled);
+		this.renderColorList();
 		this.refresh();
 	}
 

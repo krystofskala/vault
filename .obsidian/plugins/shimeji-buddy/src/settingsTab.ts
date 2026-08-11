@@ -13,6 +13,7 @@ import {
 	addImageToCharacter,
 	createCharacter,
 	deleteCharacterImage,
+	detectFrames,
 	listCharacterImages,
 	loadImageForSlicing,
 	previewColorKey,
@@ -765,6 +766,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			loadSlicerImage: async (slicer) => {
 				await slicer.load(this.app.vault, `${folder}/${imageName}`);
 			},
+			sampleColor: (x, y) => sampleImageColor(this.app.vault, `${folder}/${imageName}`, x, y),
+			detectFrames: (options) => detectFrames(this.app.vault, `${folder}/${imageName}`, options),
 			onClosed: () => this.display(),
 		});
 		modal.open();
@@ -778,8 +781,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			imageName,
 			loadImage: () => loadImageForSlicing(this.app.vault, path),
 			sampleColor: (x, y) => sampleImageColor(this.app.vault, path, x, y),
-			preview: (color, tolerance) => previewColorKey(this.app.vault, folder, imageName, color, tolerance),
-			apply: (color, tolerance) => removeBackgroundColor(this.app.vault, folder, imageName, color, tolerance),
+			preview: (colors, tolerance) => previewColorKey(this.app.vault, folder, imageName, colors, tolerance),
+			apply: (colors, tolerance) => removeBackgroundColor(this.app.vault, folder, imageName, colors, tolerance),
 			onApplied: () => this.display(),
 		});
 		modal.open();

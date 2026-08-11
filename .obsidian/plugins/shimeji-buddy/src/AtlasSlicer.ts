@@ -52,7 +52,11 @@ export class AtlasSlicer {
 	private gapX = 0;
 	private gapY = 0;
 
-	/** Cell indices (row * cols + col), in click order - that order becomes frame order. */
+	/** "grid" is the even/draggable-line grid; "auto" is a fixed list of auto-detected rects (see setAutoDetectedCells) - no lines to drag or delete. */
+	private mode: "grid" | "auto" = "grid";
+	private detectedRects: AtlasFrameRect[] = [];
+
+	/** Cell indices (row * cols + col in grid mode, index into detectedRects in auto mode), in click order - that order becomes frame order. */
 	private selectedCells: number[] = [];
 	private cellSelectionListener: ((count: number) => void) | null = null;
 
@@ -134,6 +138,8 @@ export class AtlasSlicer {
 
 		this.colBoundaries = [];
 		this.rowBoundaries = [];
+		this.mode = "grid";
+		this.detectedRects = [];
 		this.selectedCells = [];
 		this.hoveredLine = null;
 		this.candidateLine = null;
@@ -160,6 +166,8 @@ export class AtlasSlicer {
 		if (!this.image) return;
 		const c = Math.max(1, Math.floor(cols));
 		const r = Math.max(1, Math.floor(rows));
+		this.mode = "grid";
+		this.detectedRects = [];
 		this.colBoundaries = Array.from({ length: c + 1 }, (_, i) => Math.round((i * this.naturalWidth) / c));
 		this.rowBoundaries = Array.from({ length: r + 1 }, (_, i) => Math.round((i * this.naturalHeight) / r));
 		this.gapX = Math.max(0, gapX);
@@ -169,8 +177,23 @@ export class AtlasSlicer {
 		this.redraw();
 	}
 
+	/** Switches to a fixed list of auto-detected frame rects (see spritePack.detectFrames) - no grid lines, just click-to-select on each rect. */
+	setAutoDetectedCells(rects: AtlasFrameRect[]): void {
+		if (!this.image) return;
+		this.mode = "auto";
+		this.detectedRects = rects;
+		this.selectedCells = [];
+		this.notifyCellSelection();
+		this.redraw();
+	}
+
 	isGridMode(): boolean {
 		return this.colBoundaries.length >= 2 && this.rowBoundaries.length >= 2;
+	}
+
+	/** Whether there's anything selectable on screen right now, in either mode. */
+	private hasCells(): boolean {
+		return this.mode === "grid" ? this.isGridMode() : this.detectedRects.length > 0;
 	}
 
 	clearCellSelection(): void {
@@ -181,6 +204,9 @@ export class AtlasSlicer {
 
 	/** Selected cells' rects, in the order they were clicked - that order becomes the animation's frame order. */
 	getSelectedCellRects(): AtlasFrameRect[] {
+		if (this.mode === "auto") {
+			return this.selectedCells.map((i) => this.detectedRects[i]).filter((r): r is AtlasFrameRect => !!r);
+		}
 		if (!this.isGridMode()) return [];
 		const cols = this.colBoundaries.length - 1;
 		return this.selectedCells.map((i) => {
@@ -225,7 +251,41 @@ export class AtlasSlicer {
 		this.wrapperEl.querySelector(".sm-slicer-placeholder")?.remove();
 		this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 		this.ctx.drawImage(this.image, 0, 0, this.canvas.width, this.canvas.height);
-		if (this.isGridMode()) this.drawGrid();
+		if (this.mode === "grid" && this.isGridMode()) this.drawGrid();
+		else if (this.mode === "auto" && this.detectedRects.length > 0) this.drawAutoCells();
+	}
+
+	/** Auto mode's rendering: a faint outline on every detected rect, plus the same numbered blue overlay grid mode uses for selected ones - no lines to draw since there's nothing to drag or delete here. */
+	private drawAutoCells(): void {
+		this.ctx.lineWidth = 1;
+		this.ctx.strokeStyle = "rgba(79, 168, 255, 0.5)";
+		for (const r of this.detectedRects) {
+			this.ctx.strokeRect(
+				Math.round(r.x * this.scale) + 0.5,
+				Math.round(r.y * this.scale) + 0.5,
+				Math.round(r.w * this.scale),
+				Math.round(r.h * this.scale)
+			);
+		}
+
+		this.ctx.textAlign = "center";
+		this.ctx.textBaseline = "middle";
+		this.selectedCells.forEach((cellIndex, order) => {
+			const r = this.detectedRects[cellIndex];
+			if (!r) return;
+			const x = r.x * this.scale;
+			const y = r.y * this.scale;
+			const w = r.w * this.scale;
+			const h = r.h * this.scale;
+			this.ctx.fillStyle = "rgba(80, 160, 255, 0.35)";
+			this.ctx.fillRect(x, y, w, h);
+			this.ctx.font = `bold ${Math.max(10, Math.min(w, h) * 0.4)}px sans-serif`;
+			this.ctx.fillStyle = "#ffffff";
+			this.ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
+			this.ctx.lineWidth = 3;
+			this.ctx.strokeText(String(order + 1), x + w / 2, y + h / 2);
+			this.ctx.fillText(String(order + 1), x + w / 2, y + h / 2);
+		});
 	}
 
 	private drawGrid(): void {
@@ -290,8 +350,19 @@ export class AtlasSlicer {
 		this.ctx.stroke();
 	}
 
-	/** Which cell (row*cols+col) a canvas-space point falls in. */
+	/** Which cell a canvas-space point falls in: row*cols+col in grid mode, or the index into detectedRects in auto mode - -1 if the point isn't over any detected rect (auto mode only; grid mode always covers the whole canvas). */
 	private cellAt(p: { x: number; y: number }): number {
+		if (this.mode === "auto") {
+			for (let i = 0; i < this.detectedRects.length; i++) {
+				const r = this.detectedRects[i];
+				const x0 = r.x * this.scale;
+				const y0 = r.y * this.scale;
+				const x1 = (r.x + r.w) * this.scale;
+				const y1 = (r.y + r.h) * this.scale;
+				if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1) return i;
+			}
+			return -1;
+		}
 		const cols = this.colBoundaries.length - 1;
 		let col = 0;
 		for (let i = 0; i < cols; i++) if (p.x >= this.colBoundaries[i] * this.scale) col = i;
@@ -300,8 +371,9 @@ export class AtlasSlicer {
 		return row * cols + col;
 	}
 
-	/** The nearest interior (draggable/deletable) line to a canvas-space point, within tolerance - null if none is close enough. */
+	/** The nearest interior (draggable/deletable) line to a canvas-space point, within tolerance - null if none is close enough, or always in auto mode (nothing to drag/delete there). */
 	private findNearestLine(p: { x: number; y: number }): LineRef | null {
+		if (this.mode === "auto") return null;
 		let best: (LineRef & { dist: number }) | null = null;
 		for (let i = 1; i < this.colBoundaries.length - 1; i++) {
 			const d = Math.abs(p.x - this.colBoundaries[i] * this.scale);
@@ -381,14 +453,15 @@ export class AtlasSlicer {
 	}
 
 	private onPointerDown(e: PointerEvent): void {
-		if (!this.image || !this.isGridMode() || e.button !== 0) return;
+		if (!this.image || !this.hasCells() || e.button !== 0) return;
 		e.preventDefault();
 		const p = this.canvasPoint(e);
 		this.canvas.setPointerCapture(e.pointerId);
 
 		this.gestureStartCanvas = p;
 		this.candidateLine = this.findNearestLine(p);
-		this.downCell = this.cellAt(p);
+		const cell = this.cellAt(p);
+		this.downCell = cell >= 0 ? cell : null;
 	}
 
 	private onPointerMove(e: PointerEvent): void {
@@ -426,9 +499,9 @@ export class AtlasSlicer {
 		this.redraw();
 	}
 
-	/** Deletes the line nearest the double-click, merging the two cells it separated. */
+	/** Deletes the line nearest the double-click, merging the two cells it separated. No-op in auto mode - findNearestLine() never returns a line there. */
 	private onDoubleClick(e: MouseEvent): void {
-		if (!this.image || !this.isGridMode()) return;
+		if (!this.image || !this.hasCells()) return;
 		const line = this.findNearestLine(this.canvasPoint(e));
 		if (!line) return;
 		this.deleteLine(line);
