@@ -30,6 +30,8 @@ export interface WeightedAnimation extends ResolvedAnimation {
 	kind: "animation";
 	/** The source CustomAnimation's own id - lets CharacterWidget.previewById() play this exact one on demand, bypassing normal trigger/weight selection. */
 	id: string;
+	/** For UI feedback (the "Play"/cycle commands' Notice) - not used for anything functional. */
+	name: string;
 	weight: number;
 	movement: MovementBehavior;
 }
@@ -48,6 +50,8 @@ export interface WeightedSequence {
 	kind: "sequence";
 	/** The source AnimationSequence's own id - see WeightedAnimation.id. */
 	id: string;
+	/** See WeightedAnimation.name. */
+	name: string;
 	weight: number;
 	steps: ResolvedSequenceStep[];
 }
@@ -527,6 +531,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 			const resolved: WeightedAnimation = {
 				kind: "animation",
 				id: anim.id,
+				name: anim.name || "(unnamed)",
 				imageUrl: img.url,
 				imageWidth: img.width,
 				imageHeight: img.height,
@@ -582,7 +587,13 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 					say: step.say,
 				});
 			}
-			const resolved: WeightedSequence = { kind: "sequence", id: seq.id, weight: Math.max(0, seq.weight), steps };
+			const resolved: WeightedSequence = {
+				kind: "sequence",
+				id: seq.id,
+				name: seq.name || "(unnamed)",
+				weight: Math.max(0, seq.weight),
+				steps,
+			};
 			byId[seq.id] = resolved;
 			if (seq.enabled && seq.triggers.length > 0) {
 				for (const trigger of seq.triggers) {

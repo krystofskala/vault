@@ -1,4 +1,4 @@
-import { MarkdownView, Platform, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Platform, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { CharacterWidget } from "./CharacterWidget";
 import {
 	loadCharacter,
@@ -36,6 +36,8 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	private summonClickCount = 0;
 	private summonClickTimer: number | null = null;
 	private summonClickPos = { x: 0, y: 0 };
+	/** Index into the active character's animations+sequences (in listed order) for the cycle-through commands - -1 until the first press. */
+	private cycleIndex = -1;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -86,6 +88,18 @@ export default class ShimejiBuddyPlugin extends Plugin {
 			id: "shimeji-buddy-toggle-click-counter",
 			name: "Toggle click counter mode",
 			callback: () => this.setClickCounterEnabled(!this.settings.clickCounterEnabled),
+		});
+
+		this.addCommand({
+			id: "shimeji-buddy-cycle-next",
+			name: "Cycle to next animation/sequence",
+			callback: () => this.cycleAnimation(1),
+		});
+
+		this.addCommand({
+			id: "shimeji-buddy-cycle-previous",
+			name: "Cycle to previous animation/sequence",
+			callback: () => this.cycleAnimation(-1),
 		});
 	}
 
@@ -152,6 +166,28 @@ export default class ShimejiBuddyPlugin extends Plugin {
 	/** The settings tab's "Play" preview button - plays one specific animation/sequence by id immediately, regardless of trigger/enabled state. False if it's not currently resolvable (e.g. no frames yet). */
 	previewReaction(id: string): boolean {
 		return this.widget?.previewById(id) ?? false;
+	}
+
+	/**
+	 * The cycle-next/cycle-previous commands: steps through every currently
+	 * resolvable animation/sequence in the active character, in the order
+	 * loadCharacter() built them (animations first, then sequences, each in
+	 * their settings-tab list order), wrapping around either direction - a
+	 * quick way to page through everything a character has via a
+	 * user-assignable hotkey (Settings -> Hotkeys), without opening the
+	 * settings tab at all.
+	 */
+	private cycleAnimation(direction: 1 | -1): void {
+		const ids = this.spritePack ? Object.keys(this.spritePack.byId) : [];
+		if (ids.length === 0) {
+			new Notice("Nothing to cycle through - build a character with at least one animation first.");
+			return;
+		}
+		this.cycleIndex = (((this.cycleIndex + direction) % ids.length) + ids.length) % ids.length;
+		const id = ids[this.cycleIndex];
+		this.previewReaction(id);
+		const entry = this.spritePack?.byId[id];
+		if (entry) new Notice(`${entry.name} (${this.cycleIndex + 1}/${ids.length})`);
 	}
 
 	// ---------- mobile: touch only in reading view ----------

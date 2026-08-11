@@ -316,9 +316,16 @@ independent things to configure:
   further nested collapsible sub-groups (e.g. Interaction & touch, Speech
   bubble, Images, Animations) and inline tips/warnings, so it stays easy to
   navigate as it grows.
-- Three commands (Command palette): "Poke the buddy", "Toggle buddy
-  visibility", and "List all command IDs into current note" (browse every
-  Obsidian command id, to add one as a custom trigger).
+- Commands (Command palette, each assignable its own hotkey via Settings →
+  Hotkeys): "Poke the buddy", "Toggle buddy visibility", "Toggle click
+  counter mode", "List all command IDs into current note" (browse every
+  Obsidian command id, to add one as a custom trigger), and "Cycle to
+  next/previous animation/sequence" - steps the live buddy through every
+  animation and Sequence the active character has, in the order they're
+  listed in Character → Animations/Sequences, wrapping around either
+  direction. A quick way to page through everything a character has
+  without opening settings at all - handy on mobile, or just bound to a
+  key while you're building one.
 
 ## Installing / enabling
 
