@@ -1,5 +1,15 @@
 import { Notice, type App } from "obsidian";
-import type { BasicMovementRole, BuiltinBehaviorId, MovementBehavior, ScreenCorner, ScreenEdge, ShimejiSettings } from "./settings";
+import {
+	BASIC_MOVEMENT_ROLES,
+	type BasicMovementRole,
+	type BuiltinBehaviorId,
+	type MovementBehavior,
+	type ScreenCorner,
+	type ScreenEdge,
+	type ShimejiSettings,
+} from "./settings";
+
+const BASIC_MOVEMENT_ROLE_SET: ReadonlySet<string> = new Set(BASIC_MOVEMENT_ROLES);
 import {
 	pickWeighted,
 	type LoadedSpritePack,
@@ -571,9 +581,9 @@ export class CharacterWidget {
 				if (this.currentTrigger === "summon") this.setReaction("idle");
 			});
 		} else {
-			const basicClip = this.packDefaultClip();
-			if (basicClip) {
-				this.playResolvedAnimation(basicClip, () => {
+			const roleClip = this.roleClipForTrigger("summon");
+			if (roleClip) {
+				this.playResolvedAnimation(roleClip, () => {
 					if (this.currentTrigger === "summon") this.setReaction("idle");
 				});
 			} else {
@@ -647,9 +657,10 @@ export class CharacterWidget {
 		} else if (this.pack) {
 			// Pack active but nothing assigned to this trigger: fall back to its
 			// idle pool (a resting entry if one exists), else its own Basic
-			// movement (see packDefaultClip) resting in place. Sequences are
-			// excluded from the idle-pool fallback - nothing assigned to a
-			// trigger shouldn't randomly kick off a whole scripted bit.
+			// movement slot for this exact pose (see roleClipForTrigger).
+			// Sequences are excluded from the idle-pool fallback - nothing
+			// assigned to a trigger shouldn't randomly kick off a whole
+			// scripted bit.
 			const idlePool = (this.pack.bySlot.idle ?? []).filter((c): c is WeightedAnimation => c.kind === "animation");
 			const restingIdle = idlePool.filter((c) => c.movement.kind === "none");
 			const idleChosen = pickWeighted(restingIdle.length > 0 ? restingIdle : idlePool);
@@ -657,9 +668,14 @@ export class CharacterWidget {
 				this.playResolvedAnimation(idleChosen, () => {});
 				this.applyMovement(idleChosen.movement, trigger);
 			} else {
-				const basicClip = this.packDefaultClip();
-				if (basicClip) this.playResolvedAnimation(basicClip, () => {});
-				else this.playBuiltinForTrigger(lookupTrigger);
+				const roleClip = this.roleClipForTrigger(lookupTrigger);
+				if (roleClip) {
+					this.playResolvedAnimation(roleClip, () => {
+						if (this.currentTrigger === trigger) this.setReaction("idle");
+					});
+				} else {
+					this.playBuiltinForTrigger(lookupTrigger);
+				}
 			}
 		} else {
 			this.playBuiltinForTrigger(lookupTrigger);
@@ -670,17 +686,21 @@ export class CharacterWidget {
 	}
 
 	/**
-	 * The character's own Basic movement Walk (or whichever gait it has) as
-	 * a generic "just exist here" appearance - used wherever nothing else
-	 * resolves for a trigger, instead of jarringly swapping to the
-	 * completely unrelated builtin placeholder mid-character. Only a
-	 * character with literally none of its four gaits built yet (nothing at
-	 * all, not even Basic movement) falls through to the placeholder as a
-	 * last resort.
+	 * The character's own Basic movement slot for whichever exact pose this
+	 * trigger would otherwise show the builtin placeholder for (see
+	 * BUILTIN_POSE_FOR_TRIGGER) - e.g. a poke plays the character's own
+	 * "Poked reaction" clip if one's been built, not a generic stand-in.
+	 * Null if this trigger has no corresponding pose (a jutsu, or a command
+	 * trigger with no builtin equivalent) or that slot hasn't been filled in
+	 * yet - callers fall through to the placeholder's own version of that
+	 * exact pose in that case, which is by design: an unfilled slot IS
+	 * "still the placeholder for now," not a mismatched swap to a different
+	 * character.
 	 */
-	private packDefaultClip(): ResolvedAnimation | null {
-		const bm = this.pack?.basicMovement;
-		return bm?.walk ?? bm?.run ?? bm?.jump ?? bm?.fall ?? null;
+	private roleClipForTrigger(trigger: string): ResolvedAnimation | null {
+		const pose = BUILTIN_POSE_FOR_TRIGGER[trigger];
+		if (!pose || !BASIC_MOVEMENT_ROLE_SET.has(pose)) return null;
+		return this.pack?.basicMovement[pose as BasicMovementRole] ?? null;
 	}
 
 	/**
@@ -913,10 +933,11 @@ export class CharacterWidget {
 			// to hand-build a dedicated idle-roam animation. Still only offered
 			// while "Roam style" itself isn't Off, same as every other roaming
 			// path, and can be turned off per-character too.
+			const bm = this.pack.basicMovement;
 			if (
 				this.settings.wanderEnabled &&
 				this.pack.basicMovementRoamEnabled &&
-				Object.keys(this.pack.basicMovement).length > 0 &&
+				(bm.walk || bm.run || bm.jump || bm.fall) &&
 				Math.random() < BASIC_MOVEMENT_ROAM_CHANCE
 			) {
 				this.basicMovementRoam();

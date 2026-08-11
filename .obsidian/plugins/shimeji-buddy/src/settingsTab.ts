@@ -96,6 +96,24 @@ const BUILTIN_BEHAVIOR_LABELS: Record<BuiltinBehaviorId, string> = {
 	"jutsu-shuriken": "Shuriken Jutsu (throws at your pointer)",
 };
 
+/** Groups the 19 Basic movement roles into readable clusters for the settings UI - purely a rendering convenience, BASIC_MOVEMENT_ROLES itself stays the source of truth for what exists. */
+const BASIC_MOVEMENT_GROUPS: { label: string; roles: BasicMovementRole[] }[] = [
+	{ label: "Movement", roles: ["idle", "walk", "run", "jump", "fall"] },
+	{ label: "Reactions", roles: ["poke", "wave", "cheer", "poof", "nod", "surprised", "think"] },
+	{ label: "Moods", roles: ["sleep", "happy", "angry"] },
+	{ label: "Workouts", roles: ["punch", "pushup", "squat", "lift"] },
+];
+
+// Catches the groups above silently drifting out of sync with the real role
+// list (e.g. a new role added to one but not the other) at dev/build time
+// rather than as a role quietly missing from the settings UI.
+const missingFromGroups = BASIC_MOVEMENT_ROLES.filter(
+	(r) => !BASIC_MOVEMENT_GROUPS.some((g) => g.roles.includes(r))
+);
+if (missingFromGroups.length > 0) {
+	console.warn("Shimeji Buddy: BASIC_MOVEMENT_GROUPS is missing role(s)", missingFromGroups);
+}
+
 /** Display order + labels for every pre-scripted movement behavior - shared between a plain animation's own movement picker and (later) sequence steps. */
 const MOVEMENT_KIND_OPTIONS: { kind: MovementBehaviorKind; label: string }[] = [
 	{ kind: "none", label: "Stay put" },
@@ -936,20 +954,27 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		this.section(
 			containerEl,
-			"Basic movement (required)",
+			"Basic movement",
 			true,
 			(body) => {
 				body.createEl("p", {
 					cls: "setting-item-description",
 					text:
-						"The four core gaits every character needs - slice these first. They're the automatic " +
-						"fallback for idle roaming whenever nothing more specific is assigned, picked by actual " +
-						"travel direction: mostly straight up plays Jump, mostly straight down plays Fall, " +
-						"sideways plays Walk. They're plain animations underneath, so they're also pickable as a " +
-						"Sequence step's clip like any other, and stay upright (left/right mirrored only, never " +
-						"rotated) - rotation is reserved for \"Walk around the window edges,\" not roaming in general.",
+						"Every pose the builtin placeholder can do, except the three jutsus (see Sequences below) - " +
+						"a character is always fully formed even with all of these blank, since an empty slot just " +
+						"plays the placeholder's own version of that exact pose until you replace it. Fill them in " +
+						"gradually, one at a time - no need to build a whole character before it looks or acts " +
+						"complete. They're plain animations underneath, so they're also pickable as a Sequence " +
+						"step's clip like any other. Walk/Run/Jump/Fall additionally double as the automatic " +
+						"fallback for idle roaming (see \"Use for idle roaming\" below), picked by actual travel " +
+						"direction - mostly straight up plays Jump, mostly straight down plays Fall, sideways plays " +
+						"Walk - and stay upright while doing it (left/right mirrored only, never rotated; rotation " +
+						"is reserved for \"Walk around the window edges,\" not roaming in general).",
 				});
-				for (const role of BASIC_MOVEMENT_ROLES) this.renderBasicMovementSlot(body, role);
+				for (const group of BASIC_MOVEMENT_GROUPS) {
+					body.createEl("h4", { text: group.label });
+					for (const role of group.roles) this.renderBasicMovementSlot(body, role);
+				}
 
 				new Setting(body)
 					.setName("Use for idle roaming")

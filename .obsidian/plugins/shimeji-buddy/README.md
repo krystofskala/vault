@@ -77,36 +77,42 @@ stretching up to fill the configured Size.
 ## Basic movement
 
 Every character has a required **Basic movement** section, shown first in
-the Character editor, above Images/Animations/Sequences - four slots (Walk,
-Run, Jump, Fall) that are the first thing worth slicing frames for on a new
-character. They're plain animations underneath (same fps/loop, still
-pickable as a Sequence step's clip like any other) but carry no
-triggers/weight/Movement of their own - instead, they're the automatic
-fallback for idle roaming whenever nothing more specific is assigned. If
-you haven't built a dedicated idle-roam animation, the buddy roams using
-these instead, picking Walk/Run/Jump/Fall by the actual direction it's
-about to travel - mostly straight up plays Jump, mostly straight down plays
-Fall, sideways plays Walk (Run if there's no Walk clip). It never rotates
-while doing this - always upright, mirrored left/right to face the way
-it's moving - rotation stays reserved for the "Walk around the window
-edges" Movement, not roaming in general. Turn the fallback off per-character
-with "Use for idle roaming" at the bottom of the section, if you'd rather
-only your own hand-built Idle-pool animations ever roam.
+the Character editor, above Images/Animations/Sequences - one slot for
+every pose the builtin placeholder can do, except the three jutsus (those
+ship as a Sequence instead - see below), grouped into Movement (Idle, Walk,
+Run, Jump, Fall), Reactions (Poke, and one for each vault event: opening,
+creating, deleting, editing, renaming a note, searching), Moods (Sleep,
+Happy, Angry), and Workouts (the four shadow-boxing/push-up/squat/lift
+poses) - 19 slots in total.
+
+A character is always fully formed even with every slot blank: an empty
+slot just plays the placeholder's own version of that exact pose until you
+replace it, so there's no "half-finished" state to worry about - fill them
+in gradually, one at a time, in whatever order you like, rather than
+needing a whole character built before it looks or acts complete. They're
+plain animations underneath (same fps/loop, still pickable as a Sequence
+step's clip like any other) but carry no triggers/weight/Movement of their
+own.
+
+Walk/Run/Jump/Fall additionally double as the automatic fallback for idle
+roaming whenever nothing more specific is assigned to it: the buddy roams
+using these, picking Walk/Run/Jump/Fall by the actual direction it's about
+to travel - mostly straight up plays Jump, mostly straight down plays Fall,
+sideways plays Walk (Run if there's no Walk clip). It never rotates while
+doing this - always upright, mirrored left/right to face the way it's
+moving - rotation stays reserved for the "Walk around the window edges"
+Movement, not roaming in general. Turn this specific fallback off
+per-character with "Use for idle roaming" at the bottom of the section, if
+you'd rather only your own hand-built Idle-pool animations ever roam.
 
 Deleting the image a Basic movement slot uses (or its underlying entry, in
 the image editor's own list) blanks the slot back out rather than removing
-it - it's a fixed, required set of four, not something to lose by accident.
+it - it's a fixed, required set, not something to lose by accident.
 
-If a trigger has nothing assigned to it at all (no dedicated animation, no
-Idle-pool entry), the buddy now rests on its own Basic movement Walk (or
-whichever gait it has) instead of falling back to the builtin placeholder -
-swapping to an unrelated generic character mid-reaction was a jarring gap
-between "the placeholder" and "a character you've built," and Basic
-movement existing at all means there's always something better to show.
 The builtin placeholder itself also gained a fourth gait, **Fall** (a
-tumbling animation, alongside its existing Walk/Run/Jump), so both are on
-the same footing - Settings → Standby & idle behavior → Idle behaviors
-(builtin placeholder).
+tumbling animation, alongside its existing Walk/Run/Jump), so it has the
+same roster a character's Basic movement does - Settings → Standby & idle
+behavior → Idle behaviors (builtin placeholder).
 
 Add a new empty animation any time from the **Animations** list in the main
 settings tab ("New animation" - pick a source image, it appears in the list
