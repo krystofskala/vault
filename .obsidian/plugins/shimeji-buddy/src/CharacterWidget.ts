@@ -475,6 +475,41 @@ export class CharacterWidget {
 	}
 
 	/**
+	 * Plays one specific animation/sequence by its own id, bypassing normal
+	 * trigger/mood/weight selection - the settings tab's "Play" preview
+	 * button uses this to test something immediately while building it,
+	 * before (or regardless of) it being enabled/assigned to any action.
+	 * Returns false if nothing with that id is currently resolvable (e.g. no
+	 * frames yet), so the caller can surface that instead of silently no-op-ing.
+	 */
+	previewById(id: string): boolean {
+		const chosen = this.pack?.byId[id];
+		if (!chosen) return false;
+		this.lastActivity = Date.now();
+		this.currentTrigger = "preview";
+		this.clearTimer("oneShotRevertTimer");
+		this.clearTimer("sequenceStepTimer");
+		this.clearTimer("wanderTimer");
+		this.stopContinuousMovement();
+		this.containerEl.removeClass("sm-invisible");
+		this.applyEdgeOrientation(null);
+		this.playChosenReaction(chosen, "preview");
+		return true;
+	}
+
+	/** Starts playing an already-picked animation or sequence for `trigger` - shared by setReaction() (which does the picking) and previewById() (which already knows exactly which one). */
+	private playChosenReaction(chosen: WeightedAnimation | WeightedSequence, trigger: string): void {
+		if (chosen.kind === "sequence") {
+			this.playSequence(chosen, trigger);
+		} else {
+			this.playResolvedAnimation(chosen, () => {
+				if (this.currentTrigger === trigger) this.setReaction("idle");
+			});
+			this.applyMovement(chosen.movement, trigger);
+		}
+	}
+
+	/**
 	 * Called over: triple-clicked outside the editor (see main.ts's summon
 	 * watcher). Unlike every other trigger, its destination is wherever was
 	 * clicked, not a MovementBehavior preset - a raw click point isn't
@@ -574,13 +609,8 @@ export class CharacterWidget {
 		const pool = this.pack?.bySlot[lookupTrigger];
 		const chosen = pool && pool.length > 0 ? pickWeighted(pool) : null;
 
-		if (chosen?.kind === "sequence") {
-			this.playSequence(chosen, trigger);
-		} else if (chosen) {
-			this.playResolvedAnimation(chosen, () => {
-				if (this.currentTrigger === trigger) this.setReaction("idle");
-			});
-			this.applyMovement(chosen.movement, trigger);
+		if (chosen) {
+			this.playChosenReaction(chosen, trigger);
 		} else if (this.pack) {
 			// Pack active but nothing assigned to this trigger: fall back to its
 			// idle pool (a resting entry if one exists), else the placeholder.

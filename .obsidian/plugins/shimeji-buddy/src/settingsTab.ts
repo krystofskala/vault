@@ -1313,6 +1313,16 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			)
 			.addExtraButton((b) =>
 				b
+					.setIcon("play")
+					.setTooltip("Play now - preview it on the live buddy, regardless of trigger/enabled state")
+					.onClick(() => {
+						if (!this.plugin.previewReaction(anim.id)) {
+							new Notice("Nothing to preview yet - add some frames first.");
+						}
+					})
+			)
+			.addExtraButton((b) =>
+				b
 					.setIcon("trash-2")
 					.setTooltip("Delete this animation")
 					.onClick(async () => {
@@ -1475,6 +1485,16 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					seq.name = v;
 					await this.persistCharacterFile();
 				})
+			)
+			.addExtraButton((b) =>
+				b
+					.setIcon("play")
+					.setTooltip("Play now - preview it on the live buddy, regardless of trigger/enabled state")
+					.onClick(() => {
+						if (!this.plugin.previewReaction(seq.id)) {
+							new Notice("Nothing to preview yet - add at least one step with an animation first.");
+						}
+					})
 			)
 			.addExtraButton((b) =>
 				b

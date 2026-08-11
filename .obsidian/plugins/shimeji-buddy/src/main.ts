@@ -149,6 +149,11 @@ export default class ShimejiBuddyPlugin extends Plugin {
 		this.widget?.setClickCounterMode(enabled);
 	}
 
+	/** The settings tab's "Play" preview button - plays one specific animation/sequence by id immediately, regardless of trigger/enabled state. False if it's not currently resolvable (e.g. no frames yet). */
+	previewReaction(id: string): boolean {
+		return this.widget?.previewById(id) ?? false;
+	}
+
 	// ---------- mobile: touch only in reading view ----------
 
 	private registerMobileInteractivityWatcher(): void {

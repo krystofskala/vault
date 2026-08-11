@@ -28,6 +28,8 @@ export interface ResolvedAnimation {
 
 export interface WeightedAnimation extends ResolvedAnimation {
 	kind: "animation";
+	/** The source CustomAnimation's own id - lets CharacterWidget.previewById() play this exact one on demand, bypassing normal trigger/weight selection. */
+	id: string;
 	weight: number;
 	movement: MovementBehavior;
 }
@@ -44,6 +46,8 @@ export interface ResolvedSequenceStep {
 
 export interface WeightedSequence {
 	kind: "sequence";
+	/** The source AnimationSequence's own id - see WeightedAnimation.id. */
+	id: string;
 	weight: number;
 	steps: ResolvedSequenceStep[];
 }
@@ -55,6 +59,8 @@ export interface LoadedSpritePack {
 	name: string;
 	/** Keyed by trigger id; each array is a weighted pool of candidates for that trigger. */
 	bySlot: Record<string, WeightedReaction[]>;
+	/** Keyed by the source animation/sequence's own id, regardless of whether it's enabled or assigned to any trigger - lets the settings tab's "Play" preview button test one specifically, including a still-unassigned or disabled one being built. */
+	byId: Record<string, WeightedReaction>;
 	objectUrls: string[];
 }
 
@@ -512,13 +518,15 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 	};
 
 	const bySlot: Record<string, WeightedReaction[]> = {};
+	const byId: Record<string, WeightedReaction> = {};
 
 	for (const anim of file.animations) {
-		if (!anim.enabled || !anim.sourceImage || anim.frames.length === 0 || anim.triggers.length === 0) continue;
+		if (!anim.sourceImage || anim.frames.length === 0) continue;
 		try {
 			const img = await loadImage(anim.sourceImage);
 			const resolved: WeightedAnimation = {
 				kind: "animation",
+				id: anim.id,
 				imageUrl: img.url,
 				imageWidth: img.width,
 				imageHeight: img.height,
@@ -528,8 +536,14 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 				weight: Math.max(0, anim.weight),
 				movement: anim.movement,
 			};
-			for (const trigger of anim.triggers) {
-				(bySlot[trigger] ??= []).push(resolved);
+			// Resolved (has usable frames) is enough to be previewable by id
+			// regardless of enabled/assigned state; actually eligible for
+			// normal trigger-driven play is a stricter bar.
+			byId[anim.id] = resolved;
+			if (anim.enabled && anim.triggers.length > 0) {
+				for (const trigger of anim.triggers) {
+					(bySlot[trigger] ??= []).push(resolved);
+				}
 			}
 		} catch (e) {
 			console.warn(`Shimeji Buddy: could not load "${anim.sourceImage}" for animation "${anim.name}"`, e);
@@ -543,7 +557,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 	// included - a step referencing a disabled one just becomes a wait beat.
 	const animationById = new Map(file.animations.filter((a) => a.enabled).map((a) => [a.id, a]));
 	for (const seq of file.sequences) {
-		if (!seq.enabled || seq.steps.length === 0 || seq.triggers.length === 0) continue;
+		if (seq.steps.length === 0) continue;
 		try {
 			const steps: ResolvedSequenceStep[] = [];
 			for (const step of seq.steps) {
@@ -568,21 +582,24 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 					say: step.say,
 				});
 			}
-			const resolved: WeightedSequence = { kind: "sequence", weight: Math.max(0, seq.weight), steps };
-			for (const trigger of seq.triggers) {
-				(bySlot[trigger] ??= []).push(resolved);
+			const resolved: WeightedSequence = { kind: "sequence", id: seq.id, weight: Math.max(0, seq.weight), steps };
+			byId[seq.id] = resolved;
+			if (seq.enabled && seq.triggers.length > 0) {
+				for (const trigger of seq.triggers) {
+					(bySlot[trigger] ??= []).push(resolved);
+				}
 			}
 		} catch (e) {
 			console.warn(`Shimeji Buddy: could not load sequence "${seq.name}"`, e);
 		}
 	}
 
-	if (Object.keys(bySlot).length === 0) {
+	if (Object.keys(bySlot).length === 0 && Object.keys(byId).length === 0) {
 		for (const url of objectUrls) URL.revokeObjectURL(url);
 		return null;
 	}
 
-	return { name: file.name, bySlot, objectUrls };
+	return { name: file.name, bySlot, byId, objectUrls };
 }
 
 export function revokeSpritePack(pack: LoadedSpritePack | null): void {

@@ -76,6 +76,13 @@ script one - see `characters/example-character/README.md` for that format.
 Everything saves itself instantly to that character's `character.json` -
 there's no separate save step.
 
+Every animation and Sequence also has a **▶ Play** button right next to its
+name, so you can preview exactly what it'll look like - movement, timing,
+speech line and all - on the live buddy immediately, without needing to
+actually trigger the real action or leave the settings tab. Works even
+before it's enabled or assigned to anything (as long as it has frames), so
+it's useful mid-edit too.
+
 The animation engine, idle behaviour, and reactions work identically whether
 the built-in placeholder or a character you've built is active.
 
