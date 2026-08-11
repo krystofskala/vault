@@ -193,14 +193,15 @@ export type CharacterMode = "builtin" | "character";
 
 /**
  * Every optional thing the builtin placeholder can do on its own while idle
- * - gaits it roams with (walk/run/jump) and one-off poses it plays in place
- * (workouts, jutsus). Listed in settings so each can be individually
+ * - gaits it roams with (walk/run/jump/fall) and one-off poses it plays in
+ * place (workouts, jutsus). Listed in settings so each can be individually
  * disabled or weighted, same model as a custom character's animation pool.
  */
 export type BuiltinBehaviorId =
 	| "walk"
 	| "run"
 	| "jump"
+	| "fall"
 	| "punch"
 	| "pushup"
 	| "squat"
@@ -218,6 +219,7 @@ export const DEFAULT_BUILTIN_BEHAVIORS: Record<BuiltinBehaviorId, BuiltinBehavio
 	walk: { enabled: true, weight: 1 },
 	run: { enabled: true, weight: 1 },
 	jump: { enabled: true, weight: 1 },
+	fall: { enabled: true, weight: 1 },
 	punch: { enabled: true, weight: 1 },
 	pushup: { enabled: true, weight: 1 },
 	squat: { enabled: true, weight: 1 },

@@ -21,6 +21,7 @@ type BuiltinPose =
 	| "walk"
 	| "run"
 	| "jump"
+	| "fall"
 	| "sleep"
 	| "punch"
 	| "pushup"
@@ -32,7 +33,7 @@ type BuiltinPose =
 	| "happy"
 	| "angry";
 
-const LOOPING_POSES: ReadonlySet<BuiltinPose> = new Set(["idle", "walk", "run", "jump", "sleep", "happy", "angry"]);
+const LOOPING_POSES: ReadonlySet<BuiltinPose> = new Set(["idle", "walk", "run", "jump", "fall", "sleep", "happy", "angry"]);
 
 /** Which builtin pose plays for a trigger id when no pack/atlas animation is assigned to it. Anything not listed here (e.g. a command trigger) just rests at idle. */
 const BUILTIN_POSE_FOR_TRIGGER: Record<string, BuiltinPose> = {
@@ -92,6 +93,7 @@ const BUILTIN_IDLE_BEHAVIORS: BuiltinIdleBehaviorDef[] = [
 	{ id: "walk", pose: "walk", moves: true },
 	{ id: "run", pose: "run", moves: true },
 	{ id: "jump", pose: "jump", moves: true },
+	{ id: "fall", pose: "fall", moves: true },
 	{ id: "punch", pose: "punch", moves: false },
 	{ id: "pushup", pose: "pushup", moves: false },
 	{ id: "squat", pose: "squat", moves: false },
@@ -175,6 +177,7 @@ const PLACEHOLDER_DURATIONS: Record<BuiltinPose, number> = {
 	walk: 0,
 	run: 0,
 	jump: 0,
+	fall: 0,
 	sleep: 0,
 	wave: 900,
 	cheer: 800,
@@ -568,7 +571,14 @@ export class CharacterWidget {
 				if (this.currentTrigger === "summon") this.setReaction("idle");
 			});
 		} else {
-			this.playBuiltinForTrigger("summon");
+			const basicClip = this.packDefaultClip();
+			if (basicClip) {
+				this.playResolvedAnimation(basicClip, () => {
+					if (this.currentTrigger === "summon") this.setReaction("idle");
+				});
+			} else {
+				this.playBuiltinForTrigger("summon");
+			}
 		}
 
 		const distance = Math.hypot(dx, targetBottom - currentBottom);
@@ -636,8 +646,9 @@ export class CharacterWidget {
 			this.playChosenReaction(chosen, trigger);
 		} else if (this.pack) {
 			// Pack active but nothing assigned to this trigger: fall back to its
-			// idle pool (a resting entry if one exists), else the placeholder.
-			// Sequences are excluded from this fallback - nothing assigned to a
+			// idle pool (a resting entry if one exists), else its own Basic
+			// movement (see packDefaultClip) resting in place. Sequences are
+			// excluded from the idle-pool fallback - nothing assigned to a
 			// trigger shouldn't randomly kick off a whole scripted bit.
 			const idlePool = (this.pack.bySlot.idle ?? []).filter((c): c is WeightedAnimation => c.kind === "animation");
 			const restingIdle = idlePool.filter((c) => c.movement.kind === "none");
@@ -646,7 +657,9 @@ export class CharacterWidget {
 				this.playResolvedAnimation(idleChosen, () => {});
 				this.applyMovement(idleChosen.movement, trigger);
 			} else {
-				this.playBuiltinForTrigger(lookupTrigger);
+				const basicClip = this.packDefaultClip();
+				if (basicClip) this.playResolvedAnimation(basicClip, () => {});
+				else this.playBuiltinForTrigger(lookupTrigger);
 			}
 		} else {
 			this.playBuiltinForTrigger(lookupTrigger);
@@ -654,6 +667,20 @@ export class CharacterWidget {
 
 		const resolvedMessage = message ?? this.resolveSpeechLine(lookupTrigger);
 		if (resolvedMessage && this.settings.speechBubbleEnabled) this.showBubble(resolvedMessage);
+	}
+
+	/**
+	 * The character's own Basic movement Walk (or whichever gait it has) as
+	 * a generic "just exist here" appearance - used wherever nothing else
+	 * resolves for a trigger, instead of jarringly swapping to the
+	 * completely unrelated builtin placeholder mid-character. Only a
+	 * character with literally none of its four gaits built yet (nothing at
+	 * all, not even Basic movement) falls through to the placeholder as a
+	 * last resort.
+	 */
+	private packDefaultClip(): ResolvedAnimation | null {
+		const bm = this.pack?.basicMovement;
+		return bm?.walk ?? bm?.run ?? bm?.jump ?? bm?.fall ?? null;
 	}
 
 	/**

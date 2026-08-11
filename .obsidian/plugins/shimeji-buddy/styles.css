@@ -385,6 +385,25 @@
 	80% { transform: translateY(2%) scaleY(0.85); }
 }
 
+.sm-state-fall {
+	animation: sm-fall-tumble 0.45s ease-in-out infinite;
+}
+.sm-state-fall .sm-leg-l,
+.sm-state-fall .sm-leg-r {
+	animation: sm-jump-legs 0.4s ease-in-out infinite;
+}
+.sm-state-fall .sm-arm-l { animation: sm-fall-arm 0.4s linear infinite; }
+.sm-state-fall .sm-arm-r { animation: sm-fall-arm 0.4s linear infinite reverse; }
+
+@keyframes sm-fall-tumble {
+	0%, 100% { transform: translateY(0) rotate(-4deg); }
+	50% { transform: translateY(4%) rotate(4deg); }
+}
+@keyframes sm-fall-arm {
+	0% { transform: rotate(0deg); }
+	100% { transform: rotate(360deg); }
+}
+
 /* ---------- idle workout variety (builtin placeholder only) ---------- */
 
 .sm-state-punch {

@@ -97,6 +97,17 @@ Deleting the image a Basic movement slot uses (or its underlying entry, in
 the image editor's own list) blanks the slot back out rather than removing
 it - it's a fixed, required set of four, not something to lose by accident.
 
+If a trigger has nothing assigned to it at all (no dedicated animation, no
+Idle-pool entry), the buddy now rests on its own Basic movement Walk (or
+whichever gait it has) instead of falling back to the builtin placeholder -
+swapping to an unrelated generic character mid-reaction was a jarring gap
+between "the placeholder" and "a character you've built," and Basic
+movement existing at all means there's always something better to show.
+The builtin placeholder itself also gained a fourth gait, **Fall** (a
+tumbling animation, alongside its existing Walk/Run/Jump), so both are on
+the same footing - Settings → Standby & idle behavior → Idle behaviors
+(builtin placeholder).
+
 Add a new empty animation any time from the **Animations** list in the main
 settings tab ("New animation" - pick a source image, it appears in the list
 immediately, ready for "Edit frames…" to fill it in), and delete one via the
