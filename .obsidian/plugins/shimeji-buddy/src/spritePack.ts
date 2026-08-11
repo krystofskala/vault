@@ -65,6 +65,17 @@ export interface LoadedSpritePack {
 	bySlot: Record<string, WeightedReaction[]>;
 	/** Keyed by the source animation/sequence's own id, regardless of whether it's enabled or assigned to any trigger - lets the settings tab's "Play" preview button test one specifically, including a still-unassigned or disabled one being built. */
 	byId: Record<string, WeightedReaction>;
+	/**
+	 * The tallest frame across every animation this character has (usually
+	 * its standing pose) - CharacterWidget scales EVERY animation against
+	 * this one shared number rather than each animation's own tallest frame,
+	 * so a naturally shorter pose (a crouch, say) renders shorter on screen
+	 * instead of being stretched up to match the configured Size like every
+	 * other animation. Auto-detected frames are rarely identical heights
+	 * across different poses, so without a shared reference the character's
+	 * apparent size would jump around between animations.
+	 */
+	maxFrameHeight: number;
 	objectUrls: string[];
 }
 
@@ -523,6 +534,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 
 	const bySlot: Record<string, WeightedReaction[]> = {};
 	const byId: Record<string, WeightedReaction> = {};
+	let maxFrameHeight = 1;
 
 	for (const anim of file.animations) {
 		if (!anim.sourceImage || anim.frames.length === 0) continue;
@@ -545,6 +557,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 			// regardless of enabled/assigned state; actually eligible for
 			// normal trigger-driven play is a stricter bar.
 			byId[anim.id] = resolved;
+			for (const f of anim.frames) if (f.h > maxFrameHeight) maxFrameHeight = f.h;
 			if (anim.enabled && anim.triggers.length > 0) {
 				for (const trigger of anim.triggers) {
 					(bySlot[trigger] ??= []).push(resolved);
@@ -610,7 +623,7 @@ export async function loadCharacter(vault: Vault, folderPath: string): Promise<L
 		return null;
 	}
 
-	return { name: file.name, bySlot, byId, objectUrls };
+	return { name: file.name, bySlot, byId, maxFrameHeight, objectUrls };
 }
 
 export function revokeSpritePack(pack: LoadedSpritePack | null): void {

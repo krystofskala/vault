@@ -66,6 +66,14 @@ background - just don't set the tolerance so high it starts eating the
 character too. Overwrites the image in place (same filename), so animations
 already built from it keep working.
 
+Different animations' frames are rarely detected at exactly the same
+height (a crouch is genuinely shorter than a standing pose, and auto-detect
+crops each animation to its own silhouette) - the character is scaled
+against its single tallest frame across every animation it has, not each
+animation's own tallest frame, so its size stays consistent and shorter
+poses render shorter in proportion, rather than every pose independently
+stretching up to fill the configured Size.
+
 Add a new empty animation any time from the **Animations** list in the main
 settings tab ("New animation" - pick a source image, it appears in the list
 immediately, ready for "Edit frames…" to fill it in), and delete one via the

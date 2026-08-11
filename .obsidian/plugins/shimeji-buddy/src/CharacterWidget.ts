@@ -225,11 +225,22 @@ function pointOnRegionPerimeter(
 	const perimeter = 2 * topLen + 2 * sideLen;
 	if (perimeter <= 0) return null;
 
+	// Walking the left/right sides rotates the character +/-90 degrees (see
+	// rotationForSide) to face the edge, which swaps its visual footprint
+	// (charHeight becomes the on-screen width) around the box's own center -
+	// but the box's actual layout width/height never changes, since CSS
+	// transforms are purely visual and don't affect it. Left uncompensated,
+	// the rotated visual - now wider than the box it's centered in - pokes
+	// out past the true edge instead of touching it. This shifts the box
+	// inward by half the width/height difference so it's the ROTATED
+	// visual's outer edge that lands on the target line, not the box's own.
+	const sideInset = (charHeight - charWidth) / 2;
+
 	const s = (((t % 1) + 1) % 1) * perimeter;
 	if (s < topLen) return { left: left + s, top, side: "top" };
-	if (s < topLen + sideLen) return { left: right, top: top + (s - topLen), side: "right" };
+	if (s < topLen + sideLen) return { left: right - sideInset, top: top + (s - topLen), side: "right" };
 	if (s < topLen * 2 + sideLen) return { left: right - (s - topLen - sideLen), top: bottom, side: "bottom" };
-	return { left, top: bottom - (s - topLen * 2 - sideLen), side: "left" };
+	return { left: left + sideInset, top: bottom - (s - topLen * 2 - sideLen), side: "left" };
 }
 
 /** CSS rotation so the character's feet point toward whichever perimeter side it's walking, like a bug crawling around a picture frame. */
@@ -731,13 +742,19 @@ export class CharacterWidget {
 		this.spriteStageEl.style.display = "block";
 		this.spriteStageEl.toggleClass("sm-facing-left", this.facingLeft);
 
-		// Frames on hand-packed sheets can vary in size (e.g. a crouch frame
-		// shorter than a stand frame). Scale relative to the tallest frame in
-		// this animation so the character's overall size stays consistent,
-		// and anchor each frame bottom-center within a fixed-size stage so
-		// switching frames doesn't make the whole widget jump around.
+		// Auto-detected frames on hand-packed sheets can vary in height
+		// between animations, not just within one (a crouch pose is
+		// genuinely shorter than a standing one) - scaling each animation
+		// independently against its OWN tallest frame would stretch every
+		// pose up to fill the configured Size regardless, making the
+		// character's apparent height jump around between animations. Scale
+		// against the character's shared tallest frame (pack.maxFrameHeight)
+		// instead, so only its tallest pose exactly fills Size and shorter
+		// poses render shorter, in proportion - and anchor each frame
+		// bottom-center within a fixed-size stage so switching frames within
+		// one animation doesn't make the widget jump around either.
 		const renderedSize = computeResponsiveSize(this.settings.size);
-		const scale = renderedSize / maxFrameHeight;
+		const scale = renderedSize / (this.pack?.maxFrameHeight ?? maxFrameHeight);
 
 		this.spriteStageEl.style.width = `${maxFrameWidth * scale}px`;
 		this.spriteStageEl.style.height = `${maxFrameHeight * scale}px`;
