@@ -178,6 +178,9 @@ export class Stage {
 		if (this.mascots.length >= this.opts.maxMascots) return undefined;
 		const viewport = this.environment.getViewportSize();
 		const mascot = this.createMascot(x ?? viewport.width / 2, y ?? DEFAULT_SPAWN_Y);
+		// Real Breed.breed(): `mascot.setLookRight(getMascot().isLookRight())` — a new sibling
+		// always starts facing the same way its parent was, not the engine's usual default.
+		if (parent) mascot.physics.facing = parent.physics.facing;
 		this.mascots.push(mascot);
 		this.container.appendChild(mascot.el);
 		this.opts.onMascotCreated?.(mascot, bornBehaviorName, parent);

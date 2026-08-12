@@ -144,9 +144,13 @@ export class Mascot {
 	}
 
 	/** Breed: requests an independent sibling mascot at an offset from this one's current
-	 * position, optionally starting it directly on a named behavior (BornBehavior). */
+	 * position, optionally starting it directly on a named behavior (BornBehavior). Real
+	 * Breed.breed(): `lookRight ? (x - BornX) : (x + BornX)` — BornX is authored relative to
+	 * facing direction (e.g. "spawn slightly behind me"), not a fixed screen-space offset, so it
+	 * flips sign when facing right. BornY is never flipped. */
 	requestSibling(offsetX: number, offsetY: number, bornBehaviorName?: string): void {
-		this.deps.spawnSibling?.(this.physics.x + offsetX, this.physics.y + offsetY, bornBehaviorName, this);
+		const signedOffsetX = this.physics.facing === 1 ? -offsetX : offsetX;
+		this.deps.spawnSibling?.(this.physics.x + signedOffsetX, this.physics.y + offsetY, bornBehaviorName, this);
 	}
 
 	/** Jumps this mascot straight to a named behavior (right-click menu, Breed's BornBehavior). */

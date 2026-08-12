@@ -134,6 +134,35 @@ export function tickFall(args: TickArgs): { landed: boolean } {
 	return { landed };
 }
 
+/**
+ * Faithful port of the real engine's Jump.tick() — not a ballistic gravity arc (which is what
+ * this used to be here): a constant-speed straight-line move toward the target, its own
+ * direction vector recomputed fresh every tick from the *current* position, not a one-shot
+ * initial velocity set once at the start. The real trick that makes it look like a hop despite
+ * being dead straight-line motion at constant speed: `dy` subtracts half the remaining
+ * horizontal distance, biasing the direction steeply upward while there's still a lot of ground
+ * to cover left/right, and leveling out as it closes in — never any actual acceleration
+ * involved. Snaps exactly onto the target and reports done once within one step of it.
+ */
+export function tickJump(physics: MascotPhysics, targetX: number, targetY: number, speed: number): boolean {
+	physics.facing = physics.x < targetX ? 1 : -1;
+	const dx = targetX - physics.x;
+	const dy = targetY - physics.y - Math.abs(dx) / 2;
+	const distance = Math.hypot(dx, dy);
+	if (distance !== 0) {
+		physics.x += (speed * dx) / distance;
+		physics.y += (speed * dy) / distance;
+	}
+	physics.grounded = false;
+	physics.currentFloor = undefined;
+	if (distance <= speed) {
+		physics.x = targetX;
+		physics.y = targetY;
+		return true;
+	}
+	return false;
+}
+
 export interface WalkState {
 	direction: 1 | -1;
 	remaining: number;

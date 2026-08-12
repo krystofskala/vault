@@ -79,6 +79,52 @@ immediately on overshoot, a minor animation-completeness difference, not a posit
 likely drives it from raw OS mouse-move events rather than anything visible in the
 config/behavior source read so far).
 
+**A second pass, going past the pieces that had visible bugs into the rest of the source**
+(`action/Look.java`, `action/Jump.java`, `action/Breed.java`, and `BorderedAction`/
+`UserBehavior.next()`'s `LostGroundException` handling) turned up four more real divergences:
+
+- **`Look` had the wrong default entirely**: ours picked `LookRight` by comparing the mascot to
+  the ambient pointer ("face the cursor") whenever a `<Look/>` step omitted the attribute. The
+  real `Look.apply()` is `setLookRight(eval("LookRight", Boolean.class,
+  !mascot.isLookRight()))` — the default is *toggle whichever way I'm currently facing*, nothing
+  to do with the cursor. Scripted sequences place a bare `<Look/>` between segments specifically
+  to rely on that toggle for their own authored turns (e.g. `ClimbAlongWall` switching from
+  climbing up to moving along the ceiling); with the invented cursor-facing default, that turn
+  silently did nothing whenever the mascot already happened to be facing the cursor's side.
+- **`Jump` was a reinvented ballistic arc, not the real algorithm**: ours gave it one initial
+  velocity, same as `Fall`, and let gravity take over. The real `Jump.java` isn't gravity-driven
+  at all — every tick it recomputes a fresh vector straight at the target (`dx = targetX - x;
+  dy = targetY - y - abs(dx) / 2`; that `-abs(dx)/2` term fakes an arc shape with a fixed
+  vertical bias, not real gravity) and moves at a constant speed along it, snapping exactly onto
+  the target once within one step's distance. Ported as `tickJump`, now called every tick with
+  the live `TargetX`/`TargetY` locals (previously only read once, as a start effect, so the
+  target could never track anything moving) and `VelocityParam` (default 20).
+- **`Breed` had three real gaps**: `BornX` never flipped sign with facing, so a pack authored
+  assuming "spawn slightly behind me" (`lookRight ? x - BornX : x + BornX` in the real
+  `breed()`) spawned every sibling on a fixed screen side regardless of which way the parent was
+  actually facing. The sibling never inherited the parent's current facing
+  (`setLookRight(getMascot().isLookRight())` in the same method) so it always started at the
+  engine's default instead. And breeding fired the instant the behavior started rather than
+  `getTime() == getAnimation().getDuration() - 1` — one tick before the whole birth animation
+  finishes — so the sibling used to appear before its parent had even finished playing the birth
+  pose.
+- **The `LostGroundException` recovery from the first pass only covered `Move`**: the real
+  `BorderedAction` base class behind `Move`, `Stay`, *and* `Animate` checks
+  `getBorder().isOn(anchor)` identically in all three, so a `Stay`/`Animate` step glued to a
+  wall or ceiling (e.g. `GrabWall`'s own `Stay`) can lose its border and should fall exactly
+  like a climbing `Move` can — only `tickMove` had the check. `tickHold` (the `Stay`/`Animate`
+  path) now shares the same check, run *before* advancing the pose rather than after, matching
+  the real check-then-tick order.
+
+Also confirmed, while reading `Regist.java` (`Resisting`, nested inside `Dragged`) for the above:
+it has its own `hasNext()` (ends once the cursor moves more than 5px from the drag anchor) and
+throws `LostGroundException` into a forced `Fall` once its own animation completes while the
+cursor still hasn't moved. Left unported — this engine renders Dragged/Pinched/Resisting through
+a separate live-preview path (`PackDriver.renderState`) that doesn't run the action interpreter
+during an actual drag at all, so neither mechanic has a tick loop to hook into without a
+structural change to how dragging is rendered. `Resisting` stays effectively unreachable, same
+as before this pass — a documented gap, not a new one.
+
 - **A real `actions.xml`/`behaviors.xml` interpreter**, verified directly against the actual
   standard shimeji-ee conf files (checked into `Shimeji/conf/`) — Sequence/Select/Animate/
   Move/Embedded actions, condition-gated Animation variants (e.g. ClimbWall's up-vs-down
@@ -156,11 +202,11 @@ config/behavior source read so far).
   directly. A custom entry with the same name as a standard one replaces it, and it's built
   into the exact same `ActionDef`/`BehaviorDef` shape the real XML parser produces (see
   `CustomContentBuilder`), so it runs through the identical interpreter rather than a separate
-  code path. Auditing the real schema for this surfaced two small interpreter gaps, now fixed:
-  an unrecognized `Regist` embedded class (the real pack's struggle animation nested inside
-  `Dragged`) was falling back to gravity instead of just holding its pose in place, and `Jump`
-  was logging a spurious "unrecognized embedded action" warning despite already behaving
-  correctly (an initial arc velocity, then plain gravity, same as `Fall`).
+  code path. Auditing the real schema for this surfaced a small interpreter gap, now fixed: an
+  unrecognized `Regist` embedded class (the real pack's struggle animation nested inside
+  `Dragged`) was falling back to gravity instead of just holding its pose in place. (`Jump` was
+  also flagged here as unrecognized at the time; that's fixed too, but as part of the physics
+  rewrite below, not this interpreter-recognition pass — see the second audit pass above.)
 - **Mobile**: dragging is already built on Pointer Events, which cover touch, and pack loading
   already goes through the cross-platform vault adapter API rather than Node's `fs`, so most
   of this needed no changes. The one real gap — no right-click on a touchscreen — is closed

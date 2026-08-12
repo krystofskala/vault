@@ -4,6 +4,7 @@ import {
 	clampToCeiling,
 	clampToWalls,
 	tickDragFootX,
+	tickJump,
 	updateWallCeilingAdherence,
 	type TickArgs,
 } from "../src/engine/nativeBehaviors";
@@ -120,6 +121,65 @@ describe("tickDragFootX", () => {
 		const movingLeft = tickDragFootX(0, 0, -500);
 		expect(movingLeft.footX).toBeLessThan(0);
 		expect(movingLeft.footX).toBeGreaterThan(-500);
+	});
+});
+
+describe("tickJump", () => {
+	// Faithful port of the real engine's Jump.tick(): NOT gravity-driven at all — a
+	// constant-speed straight-line move toward the target, recomputed fresh every tick, with
+	// dy skewed by -|dx|/2 to fake an arc shape despite the motion being dead straight-line.
+	it("moves in a straight line toward the target at the given speed, not a parabolic arc", () => {
+		const physics = physicsAt(0, 0);
+		const done = tickJump(physics, 100, 0, 20);
+		expect(done).toBe(false);
+		// dx=100, dy=0-0-50=-50 (the arc-fake skew), distance=hypot(100,-50)≈111.8.
+		// x moves by 20*100/111.8≈17.9, y moves by 20*-50/111.8≈-8.9 (upward).
+		expect(physics.x).toBeCloseTo(17.9, 1);
+		expect(physics.y).toBeCloseTo(-8.9, 1);
+	});
+
+	it("faces toward the target", () => {
+		const rightward = physicsAt(0, 0);
+		rightward.facing = -1;
+		tickJump(rightward, 100, 0, 20);
+		expect(rightward.facing).toBe(1);
+
+		const leftward = physicsAt(0, 0);
+		leftward.facing = 1;
+		tickJump(leftward, -100, 0, 20);
+		expect(leftward.facing).toBe(-1);
+	});
+
+	it("clears grounded — a jump is always airborne", () => {
+		const physics = physicsAt(0, 0);
+		physics.grounded = true;
+		tickJump(physics, 100, 0, 20);
+		expect(physics.grounded).toBe(false);
+	});
+
+	it("snaps exactly onto the target and reports done once within one step of it", () => {
+		const physics = physicsAt(95, -5); // close enough that distance <= speed(20)
+		const done = tickJump(physics, 100, 0, 20);
+		expect(done).toBe(true);
+		expect(physics.x).toBe(100);
+		expect(physics.y).toBe(0);
+	});
+
+	it("reports done immediately when already exactly at the target", () => {
+		const physics = physicsAt(100, 0);
+		const done = tickJump(physics, 100, 0, 20);
+		expect(done).toBe(true);
+		expect(physics.x).toBe(100);
+		expect(physics.y).toBe(0);
+	});
+
+	it("eventually arrives at the target over repeated ticks from a real distance", () => {
+		const physics = physicsAt(0, 0);
+		let done = false;
+		for (let i = 0; i < 100 && !done; i++) done = tickJump(physics, 300, -50, 20);
+		expect(done).toBe(true);
+		expect(physics.x).toBe(300);
+		expect(physics.y).toBe(-50);
 	});
 });
 

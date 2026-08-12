@@ -1,7 +1,7 @@
 import { findCeilingAt } from "../engine/Ledges";
 import type { Mascot } from "../engine/Mascot";
 import { applyGravityAndLand, findClingableWall } from "../engine/nativeBehaviors";
-import type { EngineConfig, Ledge } from "../engine/types";
+import type { EngineConfig, Ledge, MascotPhysics } from "../engine/types";
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "./constants";
 import { evaluate, evaluateCondition, parseParamValue, withLocals, type ExprContext, type ExprValue } from "./Expression";
 import { applyNativeEmbedded } from "./nativeAdapter";
@@ -127,7 +127,7 @@ export class ActionRunner {
 	}
 
 	private applyEmbeddedStartEffects(def: ActionDef, frame: Frame, env: PushEnv): void {
-		const { mascot, ambient, config } = env;
+		const { mascot } = env;
 		const initialVX = numOrUndefined(frame.locals.InitialVX);
 		const initialVY = numOrUndefined(frame.locals.InitialVY);
 		if (initialVX !== undefined) mascot.physics.vx = initialVX * SHIMEJI_TICKS_PER_SEC;
@@ -141,22 +141,18 @@ export class ActionRunner {
 				frame.instantComplete = true;
 				break;
 			case "Look": {
+				// Real Look.apply(): `eval(PARAMETER_LOOKRIGHT, Boolean.class,
+				// !getMascot().isLookRight())` — when LookRight is omitted, the default isn't
+				// "face the cursor", it's "flip whichever way I'm currently facing". Real
+				// sequences lean on this to turn mid-maneuver regardless of the mouse (e.g.
+				// ClimbAlongWall's own bare `<Look/>` between climbing up and along the ceiling).
 				const lookRight = frame.locals.LookRight;
-				mascot.physics.facing = typeof lookRight === "boolean" ? (lookRight ? 1 : -1) : ambient.x >= mascot.physics.x ? 1 : -1;
+				mascot.physics.facing = typeof lookRight === "boolean" ? (lookRight ? 1 : -1) : mascot.physics.facing === 1 ? -1 : 1;
 				frame.instantComplete = true;
 				break;
 			}
-			case "Jump": {
-				const targetX = numOrUndefined(frame.locals.TargetX) ?? mascot.physics.x;
-				const targetY = numOrUndefined(frame.locals.TargetY) ?? mascot.physics.y;
-				const dx = targetX - mascot.physics.x;
-				const dy = targetY - mascot.physics.y;
-				const flightSeconds = Math.max(0.25, Math.sqrt((2 * Math.max(40, Math.abs(dy))) / config.gravity));
-				mascot.physics.vx = dx / flightSeconds;
-				mascot.physics.vy = (dy - 0.5 * config.gravity * flightSeconds * flightSeconds) / flightSeconds;
-				mascot.physics.grounded = false;
-				break;
-			}
+			// Jump has no one-shot "start" effect in the real engine — every tick recomputes its
+			// own direction vector fresh from the current position, see tickEmbedded/nativeAdapter.
 		}
 	}
 
@@ -255,12 +251,32 @@ export class ActionRunner {
 		applyGravityAndLand({ physics: env.mascot.physics, ledges, dt, config: env.config });
 	}
 
+	/** Shared by tickMove and tickHold: real Move/Stay/Animate.tick() all check this identically
+	 * right after sticking to their border (see BorderedAction.tick()) — if a Wall/Ceiling
+	 * border has genuinely vanished (not just moved), that's the real engine's
+	 * LostGroundException, caught by BehaviorAI to force Fall (see the lostGround getter). Floor
+	 * border types aren't handled here at all — they re-anchor via stickToFloorIfBordered
+	 * instead, which always finds *some* floor (the window's own, at minimum). */
+	private isBorderLost(borderType: string | undefined, ledges: Ledge[], physics: MascotPhysics): boolean {
+		if (borderType === "Wall") return findClingableWall(ledges, physics, LOST_GROUND_REACH) === undefined;
+		if (borderType === "Ceiling") return findCeilingAt(ledges, physics.x, physics.y, LOST_GROUND_REACH) === undefined;
+		return false;
+	}
+
 	private tickHold(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		const poses = frame.poses;
 		if (poses.length === 0) return true;
+		const physics = env.mascot.physics;
+		if (frame.action.borderType === "Wall" || frame.action.borderType === "Ceiling") {
+			if (this.isBorderLost(frame.action.borderType, ledges, physics)) {
+				this.lostGroundFlag = true;
+				return true;
+			}
+		} else {
+			this.stickToFloorIfBordered(frame, env, dt, ledges);
+		}
 		const pose = poses[frame.poseIndex];
 		this.showPose(env.mascot, pose);
-		this.stickToFloorIfBordered(frame, env, dt, ledges);
 
 		const durationOverride = numOrUndefined(frame.locals.Duration);
 		const effectiveDuration = durationOverride !== undefined && poses.length === 1 ? durationOverride * SHIMEJI_TICK_MS : pose.durationMs;
@@ -289,15 +305,7 @@ export class ActionRunner {
 		// started, so `mascot.environment.floor.isOn(...)` would keep reporting true (and
 		// floor-only behaviors selectable) the whole time the mascot is actually up a wall.
 		if (frame.action.borderType === "Wall" || frame.action.borderType === "Ceiling") {
-			// Faithful to the real engine's LostGroundException (BorderedAction/Move.tick()):
-			// if the border being climbed is no longer there — a pane closed, or drift carried
-			// the mascot off its span — abort immediately rather than keep moving against
-			// nothing. See the lostGround getter, consumed by BehaviorAI to force Fall.
-			const stillOnBorder =
-				frame.action.borderType === "Wall"
-					? findClingableWall(ledges, physics, LOST_GROUND_REACH) !== undefined
-					: findCeilingAt(ledges, physics.x, physics.y, LOST_GROUND_REACH) !== undefined;
-			if (!stillOnBorder) {
+			if (this.isBorderLost(frame.action.borderType, ledges, physics)) {
 				this.lostGroundFlag = true;
 				return true;
 			}
@@ -358,15 +366,29 @@ export class ActionRunner {
 	 * Action itself, like Falling's Gravity/RegistanceX — not ActionReference-overridable
 	 * locals in any real pack), optionally started directly on a BornBehavior. The action's
 	 * own multi-Pose birth animation (e.g. shime38->41) then just plays out like a held pose,
-	 * non-looping, exactly as tickHold would.
+	 * non-looping, exactly as tickHold would. Real Breed.tick(): `getTime() ==
+	 * getAnimation().getDuration() - 1` — breeds one tick before the whole birth animation
+	 * finishes (so the parent visibly plays through the birth pose first), not the instant it
+	 * starts. requestSibling itself applies BornX's real facing-dependent sign flip.
 	 */
 	private tickBreed(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
-		if (!frame.bredAlready) {
-			frame.bredAlready = true;
-			const params = frame.action.params;
-			const bornX = parseFloat(params.BornX ?? "0") || 0;
-			const bornY = parseFloat(params.BornY ?? "0") || 0;
-			env.mascot.requestSibling(bornX, bornY, params.BornBehavior);
+		const poses = frame.poses;
+		if (!frame.bredAlready && poses.length > 0) {
+			const totalDurationMs = poses.reduce((sum, p) => sum + p.durationMs, 0);
+			const elapsedBeforeCurrentPose = poses.slice(0, frame.poseIndex).reduce((sum, p) => sum + p.durationMs, 0);
+			const elapsedMs = elapsedBeforeCurrentPose + frame.poseElapsedMs;
+			// "About to finish" (this tick's own upcoming tickHold call would complete the whole
+			// animation), not a fixed narrow window before the end — a window sized to one fixed
+			// tick can get stepped clean over if dt doesn't divide it evenly, missing every
+			// sample either side of it. This can't: it's derived from the same dt as the
+			// tickHold call immediately below, so it always catches the true last tick.
+			if (elapsedMs + dt * 1000 >= totalDurationMs) {
+				frame.bredAlready = true;
+				const params = frame.action.params;
+				const bornX = parseFloat(params.BornX ?? "0") || 0;
+				const bornY = parseFloat(params.BornY ?? "0") || 0;
+				env.mascot.requestSibling(bornX, bornY, params.BornBehavior);
+			}
 		}
 		return this.tickHold(frame, env, dt, ledges);
 	}
@@ -379,7 +401,20 @@ export class ActionRunner {
 		}
 		const raw = frame.action.embeddedName ?? frame.action.name;
 		const mapped = raw === "FallWithIE" || raw === "ThrowIE" ? "Fall" : raw;
-		return applyNativeEmbedded(mapped, env.mascot, dt, ledges, env.ambient, env.config, frame.action.params);
+		// Jump needs TargetX/TargetY fresh every tick (real Jump.tick() recomputes its own
+		// direction vector from the current position each time, not a one-shot initial
+		// velocity) — everything else ignores these.
+		return applyNativeEmbedded(
+			mapped,
+			env.mascot,
+			dt,
+			ledges,
+			env.ambient,
+			env.config,
+			frame.action.params,
+			numOrUndefined(frame.locals.TargetX),
+			numOrUndefined(frame.locals.TargetY),
+		);
 	}
 
 	private showPose(mascot: Mascot, pose: PoseDef): void {

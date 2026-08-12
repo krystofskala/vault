@@ -279,6 +279,98 @@ describe("ActionRunner", () => {
 		expect(done).toBe(false);
 		expect(runner.lostGround).toBe(false);
 	});
+
+	it("aborts and flags lostGround if a Wall-bordered Stay's wall vanishes (real GrabWall's own Stay+BorderType=Wall pairing)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["GrabWall", action({ name: "GrabWall", type: "Stay", borderType: "Wall", animations: animOf([{ image: "/grab.png", durationMs: 100000 }]) })],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 500; // nowhere near any wall
+		mascot.physics.y = 500;
+		const env = envFor(pack, mascot);
+		runner.start("GrabWall", env);
+
+		const done = runner.tick(env, 0.02, []);
+		expect(done).toBe(true);
+		expect(runner.lostGround).toBe(true);
+	});
+
+	it("does not flag lostGround for a Wall-bordered Stay while its wall is still there", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["GrabWall", action({ name: "GrabWall", type: "Stay", borderType: "Wall", animations: animOf([{ image: "/grab.png", durationMs: 100000 }]) })],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 0;
+		mascot.physics.y = 500;
+		const env = envFor(pack, mascot);
+		const ledges = [{ kind: "wall" as const, side: "left" as const, x: 0, y1: 0, y2: 1000, source: "window" as const }];
+		runner.start("GrabWall", env);
+
+		const done = runner.tick(env, 0.02, ledges);
+		expect(done).toBe(false);
+		expect(runner.lostGround).toBe(false);
+	});
+
+	it("Look with no LookRight override toggles current facing, not 'face the cursor' (real Look.apply()'s own default)", () => {
+		const pack: MascotPack = { ...NOOP_PACK, actions: new Map([["Look", action({ name: "Look", type: "Embedded", embeddedName: "Look" })]]) };
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.facing = 1;
+		mascot.physics.x = 500;
+		const env = envFor(pack, mascot);
+		// Ambient cursor is far to the left — if the old "face the cursor" default were still in
+		// effect, this would end up facing -1; the real default just flips whatever it already was.
+		env.ambient.x = 0;
+		runner.start("Look", env);
+		runner.tick(env, 0.02, []);
+		expect(mascot.physics.facing).toBe(-1);
+
+		const mascot2 = makeFakeMascot();
+		mascot2.physics.facing = -1;
+		const env2 = envFor(pack, mascot2);
+		runner.start("Look", env2);
+		runner.tick(env2, 0.02, []);
+		expect(mascot2.physics.facing).toBe(1);
+	});
+
+	it("Look with an explicit LookRight override still respects it directly", () => {
+		const pack: MascotPack = { ...NOOP_PACK, actions: new Map([["Look", action({ name: "Look", type: "Embedded", embeddedName: "Look" })]]) };
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.facing = 1;
+		const env = envFor(pack, mascot);
+		runner.start("Look", env, { LookRight: "false" });
+		runner.tick(env, 0.02, []);
+		expect(mascot.physics.facing).toBe(-1);
+	});
+
+	it("a Jump action reaches its TargetX/TargetY, moving in a straight line rather than a gravity arc", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([["Jumping", action({ name: "Jumping", type: "Embedded", embeddedName: "Jump", params: { VelocityParam: "20" } })]]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 0;
+		mascot.physics.y = 0;
+		const env = envFor(pack, mascot);
+		runner.start("Jumping", env, { TargetX: "300", TargetY: "-50" });
+
+		let done = false;
+		for (let i = 0; i < 100 && !done; i++) done = runner.tick(env, 0.02, []);
+		expect(done).toBe(true);
+		expect(mascot.physics.x).toBe(300);
+		expect(mascot.physics.y).toBe(-50);
+		expect(mascot.physics.grounded).toBe(false);
+	});
 });
 
 describe("BehaviorAI", () => {

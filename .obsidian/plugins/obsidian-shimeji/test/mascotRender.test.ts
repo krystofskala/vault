@@ -138,3 +138,35 @@ describe("Mascot renderer", () => {
 		expect(mascot.isBeingDragged).toBe(false);
 	});
 });
+
+describe("Mascot.requestSibling (Breed)", () => {
+	// Real Breed.breed(): `lookRight ? (x - BornX) : (x + BornX)` — BornX is authored relative
+	// to which way the parent is facing (e.g. "spawn slightly behind me"), not a fixed
+	// screen-space offset, so it flips sign when facing right. Missing this spawned every
+	// sibling on the wrong side whenever the parent happened to be facing right.
+	it("negates the x offset when facing right (real BornX sign flip)", () => {
+		let requested: { x: number; y: number } | undefined;
+		const mascot = new Mascot(makeDeps({ spawnSibling: (x, y) => (requested = { x, y }) }), 400, 300);
+		mascot.physics.facing = 1;
+		mascot.requestSibling(-32, 96);
+		expect(requested).toEqual({ x: 400 + 32, y: 300 + 96 });
+	});
+
+	it("uses the x offset as-is when facing left", () => {
+		let requested: { x: number; y: number } | undefined;
+		const mascot = new Mascot(makeDeps({ spawnSibling: (x, y) => (requested = { x, y }) }), 400, 300);
+		mascot.physics.facing = -1;
+		mascot.requestSibling(-32, 96);
+		expect(requested).toEqual({ x: 400 - 32, y: 300 + 96 });
+	});
+
+	it("never flips the y offset, regardless of facing", () => {
+		const seen: number[] = [];
+		const mascot = new Mascot(makeDeps({ spawnSibling: (_x, y) => seen.push(y) }), 0, 0);
+		mascot.physics.facing = 1;
+		mascot.requestSibling(0, 50);
+		mascot.physics.facing = -1;
+		mascot.requestSibling(0, 50);
+		expect(seen).toEqual([50, 50]);
+	});
+});

@@ -1,4 +1,4 @@
-import { applyGravityAndLand, tickChaseMouse, tickFall, tickThrown } from "../engine/nativeBehaviors";
+import { applyGravityAndLand, tickChaseMouse, tickFall, tickJump, tickThrown } from "../engine/nativeBehaviors";
 import type { EngineConfig, Ledge, MascotPhysics } from "../engine/types";
 import type { Mascot } from "../engine/Mascot";
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "./constants";
@@ -19,6 +19,9 @@ const TICK_SECONDS = SHIMEJI_TICK_MS / 1000;
 const DEFAULT_REGISTANCE_X = 0.05;
 const DEFAULT_REGISTANCE_Y = 0.1;
 const DEFAULT_GRAVITY = 2;
+// Real Jump.java: "An Action Attribute is already named Velocity" (the per-pose one), so the
+// jump speed parameter is specifically "VelocityParam" instead, defaulting to 20 (px/tick).
+const DEFAULT_JUMP_VELOCITY = 20;
 
 function paramOrDefault(params: Record<string, string> | undefined, key: string, fallback: number): number {
 	const raw = params?.[key];
@@ -62,6 +65,8 @@ export function applyNativeEmbedded(
 	ambient: { x: number; y: number },
 	config: EngineConfig,
 	params?: Record<string, string>,
+	targetX?: number,
+	targetY?: number,
 ): boolean {
 	switch (name) {
 		case "Fall": {
@@ -79,12 +84,12 @@ export function applyNativeEmbedded(
 			return tickChaseMouse({ physics: mascot.physics, ledges, dt, config }, ambient);
 		case "Dragged":
 			return true;
-		// Jump only sets an initial arc velocity (see applyEmbeddedStartEffects, run once when
-		// the action starts) and otherwise behaves exactly like Fall — the same "just apply
-		// gravity" fallback as the default case below, but without its "unrecognized" warning,
-		// since Jump is a real, known embedded class, not an unsupported one.
+		// Real Jump is not gravity-driven at all — see tickJump. TargetX/TargetY come from
+		// the ActionReference site (e.g. JumpFromBottomOfIE's own TargetX/TargetY), recomputed
+		// fresh every tick; default to the mascot's own current position (zero distance, so it
+		// reports done immediately) if somehow neither was ever supplied.
 		case "Jump":
-			return applyGravityAndLand({ physics: mascot.physics, ledges, dt, config });
+			return tickJump(mascot.physics, targetX ?? mascot.physics.x, targetY ?? mascot.physics.y, paramOrDefault(params, "VelocityParam", DEFAULT_JUMP_VELOCITY));
 		default:
 			warnOnce(`unrecognized Embedded action "${name}", falling back to gravity`);
 			return applyGravityAndLand({ physics: mascot.physics, ledges, dt, config });
