@@ -89,6 +89,28 @@ describe("Mascot renderer", () => {
 		expect(inner.style.transform).toBe("scaleX(-1)");
 	});
 
+	it("suppresses the mirror while a drag is in progress, even when facing right", () => {
+		// The real pack's Dragged/Pinched poses are five distinct images chosen by *absolute*
+		// FootX-vs-cursor.x comparison, with no lookRight/facing involved at all — mirroring on
+		// top of that (as every other state correctly does) double-transforms already
+		// direction-specific art, which is what made a steady drag look "stuck" leaning toward
+		// whichever side `facing` last settled on.
+		const mascot = new Mascot(makeDeps(), 100, 200);
+		const inner = mascot.el.firstElementChild as HTMLElement;
+		mascot.physics.facing = 1;
+
+		// jsdom doesn't implement Pointer Events capture at all (see the mobile-support notes in
+		// README) — stub just enough of the real browser API for pointerdown's handler to run
+		// past it without throwing.
+		mascot.el.setPointerCapture = () => {};
+		mascot.el.releasePointerCapture = () => {};
+		mascot.el.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+		expect(mascot.isBeingDragged).toBe(true);
+
+		mascot.render();
+		expect(inner.style.transform).toBe("none");
+	});
+
 	it("update() advances the native fallback state machine and moves the rendered transform", () => {
 		const mascot = new Mascot(makeDeps(), 100, 0);
 		mascot.update(0.05, []); // no ledges to land on: gravity should keep pulling it down

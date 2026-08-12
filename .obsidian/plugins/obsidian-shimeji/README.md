@@ -148,6 +148,18 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   the plugin is the cause — disabling it fixes dragging immediately — but not yet which part
   of it), and a mascot dropped from a height has been reported to visually skip most of the
   fall. Both need real DevTools output from a live window to localize further.
+- **Fixed a second, subtler drag bug the lean-pose fix above had been masking**: `render()`
+  mirrors *every* pose via `scaleX(-1)` based on `physics.facing`, which is correct for Walk
+  (a single left-authored sprite set that needs mirroring to face right) but wrong for
+  Dragged/Pinched — those five poses are chosen by *absolute* `FootX`-vs-`cursor.x` comparison
+  with no `lookRight`/facing anywhere in their conditions, so the art is already
+  direction-specific and doesn't want mirroring on top. Applying it anyway double-transformed
+  the pose, which read as the drag always leaning toward whichever side `facing` (a separate,
+  coarser 90px/s hysteresis) last happened to settle on — regardless of which way the swing was
+  actually pulling — rather than tracking the real drag direction. This was likely always there
+  but hidden by the flicker the lean-pose fix (previous bullet's follow-up, `smoothSwing`) was
+  itself fixing; stabilizing pose selection made the wrong-side mirroring consistent enough to
+  notice instead of lost in the noise. The mirror is now skipped specifically while dragging.
 - **Not visually tested in a live Obsidian window** — this was built in a headless
   container with no GUI; every fix so far has been verified via `tsc`/`vitest`/`esbuild` plus
   tests that exercise the real conf files in `Shimeji/conf/` directly (not just synthetic

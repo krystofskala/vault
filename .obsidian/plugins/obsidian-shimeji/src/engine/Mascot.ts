@@ -431,8 +431,14 @@ export class Mascot {
 		this.inner.style.transformOrigin = `${anchor.x}px ${anchor.y}px`;
 		// facing=1 means "facing/moving right" by convention; real Shimeji-ee artwork is
 		// authored facing left (confirmed by its Walk poses using negative x velocity), so a
-		// rightward-facing mascot is the *mirrored* rendering, not the base one.
-		this.inner.style.transform = this.physics.facing === 1 ? "scaleX(-1)" : "none";
+		// rightward-facing mascot is the *mirrored* rendering, not the base one. NOT while
+		// dragging, though: the real pack's Dragged/Pinched poses are five distinct images
+		// chosen by *absolute* FootX-vs-cursor.x comparison (no lookRight/facing anywhere in
+		// those conditions) — they already encode their own left/right, unlike Walk's single
+		// left-authored sprite set. Mirroring on top of that double-transforms them, which
+		// reads as the drag always leaning toward whichever side `facing` last settled on
+		// (a coarser, independent threshold) rather than tracking the actual swing direction.
+		this.inner.style.transform = this.physics.facing === 1 && !this.isDragging ? "scaleX(-1)" : "none";
 	}
 
 	destroy(): void {
