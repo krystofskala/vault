@@ -15,8 +15,18 @@ function makeFakeMascot() {
 		physics: { x: 0, y: 0, vx: 0, vy: 0, facing: 1 as 1 | -1, grounded: false },
 		stateElapsedMs: 0,
 		shownImages: [] as string[],
+		bredOffsets: [] as Array<{ x: number; y: number; bornBehaviorName?: string }>,
 		setVisualImage(src: string) {
 			this.shownImages.push(src);
+		},
+		requestSibling(x: number, y: number, bornBehaviorName?: string) {
+			this.bredOffsets.push({ x, y, bornBehaviorName });
+		},
+		getViewportSize() {
+			return { width: 1000, height: 1000 };
+		},
+		getTotalMascotCount() {
+			return 1;
 		},
 	};
 }
@@ -52,7 +62,12 @@ const NOOP_PACK: MascotPack = {
 };
 
 function envFor(pack: MascotPack, mascot: ReturnType<typeof makeFakeMascot>): PushEnv {
-	const ctx = createRuntimeContext(mascot.physics, { viewportWidth: 1000, viewportHeight: 1000, pointer: AMBIENT }, 0, new Random(1));
+	const ctx = createRuntimeContext(
+		mascot.physics,
+		{ viewportWidth: 1000, viewportHeight: 1000, pointer: AMBIENT, totalMascotCount: 1 },
+		0,
+		new Random(1),
+	);
 	return { mascot: mascot as unknown as Mascot, ctx, ambient: AMBIENT, config: DEFAULT_ENGINE_CONFIG };
 }
 

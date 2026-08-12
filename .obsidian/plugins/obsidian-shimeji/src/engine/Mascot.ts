@@ -22,13 +22,26 @@ export interface MascotDriver {
 	 * a pack-backed driver still supply its own Dragged/Thrown artwork during/after a drag. */
 	renderState?(mascot: Mascot, state: NativeStateName, elapsedMs: number, ambientPointer: AmbientPointer): boolean;
 	notifyReleased?(mascot: Mascot, wasThrown: boolean, ambientPointer: AmbientPointer): void;
+	/** Jumps straight to a named behavior (e.g. a right-click "Set behavior" menu, or the
+	 * BornBehavior a Breed action starts a new sibling with) instead of the normal weighted pick. */
+	startNamedBehavior?(mascot: Mascot, name: string, ambientPointer: AmbientPointer): void;
+	/** Behavior names this driver can run, for building a "Set behavior" menu generically. */
+	listBehaviorNames?(): string[];
 	onDetach?(mascot: Mascot): void;
 }
 
 export interface MascotDeps {
 	config: EngineConfig;
 	getAmbientPointer: () => AmbientPointer;
+	getViewportSize: () => { width: number; height: number };
+	getTotalMascotCount: () => number;
 	rng: Random;
+	/** Requests a new independent mascot near this one (Breed). Position is an offset from
+	 * this mascot's current position, matching the original's BornX/BornY semantics. `parent`
+	 * is always the requesting mascot itself, passed through so the caller can decide the new
+	 * mascot's pack (e.g. inherit the same character rather than picking a random active one). */
+	spawnSibling?: (x: number, y: number, bornBehaviorName: string | undefined, parent: Mascot) => void;
+	onContextMenu?: (mascot: Mascot, ev: MouseEvent) => void;
 }
 
 export class Mascot {
@@ -43,6 +56,9 @@ export class Mascot {
 	scale = 1;
 	width = PLACEHOLDER_WIDTH;
 	height = PLACEHOLDER_HEIGHT;
+	/** Settings-level "allow dragging" toggle; checked on pointerdown rather than removing the
+	 * listener itself, so flipping it mid-drag can't leave a drag stuck without its pointerup. */
+	dragEnabled = true;
 
 	private driver?: MascotDriver;
 	private walk?: WalkState;
@@ -94,8 +110,32 @@ export class Mascot {
 		return this.isDragging;
 	}
 
+	getViewportSize(): { width: number; height: number } {
+		return this.deps.getViewportSize();
+	}
+
+	getTotalMascotCount(): number {
+		return this.deps.getTotalMascotCount();
+	}
+
+	/** Breed: requests an independent sibling mascot at an offset from this one's current
+	 * position, optionally starting it directly on a named behavior (BornBehavior). */
+	requestSibling(offsetX: number, offsetY: number, bornBehaviorName?: string): void {
+		this.deps.spawnSibling?.(this.physics.x + offsetX, this.physics.y + offsetY, bornBehaviorName, this);
+	}
+
+	/** Jumps this mascot straight to a named behavior (right-click menu, Breed's BornBehavior). */
+	startNamedBehavior(name: string): void {
+		this.driver?.startNamedBehavior?.(this, name, this.deps.getAmbientPointer());
+	}
+
+	listBehaviorNames(): string[] {
+		return this.driver?.listBehaviorNames?.() ?? [];
+	}
+
 	private bindPointerHandlers(): void {
 		this.el.addEventListener("pointerdown", (ev) => {
+			if (!this.dragEnabled) return;
 			ev.preventDefault();
 			this.el.setPointerCapture(ev.pointerId);
 			this.activePointerId = ev.pointerId;
@@ -106,9 +146,12 @@ export class Mascot {
 			// clicked, matching the original app rather than dragging by whatever pixel was
 			// under the cursor (which also throws off the pack's own FootX-vs-cursor lean
 			// poses, since those assume a consistent hold point).
+			// physics.y = pointer.y - grabOffset.y, and image top = physics.y - anchor.y*scale,
+			// so to put the cursor topMarginPx below the image's top edge we need
+			// grabOffset.y = topMarginPx - anchor.y*scale.
 			const anchor = this.getCurrentAnchor();
 			const topMarginPx = 18;
-			this.grabOffset = { x: 0, y: anchor.y * this.scale - topMarginPx };
+			this.grabOffset = { x: 0, y: topMarginPx - anchor.y * this.scale };
 			this.dragTrack = { x: ev.clientX, y: ev.clientY, down: true, history: [{ x: ev.clientX, y: ev.clientY, t: performance.now() }] };
 		});
 		this.el.addEventListener("pointermove", (ev) => {
@@ -119,11 +162,15 @@ export class Mascot {
 			this.dragTrack.history.push({ x: ev.clientX, y: ev.clientY, t: now });
 			// A time window, not a sample count: a fast pointer can fire far more samples per
 			// second than a slow one, and a too-short window on a fast mouse reads pure noise
-			// (hand tremor) as rapid direction changes — see the facing hysteresis in update().
+			// (hand tremor) as rapid direction changes — see the facing hysteresis in simulate().
 			this.dragTrack.history = this.dragTrack.history.filter((s) => now - s.t <= 120);
 		});
 		this.el.addEventListener("pointerup", () => this.finishDrag());
 		this.el.addEventListener("pointercancel", () => this.finishDrag());
+		this.el.addEventListener("contextmenu", (ev) => {
+			ev.preventDefault();
+			this.deps.onContextMenu?.(this, ev);
+		});
 		// Pointer capture is page-level, not real OS mouse capture: if the cursor leaves the
 		// window entirely mid-swing, pointermove/pointerup can stop arriving altogether and
 		// the drag would otherwise get stuck forever wherever it last was (reading as the
@@ -156,13 +203,15 @@ export class Mascot {
 		this.driver?.notifyReleased?.(this, wasThrown, this.deps.getAmbientPointer());
 	}
 
-	/** Called once per frame before rendering. */
-	update(dtSeconds: number, ledges: Ledge[]): void {
+	/** Advances physics/behavior by one fixed simulation step. Does not touch the DOM — call
+	 * `render()` separately (Stage does this once per real frame, possibly after several
+	 * simulate() calls if the display stalled). */
+	simulate(dtSeconds: number, ledges: Ledge[]): void {
 		this.stateElapsedMs += dtSeconds * 1000;
 		const ambient = this.deps.getAmbientPointer();
 
 		if (this.isDragging) {
-			tickDragged(this.physics, this.dragTrack, this.grabOffset, dtSeconds, { width: window.innerWidth, height: window.innerHeight });
+			tickDragged(this.physics, this.dragTrack, this.grabOffset, dtSeconds, this.deps.getViewportSize());
 			// Hysteresis (a dead zone in the middle, not a single threshold both ways): flip
 			// only on a confident swing past a real threshold, so ordinary hand jitter while
 			// moving in one clear direction can't make it flicker back and forth.
@@ -175,6 +224,11 @@ export class Mascot {
 		} else {
 			this.tickNativeFallback(dtSeconds, ledges, ambient);
 		}
+	}
+
+	/** Convenience for callers that don't need simulate()/render() decoupled (e.g. tests). */
+	update(dtSeconds: number, ledges: Ledge[]): void {
+		this.simulate(dtSeconds, ledges);
 		this.render();
 	}
 
@@ -242,7 +296,7 @@ export class Mascot {
 			this.enterState("walk");
 		} else if (roll < 0.65) {
 			this.enterState("sit");
-		} else if (roll < 0.85) {
+		} else if (roll < 0.85 && this.deps.config.chaseMouseEnabled) {
 			this.enterState("chase-mouse");
 		} else if (nearWall) {
 			this.climbDirection = this.deps.rng.chance(0.5) ? "up" : "down";
@@ -292,7 +346,9 @@ export class Mascot {
 		return this.usingImage ? this.imageAnchor : { x: this.width / 2, y: this.height };
 	}
 
-	private render(): void {
+	/** Projects current physics/visual state onto the DOM. Pure one-way: physics state is the
+	 * source of truth, this never reads back from the DOM. */
+	render(): void {
 		const anchor = this.getCurrentAnchor();
 		const left = this.physics.x - anchor.x * this.scale;
 		const top = this.physics.y - anchor.y * this.scale;

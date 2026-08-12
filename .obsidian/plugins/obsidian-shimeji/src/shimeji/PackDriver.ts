@@ -34,9 +34,10 @@ export class PackDriver implements MascotDriver {
 		// Real packs pick between several poses for e.g. Dragged based on how far the mascot
 		// is being swung relative to the pointer (Pinched's FootX-vs-cursor.x conditions), so
 		// this needs a live context, not just a static "first pose found" fallback.
+		const viewport = mascot.getViewportSize();
 		const baseCtx = createRuntimeContext(
 			mascot.physics,
-			{ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, pointer: ambientPointer },
+			{ viewportWidth: viewport.width, viewportHeight: viewport.height, pointer: ambientPointer, totalMascotCount: mascot.getTotalMascotCount() },
 			elapsedMs,
 			this.rng,
 		);
@@ -50,6 +51,14 @@ export class PackDriver implements MascotDriver {
 
 	notifyReleased(mascot: Mascot, wasThrown: boolean, ambientPointer: AmbientPointer): void {
 		this.ai.forceBehavior(wasThrown ? "Thrown" : "Fall", mascot, ambientPointer, this.config);
+	}
+
+	startNamedBehavior(mascot: Mascot, name: string, ambientPointer: AmbientPointer): void {
+		this.ai.forceBehavior(name, mascot, ambientPointer, this.config);
+	}
+
+	listBehaviorNames(): string[] {
+		return Array.from(this.pack.behaviors.keys()).sort((a, b) => a.localeCompare(b));
 	}
 
 	/** "Dragged"/"Thrown" etc. are Sequences composed of other named actions, not leaves with

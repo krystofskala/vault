@@ -24,6 +24,9 @@ interface Frame {
 	poseElapsedMs: number;
 	embeddedElapsedMs: number;
 	instantComplete: boolean;
+	/** Breed only: guards requestSibling so a multi-Pose birth animation spawns exactly one
+	 * sibling on its first tick rather than once per pose frame. */
+	bredAlready: boolean;
 }
 
 const DEFERRED_PARAMS = new Set(["TargetX", "TargetY", "Duration"]);
@@ -87,6 +90,7 @@ export class ActionRunner {
 			poseElapsedMs: 0,
 			embeddedElapsedMs: 0,
 			instantComplete: false,
+			bredAlready: false,
 		};
 
 		if (def.type === "Move" && numOrUndefined(locals.TargetX) !== undefined) {
@@ -164,6 +168,7 @@ export class ActionRunner {
 				return this.tickMove(frame, env, dt, ledges);
 			case "Embedded":
 				if (frame.action.embeddedName === "WalkWithIE") return this.tickMove(frame, env, dt, ledges);
+				if (frame.action.embeddedName === "Breed") return this.tickBreed(frame, env, dt, ledges);
 				return this.tickEmbedded(frame, env, dt, ledges);
 			case "Stay":
 			case "Animate":
@@ -304,6 +309,25 @@ export class ActionRunner {
 			return false;
 		}
 		return true;
+	}
+
+	/**
+	 * Breed (e.g. PullUpShimeji1/Divide1 in the real pack): spawns exactly one independent
+	 * sibling mascot, offset from this one by BornX/BornY (plain numeric attributes on the
+	 * Action itself, like Falling's Gravity/RegistanceX — not ActionReference-overridable
+	 * locals in any real pack), optionally started directly on a BornBehavior. The action's
+	 * own multi-Pose birth animation (e.g. shime38->41) then just plays out like a held pose,
+	 * non-looping, exactly as tickHold would.
+	 */
+	private tickBreed(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
+		if (!frame.bredAlready) {
+			frame.bredAlready = true;
+			const params = frame.action.params;
+			const bornX = parseFloat(params.BornX ?? "0") || 0;
+			const bornY = parseFloat(params.BornY ?? "0") || 0;
+			env.mascot.requestSibling(bornX, bornY, params.BornBehavior);
+		}
+		return this.tickHold(frame, env, dt, ledges);
 	}
 
 	private tickEmbedded(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {

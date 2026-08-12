@@ -148,7 +148,7 @@ export function tickDragged(
 	grabOffset: { x: number; y: number },
 	dt: number,
 	viewport: { width: number; height: number },
-	springPerSecond = 16,
+	springPerSecond = 28,
 ): void {
 	const targetX = pointer.x - grabOffset.x;
 	const targetY = pointer.y - grabOffset.y;

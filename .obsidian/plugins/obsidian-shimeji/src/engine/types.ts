@@ -70,6 +70,10 @@ export interface EngineConfig {
 	climbSpeed: number;
 	dragThrowScale: number;
 	minThrowSpeed: number;
+	/** Settings-level behavior toggle (not a physics tunable, but threaded through the same
+	 * shared config object so both the native fallback state machine and real-pack BehaviorAI
+	 * see a live update without Stage needing a separate policy-config path). */
+	chaseMouseEnabled: boolean;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -78,4 +82,10 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
 	climbSpeed: 70,
 	dragThrowScale: 1,
 	minThrowSpeed: 60,
+	chaseMouseEnabled: true,
 };
+
+/** Shimeji-ee's own engine runs a fixed-timestep loop at this rate; Stage's simulation loop
+ * uses the same step so behavior timing lines up with Duration/Velocity values, which are
+ * themselves ticks of this same clock (see shimeji/constants.ts). */
+export const ENGINE_FIXED_TICK_MS = 40;

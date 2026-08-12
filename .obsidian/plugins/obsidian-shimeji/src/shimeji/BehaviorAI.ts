@@ -2,7 +2,7 @@ import type { Mascot } from "../engine/Mascot";
 import type { Random } from "../engine/Random";
 import type { EngineConfig, Ledge } from "../engine/types";
 import { ActionRunner, type PushEnv } from "./ActionRunner";
-import { evaluateCondition, type ExprContext } from "./Expression";
+import { evaluateCondition } from "./Expression";
 import { createRuntimeContext, type AmbientPointer } from "./RuntimeContext";
 import type { BehaviorDef, MascotPack } from "./types";
 
@@ -43,10 +43,10 @@ export class BehaviorAI {
 		this.chaseMouseCooldownMs -= dt * 1000;
 		const env = this.buildEnv(mascot, ambientPointer, config);
 
-		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(mascot, env.ctx), env);
+		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(mascot, env), env);
 
 		const done = this.runner.isRunning ? this.runner.tick(env, dt, ledges) : true;
-		if (done) this.startBehavior(this.pickNextBehavior(mascot, env.ctx), env);
+		if (done) this.startBehavior(this.pickNextBehavior(mascot, env), env);
 	}
 
 	/** Used for a mouse-drag release: jump straight to the pack's own Fall/Thrown action. */
@@ -58,9 +58,15 @@ export class BehaviorAI {
 	}
 
 	private buildEnv(mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig): PushEnv {
+		const viewport = mascot.getViewportSize();
 		const ctx = createRuntimeContext(
 			mascot.physics,
-			{ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, pointer: ambientPointer },
+			{
+				viewportWidth: viewport.width,
+				viewportHeight: viewport.height,
+				pointer: ambientPointer,
+				totalMascotCount: mascot.getTotalMascotCount(),
+			},
 			mascot.stateElapsedMs,
 			this.rng,
 		);
@@ -77,7 +83,8 @@ export class BehaviorAI {
 	 * Add="true", exclusively (only the transitions count) otherwise, matching real packs
 	 * where e.g. ChaseMouse always leads to SitAndFaceMouse but SitDown can *also* fall back
 	 * to the general pool. */
-	private pickNextBehavior(mascot: Mascot, ctx: ExprContext): BehaviorDef | undefined {
+	private pickNextBehavior(mascot: Mascot, env: PushEnv): BehaviorDef | undefined {
+		const ctx = env.ctx;
 		const transitions = this.currentBehavior?.nextBehaviors ?? [];
 		const additive = transitions.length === 0 || transitions.every((t) => t.add);
 
@@ -92,7 +99,7 @@ export class BehaviorAI {
 			for (const behavior of this.pack.behaviors.values()) {
 				if (evaluateCondition(behavior.condition, ctx)) candidates.push({ item: behavior, weight: behavior.frequency });
 			}
-			if (mascot.physics.grounded && this.chaseMouseCooldownMs <= 0) {
+			if (env.config.chaseMouseEnabled && mascot.physics.grounded && this.chaseMouseCooldownMs <= 0) {
 				const chaseMouse = this.pack.behaviors.get("ChaseMouse");
 				if (chaseMouse) candidates.push({ item: chaseMouse, weight: 30 });
 			}

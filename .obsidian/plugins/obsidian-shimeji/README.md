@@ -41,24 +41,44 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
 - **Approximated, not literal**: the original engine tracks a specific external OS window
   ("activeIE" in its own naming, from its IE-integration history) that mascots can climb on;
   here that concept maps to whichever open pane/status-bar ledge the mascot is currently
-  standing on. Side/underneath tracking of that pane, and the mascot-splitting ("Breed")
-  actions, aren't implemented — a split action just plays its poses without spawning a
-  second mascot (single-mascot by design).
+  standing on. Side/underneath tracking of that pane isn't implemented, only its top as a
+  floor.
+- **Real multiple mascots, including real `Breed`**: `Stage` now runs any number of
+  independent mascots (capped by a settings limit) instead of just one. A pack's own Breed
+  actions (`PullUpShimeji1`/`Divide1` in the real pack, verified against the actual XML) spawn
+  a genuinely new sibling mascot offset by `BornX`/`BornY`, started directly on
+  `BornBehavior` — bypassing weighted selection entirely, the same way Fall/Dragged/Thrown/
+  ChaseMouse do, since `PullUp`/`Divided` are `Frequency="0"` and never any other behavior's
+  `NextBehavior` target either. `mascot.totalCount` (the real pack gates breeding on
+  `totalCount < 50`) now reflects the actual live mascot count instead of always being 1.
+- **The simulation core no longer touches `window`/`document` directly**: `Stage`/`Mascot`/
+  `BehaviorAI` go through an injectable `Environment` interface for viewport size and
+  platform-ledge geometry, and `Stage`'s loop is a fixed-timestep accumulator at the same
+  40ms tick the original engine itself runs, instead of scaling behavior speed with whatever
+  the display's framerate happens to be.
+- **Settings and a right-click menu roughly matching shimeji-ee's own preferences**: which
+  characters are active (multiple at once — each spawn picks one at random), max mascots on
+  screen, auto-spawn count, allow dragging, allow breeding, and chase-the-mouse are all
+  settings now, alongside the original size/pane-ledges/debug-ledges controls. Right-clicking
+  a mascot opens a menu to switch its character, jump it to a specific behavior, duplicate or
+  remove it, remove everyone, or add another.
 - **Not visually tested in a live Obsidian window** — this was built in a headless
   container with no GUI; every fix so far has been verified via `tsc`/`vitest`/`esbuild` plus
   tests that exercise the real conf files in `Shimeji/conf/` directly (not just synthetic
-  fixtures), including one that drives a full BehaviorAI simulation from a fresh spawn. That
-  catches logic bugs but not "does this look/feel right" — pane/status-bar ledge geometry,
-  drag feel, and animation timing are exactly the kind of thing that needs a real window to
-  tune, so please keep reporting anything that looks or feels off.
+  fixtures), including one that drives a full BehaviorAI simulation from a fresh spawn and
+  DOM-level smoke tests that construct a real `Mascot` in jsdom and check its rendered
+  transform/visibility. That catches logic bugs but not "does this look/feel right" —
+  pane/status-bar ledge geometry, drag feel, and animation timing are exactly the kind of
+  thing that needs a real window to tune, so please keep reporting anything that looks or
+  feels off.
 
 ## Using your own artwork
 
 The default pack folder (`Shimeji/`, alongside this README) already has the real, standard
 `conf/actions.xml` + `conf/behaviors.xml` checked in. Drop your 46 images into
 `Shimeji/img/`, named `shime1.png` … `shime46.png` (see `Shimeji/img/DROP_YOUR_PNGS_HERE.txt`),
-then in **Settings → Shimeji Desktop Mascot**: click **Rescan**, pick **Shimeji** from
-**Active pack**.
+then in **Settings → Shimeji Desktop Mascot**: click **Rescan**. Everything found is turned
+on automatically the first time (see the **Characters** section to change that).
 
 For a different or multi-character pack, point **Pack folder** at any vault-relative folder
 laid out the same way:
@@ -84,11 +104,18 @@ what's declared.
 
 ## Commands / UI
 
-- Ribbon icon (cat) and the "Spawn mascot" / "Remove mascot" commands toggle the mascot.
-- "Rescan pack folder" re-reads the pack folder after you add/change files.
-- Settings: pack folder, active pack, size, whether panes/status bar count as extra ledges,
-  a debug overlay that draws the ledges the mascot currently thinks it can stand on, and
-  auto-spawn on startup.
+- Ribbon icon (cat): removes every mascot if any are on screen, otherwise spawns the
+  auto-spawn count.
+- Commands: "Spawn mascot", "Remove mascot" (the most recently spawned one), "Remove all
+  mascots", "Rescan pack folder" (re-reads the pack folder after you add/change files).
+- Right-click a mascot for its own menu: switch its character, jump it straight to a named
+  behavior, duplicate it, remove it, remove everyone, add another, or open plugin settings.
+- Settings: pack folder + rescan; per-character on/off toggles under **Characters** (a new
+  mascot picks randomly among the ones turned on); population controls (spawn/remove-all
+  buttons, max mascots on screen, auto-spawn on startup and how many); behavior toggles
+  (allow dragging, allow breeding, chase-the-mouse); size; whether panes/status bar count as
+  extra ledges; and a debug overlay that draws the ledges mascots currently think they can
+  stand on.
 
 ## Development
 

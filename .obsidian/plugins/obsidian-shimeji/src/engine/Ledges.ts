@@ -30,29 +30,6 @@ export function computeLedgesFromRects(
 	return ledges;
 }
 
-/** DOM-facing collector: finds pane tops and the status bar to use as extra floor ledges. */
-export function collectPlatformRects(root: Document): Array<{ rect: Rect; source: LedgeSource }> {
-	const platforms: Array<{ rect: Rect; source: LedgeSource }> = [];
-
-	const leaves = root.querySelectorAll<HTMLElement>(".workspace-leaf");
-	leaves.forEach((leaf) => {
-		if (leaf.offsetParent === null) return;
-		const r = leaf.getBoundingClientRect();
-		if (r.width === 0 || r.height === 0) return;
-		platforms.push({ rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, source: "pane" });
-	});
-
-	const statusBar = root.querySelector<HTMLElement>(".status-bar");
-	if (statusBar && statusBar.offsetParent !== null) {
-		const r = statusBar.getBoundingClientRect();
-		if (r.width > 0 && r.height > 0) {
-			platforms.push({ rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, source: "statusbar" });
-		}
-	}
-
-	return platforms;
-}
-
 export function findFloorBelow(ledges: Ledge[], x: number, y: number): FloorLedge | undefined {
 	let best: FloorLedge | undefined;
 	for (const ledge of ledges) {

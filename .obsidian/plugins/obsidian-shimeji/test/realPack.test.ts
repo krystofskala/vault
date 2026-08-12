@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { parseActionsXml } from "../src/shimeji/ActionsParser";
 import { parseBehaviorsXml } from "../src/shimeji/BehaviorsParser";
 import { BehaviorAI } from "../src/shimeji/BehaviorAI";
+import { ActionRunner, type PushEnv } from "../src/shimeji/ActionRunner";
+import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
 import { Random } from "../src/engine/Random";
 import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
 import type { Mascot } from "../src/engine/Mascot";
@@ -80,11 +82,16 @@ describe("real standard Shimeji-ee pack", () => {
 		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
 		const ai = new BehaviorAI(pack, new Random(1));
 		const mascot = {
-			// y=40, matching Stage's actual spawn point — not y=0, which coincides with the
+			// y=160, matching Stage's actual spawn point — not y=0, which coincides with the
 			// ceiling ledge's own y-coordinate and would make ceiling.isOn(anchor) look true.
-			physics: { x: 400, y: 40, vx: 0, vy: 0, facing: 1 as const, grounded: false },
+			physics: { x: 400, y: 160, vx: 0, vy: 0, facing: 1 as const, grounded: false },
 			stateElapsedMs: 0,
 			setVisualImage: () => {},
+			// Taller than the y=600 floor below: viewportHeight === floor.y would spuriously
+			// satisfy workArea.bottomBorder.isOn (physics.y >= viewportHeight - EPS) too, which
+			// has nothing to do with what these tests are actually exercising.
+			getViewportSize: () => ({ width: 800, height: 900 }),
+			getTotalMascotCount: () => 1,
 		};
 		const ledges = [{ kind: "floor" as const, y: 600, x1: 0, x2: 800, source: "window" as const }];
 
@@ -93,7 +100,7 @@ describe("real standard Shimeji-ee pack", () => {
 		}
 		// Falling for 1.5s of sim time should have made real downward progress, not left the
 		// mascot stuck sliding around at its spawn height.
-		expect(mascot.physics.y).toBeGreaterThan(50);
+		expect(mascot.physics.y).toBeGreaterThan(170);
 	});
 
 	it("eventually chases the mouse even though ChaseMouse's own Frequency is 0 and it's never a NextBehavior target", () => {
@@ -107,6 +114,11 @@ describe("real standard Shimeji-ee pack", () => {
 			physics: { x: 400, y: 600, vx: 0, vy: 0, facing: 1 as const, grounded: true },
 			stateElapsedMs: 0,
 			setVisualImage: () => {},
+			// Taller than the y=600 floor below: viewportHeight === floor.y would spuriously
+			// satisfy workArea.bottomBorder.isOn (physics.y >= viewportHeight - EPS) too, which
+			// has nothing to do with what these tests are actually exercising.
+			getViewportSize: () => ({ width: 800, height: 900 }),
+			getTotalMascotCount: () => 1,
 		};
 		const ledges = [{ kind: "floor" as const, y: 600, x1: 0, x2: 800, source: "window" as const }];
 
@@ -116,5 +128,47 @@ describe("real standard Shimeji-ee pack", () => {
 			if (ai.currentBehaviorName === "ChaseMouse") sawChaseMouse = true;
 		}
 		expect(sawChaseMouse).toBe(true);
+	});
+
+	it("PullUpShimeji1 (a real Breed action) requests exactly one sibling at its BornX/BornY/BornBehavior, then completes", () => {
+		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
+		const runner = new ActionRunner(pack);
+		const bred: Array<{ x: number; y: number; bornBehaviorName?: string }> = [];
+		const mascot = {
+			physics: { x: 400, y: 600, vx: 0, vy: 0, facing: 1 as const, grounded: true },
+			stateElapsedMs: 0,
+			setVisualImage: () => {},
+			getViewportSize: () => ({ width: 800, height: 900 }),
+			getTotalMascotCount: () => 1,
+			requestSibling: (x: number, y: number, bornBehaviorName?: string) => bred.push({ x, y, bornBehaviorName }),
+		};
+		const env: PushEnv = {
+			mascot: mascot as unknown as Mascot,
+			ctx: createRuntimeContext(
+				mascot.physics,
+				{ viewportWidth: 800, viewportHeight: 900, pointer: { x: 0, y: 0, dx: 0, dy: 0 }, totalMascotCount: 1 },
+				0,
+				new Random(1),
+			),
+			ambient: { x: 0, y: 0 },
+			config: DEFAULT_ENGINE_CONFIG,
+		};
+		runner.start("PullUpShimeji1", env);
+		for (let i = 0; i < 200 && runner.isRunning; i++) runner.tick(env, 0.05, []);
+
+		expect(bred).toEqual([{ x: -32, y: 96, bornBehaviorName: "PullUp" }]);
+		expect(runner.isRunning).toBe(false);
+	});
+
+	it("Divide1's sibling (Divided) is a required-but-orphaned behavior, like Fall/Dragged/Thrown/ChaseMouse", () => {
+		// PullUp/Divided are Frequency=0 and never appear as any other behavior's
+		// NextBehavior target — only reachable via a Breed action's own BornBehavior, the same
+		// "engine triggers it directly" pattern as the four behaviors shimeji-ee always requires.
+		expect(behaviors.get("Divided")?.frequency).toBe(0);
+		expect(behaviors.get("PullUp")?.frequency).toBe(0);
+		for (const behavior of behaviors.values()) {
+			expect(behavior.nextBehaviors.some((n) => n.name === "Divided")).toBe(false);
+			expect(behavior.nextBehaviors.some((n) => n.name === "PullUp")).toBe(false);
+		}
 	});
 });

@@ -13,6 +13,7 @@ export interface RuntimeEnv {
 	viewportWidth: number;
 	viewportHeight: number;
 	pointer: AmbientPointer;
+	totalMascotCount: number;
 }
 
 const warned = new Set<string>();
@@ -112,8 +113,7 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 			case "time":
 				return elapsedMs;
 			case "totalCount":
-				// Single-mascot mode by design; report 1 so "count < N" gates never block.
-				return 1;
+				return env.totalMascotCount;
 			case "environment":
 			case "env":
 				return resolveEnvironment(tail);
