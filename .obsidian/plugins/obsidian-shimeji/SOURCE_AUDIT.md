@@ -124,15 +124,17 @@ Cross-checked every function call actually used across `actions.xml`/`behaviors.
 |---|---|---|
 | `Manager.java` | ✅ | Fixed 40ms tick (matches `ENGINE_FIXED_TICK_MS`), pending-add/remove buffering (Java concurrent-collection safety, irrelevant to single-threaded JS), two-phase tick-then-apply over all mascots. One confirmed-harmless divergence: a Breed-spawned sibling pushed onto `Stage.mascots` mid-iteration gets its own `simulate()` call in the *same* tick it's born (JS `for...of` observes live array growth; real Manager defers new mascots to the next tick via its `added` set). Fully-initialized by the time this happens, so not a crash risk — just one 40ms-early tick for a newborn. Not worth chasing. |
 | `Mascot.java` | ✅ | `tick()`/`catch (LostGroundException)`, breed/facing plumbing all previously audited and ported. |
+| `Main.java` | 🐛 | **Wrongly written off wholesale as "Java-desktop-only" on the first pass — it isn't.** Its AWT/Swing tray-icon *construction* is out of scope (no Obsidian analog needed), but the menu-item wiring inside it is the real ground truth for how several behaviors actually get triggered, and was never read before this pass. `getManager().setBehaviorAll("ChaseMouse")`, bound to a "Follow Mouse!" tray item, is the *only* way ChaseMouse ever runs in the real engine — no autonomous/spontaneous trigger exists at all. See Pass 5. (`remainOne()`/`createMascot()`, bound to "Reduce to One!"/"Another One!", already have faithful analogs in our own "Remove all Shimejis"/"Add another Shimeji" menu items — confirms those were right, not just convenient.) |
 
 ## Out of scope (⛔ — Java-desktop-only, no Obsidian analog)
 
-`Main.java`, `NativeFactory.java`, `LogFormatter.java` (app lifecycle / JNA-OS-native bridge),
-`editor/action/ActionEditorFrame.java` (a *separate* Swing GUI tool for authoring packs — our
-`CustomContentModal` is the analog, not a port target), `image/*.java` (AWT/Swing image
-loading — we use `<img>`/CSS), `imagesetchooser/*.java` (Swing character picker — our settings
-UI is the analog), `menu/*.java` (Swing right-click menu — our Obsidian-native context menu is
-the analog), `exception/*.java` (plain exception classes, no logic to port).
+`NativeFactory.java`, `LogFormatter.java` (JNA-OS-native bridge / logging setup — no menu-wiring
+logic like `Main.java` has, safe to skip entirely), `editor/action/ActionEditorFrame.java` (a
+*separate* Swing GUI tool for authoring packs — our `CustomContentModal` is the analog, not a
+port target), `image/*.java` (AWT/Swing image loading — we use `<img>`/CSS),
+`imagesetchooser/*.java` (Swing character picker — our settings UI is the analog), `menu/*.java`
+(Swing right-click/scrollable-menu widgetry — our Obsidian-native context menu is the analog),
+`exception/*.java` (plain exception classes, no logic to port).
 
 ## Bugs found & fixed, by pass
 
@@ -150,8 +152,7 @@ the analog), `exception/*.java` (plain exception classes, no logic to port).
    override that was being silently ignored — a ~12-15x undershoot). `ThrowIE` was found mapped
    to plain Fall (wrong — it extends Animate and never touches the mascot's position at all); now
    holds its pose like Regist. This file (`SOURCE_AUDIT.md`) was created in this pass too.
-4. **Pass 4** (2026-08-12, going through `script/` next as this file's own "next steps" said to —
-   not yet committed as of writing): reading `Script.java`/`Variable.java` turned up the real
+4. **Pass 4** (commit `d46ffe8`): reading `Script.java`/`Variable.java` turned up the real
    `#{...}` (live, re-evaluated every tick) vs `${...}` (evaluated once, cached for the action's
    lifetime) distinction our `Expression.ts` had explicitly (and wrongly) documented as
    "nothing depends on the difference." It matters for Animation-variant selection: real
@@ -165,6 +166,24 @@ the analog), `exception/*.java` (plain exception classes, no logic to port).
    splicing mid-gait-cycle has no obviously-correct answer). Locals (Duration/TargetX/BornX/...)
    were already correct by construction, since `resolveLocals` already only runs once per
    `pushAction` regardless of which wrapper the XML used.
+5. **Pass 5** (2026-08-12, not yet committed as of writing) — prompted by a direct challenge
+   ("if we've still got synthesized code instead of a real port, go rewrite it"): re-examined
+   every remaining *invented* (not source-verified) piece of behavior, which turned up exactly
+   one, clearly self-flagged in this file's own `script/` table row before this pass: ChaseMouse's
+   "no ground truth for its trigger cadence, so this is a periodic-cooldown guess" comment in
+   `BehaviorAI.ts`. Went back to `Main.java` — previously written off wholesale as
+   "Java-desktop-only, out of scope," which was itself a mistake (see its own row above) — and
+   found the real mechanism: `getManager().setBehaviorAll("ChaseMouse")`, bound to a "Follow
+   Mouse!" system-tray item. **ChaseMouse has no autonomous trigger in the real engine at all** —
+   it's exclusively a manual, all-mascots-at-once command, structurally identical to "Another
+   One!"/"Reduce to One!" (both of which we'd already ported faithfully as menu items, which is
+   what made this inconsistency worth chasing down). Removed the invented periodic/cooldown
+   eligibility from `BehaviorAI.pickNextBehavior` entirely; added the real equivalent — a
+   `followMouseAllMascots()` command and context-menu item in `main.ts` that forces every mascot
+   onto ChaseMouse directly, the same primitive the existing per-mascot "Set behavior" menu
+   already used. The `realPack.test.ts` test that used to assert the invented cooldown fired was
+   inverted (now asserts ChaseMouse is *never* autonomously reached) and a new test added for the
+   real forced-trigger path.
 
 ## Open live-bug reports (need user diagnostics, not more audit)
 
@@ -172,15 +191,18 @@ Both have `window.shimejiDebug` tooling ready (see README) but no repro data gat
 
 - Window title-bar can't be reliably dragged while the plugin is enabled (confirmed the plugin is
   the cause; not yet which part).
-- A mascot dropped from a height was reported to visually skip most of the fall. Neither Pass 3
-  nor Pass 4 obviously explains this (Fall doesn't go through tickHold at all), so still needs a
-  live repro with `setVerbose(true)` rather than more speculation from the audit alone.
+- A mascot dropped from a height was reported to visually skip most of the fall. Nothing in
+  Passes 3-5 obviously explains this (Fall doesn't go through tickHold, and this isn't a
+  ChaseMouse-adjacent path either), so still needs a live repro with `setVerbose(true)` rather
+  than more speculation from the audit alone.
 
 ## Next steps, in priority order
 
-1. Test/verify/commit/push Pass 4 (this file + the live-Animation-reselection fix).
-2. Re-test the two open live-bug reports now that Passes 3-4 have landed.
+1. Test/verify/commit/push Pass 5 (this file + the ChaseMouse trigger fix).
+2. Re-test the two open live-bug reports now that Passes 3-5 have landed.
 3. `config/Entry.java`, `environment/{Area,ComplexArea,Location,Environment}.java` — lower
-   priority, believed subsumed, would close out 100% file coverage if desired. This was the last
-   major *unverified* subsystem (`script/`) — everything left is believed-fine plumbing, not a
-   live suspect.
+   priority, believed subsumed, would close out 100% file coverage if desired. Nothing else is
+   a known-synthesized/unverified gap as of this pass — everything left in the tracker is
+   believed-fine plumbing, not a live suspect. Worth a periodic skeptical re-read anyway (Pass 5
+   itself came from doubting an earlier "no ground truth available" claim rather than trusting
+   it), but there's no *specific* next target the way there was going into Passes 4-5.

@@ -153,11 +153,14 @@ describe("real standard Shimeji-ee pack", () => {
 		expect(mascot.physics.y).toBeGreaterThan(170);
 	});
 
-	it("eventually chases the mouse even though ChaseMouse's own Frequency is 0 and it's never a NextBehavior target", () => {
-		// ChaseMouse is orphaned from the weighted-selection graph in the real pack (like
-		// Fall/Dragged/Thrown, the original engine must trigger it directly); BehaviorAI
-		// approximates that with a periodic, cooldown-gated eligibility — this drives long
-		// enough simulated time to confirm it actually fires at least once.
+	it("never autonomously chases the mouse (ChaseMouse's own Frequency is 0, it's never a NextBehavior target, and real shimeji-ee has no spontaneous trigger for it at all)", () => {
+		// Confirmed against Main.java: ChaseMouse is exclusively triggered by the desktop app's
+		// "Follow Mouse!" system-tray menu item (`getManager().setBehaviorAll("ChaseMouse")`,
+		// forcing every mascot onto it at once, on demand) — there is no autonomous/spontaneous
+		// path into it at all, unlike Fall (physics-triggered) or Dragged/Thrown (mouse-event-
+		// triggered). An earlier version of BehaviorAI invented a periodic, cooldown-gated
+		// eligibility for it with no real source backing the cadence; this test used to assert
+		// that invented behavior actually fired. It shouldn't, and now doesn't.
 		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
 		const ai = new BehaviorAI(pack, new Random(7));
 		const mascot = {
@@ -177,17 +180,27 @@ describe("real standard Shimeji-ee pack", () => {
 		};
 		const ledges = [{ kind: "floor" as const, y: 600, x1: 0, x2: 800, source: "window" as const }];
 
-		// Generous budget rather than a seed tuned to land within a tight one: the exact tick at
-		// which any given seed rolls ChaseMouse is an implementation detail of the RNG-consumption
-		// order elsewhere in behavior selection, which is exactly the kind of thing a real-source
-		// fidelity fix can (correctly) shift — an 8-30s cooldown firing at least once should be
-		// essentially certain well within 5000 simulated seconds regardless.
-		let sawChaseMouse = false;
-		for (let i = 0; i < 50000 && !sawChaseMouse; i++) {
+		for (let i = 0; i < 50000; i++) {
 			ai.tick(mascot as unknown as Mascot, 0.1, ledges, { x: 700, y: 300, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
-			if (ai.currentBehaviorName === "ChaseMouse") sawChaseMouse = true;
+			expect(ai.currentBehaviorName).not.toBe("ChaseMouse");
 		}
-		expect(sawChaseMouse).toBe(true);
+	});
+
+	it("ChaseMouse is still reachable the real way: forced directly, like a mouse-drag release forces Fall/Thrown", () => {
+		// Mirrors Mascot.startNamedBehavior -> PackDriver.startNamedBehavior -> here, the same
+		// path main.ts's "Make all Shimejis follow the mouse" command drives for every mascot at
+		// once, matching the real "Follow Mouse!" tray item.
+		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
+		const ai = new BehaviorAI(pack, new Random(1));
+		const mascot = {
+			physics: { x: 400, y: 600, vx: 0, vy: 0, facing: 1 as const, grounded: true },
+			stateElapsedMs: 0,
+			setVisualImage: () => {},
+			getViewportSize: () => ({ width: 800, height: 900 }),
+			getTotalMascotCount: () => 1,
+		};
+		ai.forceBehavior("ChaseMouse", mascot as unknown as Mascot, { x: 700, y: 300, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
+		expect(ai.currentBehaviorName).toBe("ChaseMouse");
 	});
 
 	it("PullUpShimeji1 (a real Breed action) requests exactly one sibling at its BornX/BornY/BornBehavior, then completes", () => {

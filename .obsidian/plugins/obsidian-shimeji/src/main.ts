@@ -69,6 +69,7 @@ export default class ShimejiPlugin extends Plugin {
 		this.addCommand({ id: "shimeji-spawn", name: "Spawn mascot", callback: () => this.spawnMascot() });
 		this.addCommand({ id: "shimeji-remove", name: "Remove mascot", callback: () => this.stage?.removeMascot() });
 		this.addCommand({ id: "shimeji-remove-all", name: "Remove all mascots", callback: () => this.stage?.removeAllMascots() });
+		this.addCommand({ id: "shimeji-follow-mouse", name: "Make all mascots follow the mouse", callback: () => this.followMouseAllMascots() });
 		this.addCommand({ id: "shimeji-rescan", name: "Rescan pack folder", callback: () => this.rescanPacks() });
 
 		this.registerEvent(this.app.workspace.on("resize", () => this.stage?.notifyLayoutChanged()));
@@ -147,6 +148,20 @@ export default class ShimejiPlugin extends Plugin {
 
 	spawnMascot(): void {
 		this.stage?.spawnMascot();
+	}
+
+	/** Real shimeji-ee has no autonomous/spontaneous ChaseMouse at all — it's exclusively
+	 * triggered by the desktop app's "Follow Mouse!" system-tray menu item
+	 * (`Main.java`: `getManager().setBehaviorAll("ChaseMouse")`), which forces every live mascot
+	 * onto it at once. This is the same thing: iterate every mascot and jump each straight to
+	 * its own pack's ChaseMouse behavior (a no-op for a mascot whose pack doesn't declare one,
+	 * or a placeholder with no driver at all — see Mascot.startNamedBehavior). */
+	followMouseAllMascots(): void {
+		if (!this.effectiveChaseMouseEnabled()) {
+			new Notice("Chase the mouse is disabled (see Settings), or unavailable on mobile.");
+			return;
+		}
+		for (const mascot of this.stage?.getMascots() ?? []) mascot.startNamedBehavior("ChaseMouse");
 	}
 
 	/** Re-validates every live mascot's pack assignment against the current settings (called
@@ -237,6 +252,17 @@ export default class ShimejiPlugin extends Plugin {
 				.setIcon("trash-2")
 				.onClick(() => this.stage?.removeAllMascots()),
 		);
+		// Real shimeji-ee's "Follow Mouse!" tray-menu item, the only real trigger ChaseMouse
+		// ever has — see followMouseAllMascots(). Hidden rather than shown-disabled here, same
+		// as "Switch character"/"Set behavior" below when there's nothing for them to do either.
+		if (this.effectiveChaseMouseEnabled()) {
+			menu.addItem((item) =>
+				item
+					.setTitle("Make all Shimejis follow the mouse")
+					.setIcon("mouse-pointer-click")
+					.onClick(() => this.followMouseAllMascots()),
+			);
+		}
 
 		if (this.availablePacks.length > 0) {
 			menu.addSeparator();

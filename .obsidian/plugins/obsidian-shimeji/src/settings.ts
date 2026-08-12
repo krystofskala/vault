@@ -204,7 +204,9 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Chase the mouse")
-			.setDesc("Let mascots occasionally dash toward the cursor while idle on the floor. Always off on mobile (no ambient cursor to chase between touches), regardless of this toggle.")
+			.setDesc(
+				"Enables the \"Make all Shimejis follow the mouse\" command/menu item (real shimeji-ee's own \"Follow Mouse!\" is an on-demand tray action, not something mascots do spontaneously), and lets a placeholder mascot (no character pack loaded) occasionally dash toward the cursor as one of its idle variations. Always off on mobile (no ambient cursor to chase between touches), regardless of this toggle.",
+			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.chaseMouseEnabled).onChange(async (value) => {
 					this.plugin.settings.chaseMouseEnabled = value;

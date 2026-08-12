@@ -8,21 +8,22 @@ import { evaluateCondition } from "./Expression";
 import { createRuntimeContext, type AmbientPointer } from "./RuntimeContext";
 import type { BehaviorDef, MascotPack } from "./types";
 
-/** Shimeji-ee requires every pack to define these four; ChaseMouse/Fall have real declarative
- * fallbacks in most packs, but Dragged/Thrown are reached via Mascot's own pointer handling
- * rather than through this random-selection loop. */
+/** Shimeji-ee requires every pack to define these four. None of them are ever reachable through
+ * this class's own weighted random selection (all Frequency="0" and orphaned from every other
+ * behavior's NextBehavior in the standard pack) — the real engine triggers each of them directly
+ * instead: Fall from physics (falling with nothing underfoot), Dragged/Thrown from the mouse
+ * (Mascot's own pointer handling), and ChaseMouse from a "Follow Mouse!" system-tray menu item
+ * (`Main.java`: `getManager().setBehaviorAll("ChaseMouse")`, forcing every mascot onto it at
+ * once — not an autonomous/spontaneous thing at all). An earlier version of this file invented a
+ * periodic, cooldown-gated eligibility for ChaseMouse inside pickNextBehavior below, guessing at
+ * a cadence with no real source to check it against — removed once the actual mechanism was
+ * found; see main.ts's "Make all Shimejis follow the mouse" command/menu item and
+ * Mascot.startNamedBehavior for the real, on-demand equivalent. */
 const REQUIRED_BEHAVIOR_NAMES = ["ChaseMouse", "Fall", "Dragged", "Thrown"];
 
 export class BehaviorAI {
 	private runner: ActionRunner;
 	private currentBehavior?: BehaviorDef;
-	// ChaseMouse is never referenced by any other behavior's NextBehavior in the standard
-	// pack and is declared Frequency="0" like Fall/Dragged/Thrown — it's one of the behaviors
-	// the original engine triggers directly rather than through weighted selection (here,
-	// physics-driven Fall and input-driven Dragged/Thrown are already handled that way).
-	// There's no ground truth available for its exact real trigger cadence, so this is an
-	// approximation: eligible again periodically, with a random cooldown after each run.
-	private chaseMouseCooldownMs = 8000;
 
 	constructor(private pack: MascotPack, private rng: Random) {
 		this.runner = new ActionRunner(pack);
@@ -42,7 +43,6 @@ export class BehaviorAI {
 	}
 
 	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig): void {
-		this.chaseMouseCooldownMs -= dt * 1000;
 		// Before building this tick's context: a mascot can be "against a wall" (or under a
 		// pane's underside) regardless of what action put it there, most commonly just having
 		// walked into one — see updateWallCeilingAdherence.
@@ -165,12 +165,12 @@ export class BehaviorAI {
 			}
 		}
 		if (additive) {
+			// ChaseMouse is naturally part of this loop too (it's just another entry in
+			// pack.behaviors), but real packs declare it Frequency="0" like Fall/Dragged/Thrown,
+			// so weightedPick's roll never actually lands on it here — matching the real engine,
+			// which has no autonomous path into ChaseMouse at all (see REQUIRED_BEHAVIOR_NAMES).
 			for (const behavior of this.pack.behaviors.values()) {
 				if (evaluateCondition(behavior.condition, ctx)) candidates.push({ item: behavior, weight: behavior.frequency });
-			}
-			if (env.config.chaseMouseEnabled && mascot.physics.grounded && this.chaseMouseCooldownMs <= 0) {
-				const chaseMouse = this.pack.behaviors.get("ChaseMouse");
-				if (chaseMouse) candidates.push({ item: chaseMouse, weight: 30 });
 			}
 		}
 
@@ -181,8 +181,6 @@ export class BehaviorAI {
 		const totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
 		if (totalWeight <= 0) return this.respawnAndFall(mascot);
 
-		const picked = this.rng.weightedPick(candidates);
-		if (picked?.name === "ChaseMouse") this.chaseMouseCooldownMs = this.rng.range(15000, 30000);
-		return picked;
+		return this.rng.weightedPick(candidates);
 	}
 }

@@ -76,10 +76,10 @@ position along it — ours just re-snaps to the nearest current ledge, see the r
 fix below, a simpler approximation of the same intent); `Move.tick()`'s exact
 target-overshoot timing (the real engine snaps position but still finishes the tick's own
 duration bookkeeping normally, only ending on the *next* `hasNext()` check — ours ends the frame
-immediately on overshoot, a minor animation-completeness difference, not a position error);
-`ChaseMouse`'s real trigger cadence (still no ground truth found for this — the real engine
-likely drives it from raw OS mouse-move events rather than anything visible in the
-config/behavior source read so far).
+immediately on overshoot, a minor animation-completeness difference, not a position error).
+(An earlier version of this section also listed "ChaseMouse's real trigger cadence" as an
+unresolved approximation — that one turned out to be findable after all, see the fifth pass
+below: it has no autonomous trigger at all, so there was never a cadence to match.)
 
 **A second pass, going past the pieces that had visible bugs into the rest of the source**
 (`action/Look.java`, `action/Jump.java`, `action/Breed.java`, and `BorderedAction`/
@@ -174,6 +174,22 @@ only ever called once, at push time. Fixed by re-running it every tick in `tickH
 why: no real pack's multi-variant `Move` needs live re-selection, and splicing mid-gait-cycle has
 no obviously-correct answer).
 
+**A fifth pass, prompted by a direct question — "if anything's still synthesized instead of a
+real port, go rewrite it"** — went back through every remaining place the code admitted to
+*guessing* rather than *knowing*, and found exactly one: a comment in `BehaviorAI.ts` next to
+ChaseMouse's trigger logic, saying outright that there was "no ground truth available" for its
+real cadence and that the periodic-cooldown eligibility there was an approximation. Rather than
+leave that as accepted, went back to `Main.java` — which an earlier pass had written off entirely
+as "Java-desktop-only, out of scope," itself a mistake — and found the actual mechanism:
+**ChaseMouse has no autonomous trigger in the real engine at all.** It's exclusively bound to a
+"Follow Mouse!" system-tray menu item (`getManager().setBehaviorAll("ChaseMouse")`), which forces
+*every* mascot onto it at once, on demand — the same kind of manual, all-mascots command as
+"Another One!"/"Reduce to One!" (both already ported faithfully as menu items, which is what made
+the inconsistency worth chasing). The invented periodic/cooldown eligibility has been removed
+entirely; a "Make all Shimejis follow the mouse" command and context-menu item now does the real
+thing, forcing every mascot straight onto its pack's ChaseMouse behavior — the same primitive the
+existing per-mascot "Set behavior" menu already used for one mascot at a time.
+
 - **A real `actions.xml`/`behaviors.xml` interpreter**, verified directly against the actual
   standard shimeji-ee conf files (checked into `Shimeji/conf/`) — Sequence/Select/Animate/
   Move/Embedded actions, condition-gated Animation variants (e.g. ClimbWall's up-vs-down
@@ -197,12 +213,15 @@ no obviously-correct answer).
   permanent invisible freefall), and apply the Falling action's own `Gravity`/`RegistanceX`/
   `RegistanceY` instead of one constant global gravity with no air drag.
 - **Behaviors the engine triggers directly, not through weighted selection**: `Fall` (physics
-  event), `Dragged`/`Thrown` (mouse input) — and, it turns out, `ChaseMouse` too: it's
-  declared `Frequency="0"` like the other three but is never referenced by any other
-  behavior's `NextBehavior`, so it's orphaned from the weighted-pool graph entirely in the
-  real pack. Approximated with a periodic, cooldown-gated eligibility while grounded; there's
-  no ground truth available for the original's exact cadence, so treat the numbers as a
-  starting guess rather than a verified value.
+  event), `Dragged`/`Thrown` (mouse input), and `ChaseMouse` — declared `Frequency="0"` like the
+  other three and never referenced by any other behavior's `NextBehavior`, so it's orphaned from
+  the weighted-pool graph entirely in the real pack, same as them. Unlike the other three,
+  though, its real trigger isn't physics or mouse input at all: it's a "Follow Mouse!"
+  system-tray menu item (`Main.java`: `getManager().setBehaviorAll("ChaseMouse")`), forcing
+  every mascot onto it at once, on demand — no autonomous/spontaneous trigger exists in the real
+  engine. The "Make all Shimejis follow the mouse" command and context-menu item are that,
+  faithfully; see the fifth audit pass below for how an earlier, invented periodic-cooldown
+  approximation here got replaced.
 - **Approximated, not literal**: the original engine tracks a specific external OS window
   ("activeIE" in its own naming, from its IE-integration history) that mascots can climb on;
   here that concept maps to whichever open pane the mascot is currently against — its top,
