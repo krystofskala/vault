@@ -17,6 +17,15 @@ export default class ShimejiPlugin extends Plugin {
 	async onload(): Promise<void> {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 
+		// "Shimeji" was an earlier broken default: adapter paths are vault-relative, so it
+		// resolved to <vault-root>/Shimeji instead of this plugin's own bundled folder.
+		// Migrate both a never-configured (empty) value and that specific old default.
+		const bundledPackFolder = `${this.app.vault.configDir}/plugins/${this.manifest.id}/Shimeji`;
+		if (!this.settings.packsFolder || this.settings.packsFolder === "Shimeji") {
+			this.settings.packsFolder = bundledPackFolder;
+			await this.saveSettings();
+		}
+
 		this.stage = new Stage({
 			config: this.engineConfig,
 			paneLedgesEnabled: this.settings.paneLedgesEnabled,
@@ -63,6 +72,15 @@ export default class ShimejiPlugin extends Plugin {
 			console.error("[obsidian-shimeji] failed to scan pack folder", err);
 			this.availablePacks = [];
 		}
+
+		// Auto-pick a pack once one is found rather than silently sticking with the
+		// placeholder until the user visits Settings — that's the whole point of scanning.
+		const stillValid = this.availablePacks.some((p) => p.id === this.settings.activePackId);
+		if (!stillValid) {
+			this.settings.activePackId = this.availablePacks[0]?.id ?? null;
+			await this.saveSettings();
+		}
+
 		this.respawnWithCurrentSettings();
 	}
 

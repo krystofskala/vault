@@ -10,8 +10,11 @@ export interface ShimejiSettings {
 	autoSpawn: boolean;
 }
 
+/** Empty means "not configured yet" — main.ts fills in a real default relative to the
+ * plugin's own folder on load, since a bare vault-relative path like "Shimeji" would
+ * resolve to <vault-root>/Shimeji, not this plugin's own bundled Shimeji/ folder. */
 export const DEFAULT_SETTINGS: ShimejiSettings = {
-	packsFolder: "Shimeji",
+	packsFolder: "",
 	activePackId: null,
 	scale: 1,
 	paneLedgesEnabled: true,
@@ -37,7 +40,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			)
 			.addText((text) =>
 				text
-					.setPlaceholder("Shimeji")
+					.setPlaceholder(".obsidian/plugins/obsidian-shimeji/Shimeji")
 					.setValue(this.plugin.settings.packsFolder)
 					.onChange(async (value) => {
 						this.plugin.settings.packsFolder = value.trim();
