@@ -20,19 +20,37 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   Duration/Velocity/InitialVX/VY in actions.xml are all in *ticks*, not real time — converted
   once at parse time (`src/shimeji/constants.ts`) so the rest of the engine works in plain ms
   and px/second.
+- **Physics glue that isn't in the XML at all, but the pack's own design assumes it**:
+  Floor-bordered actions (Stand/Walk/Sit/...) are kept glued to whatever floor is actually
+  beneath them — falling to reach it if needed — because real transitions like
+  `FallFromWall` are just a 1px `Offset` then a plain `Stand`, with no explicit falling step;
+  that only works if the engine treats "on the floor" as a continuously-enforced background
+  state, not something each action has to arrange itself. Wall/Ceiling-bordered actions
+  (ClimbWall, ...) correctly clear that floor-grounded state instead of leaving it stale.
+  Fall/Thrown also now respect the window's side walls *and* ceiling (originally only the
+  floor was checked, so a hard throw could sail off the edge or through the top into
+  permanent invisible freefall), and apply the Falling action's own `Gravity`/`RegistanceX`/
+  `RegistanceY` instead of one constant global gravity with no air drag.
+- **Behaviors the engine triggers directly, not through weighted selection**: `Fall` (physics
+  event), `Dragged`/`Thrown` (mouse input) — and, it turns out, `ChaseMouse` too: it's
+  declared `Frequency="0"` like the other three but is never referenced by any other
+  behavior's `NextBehavior`, so it's orphaned from the weighted-pool graph entirely in the
+  real pack. Approximated with a periodic, cooldown-gated eligibility while grounded; there's
+  no ground truth available for the original's exact cadence, so treat the numbers as a
+  starting guess rather than a verified value.
 - **Approximated, not literal**: the original engine tracks a specific external OS window
   ("activeIE" in its own naming, from its IE-integration history) that mascots can climb on;
   here that concept maps to whichever open pane/status-bar ledge the mascot is currently
   standing on. Side/underneath tracking of that pane, and the mascot-splitting ("Breed")
   actions, aren't implemented — a split action just plays its poses without spawning a
-  second mascot (single-mascot by design). Ceiling-*standing* physics isn't modeled (Move
-  actions like ClimbCeiling still work fine, since they're pure position-from-velocity with
-  no gravity involved either way).
+  second mascot (single-mascot by design).
 - **Not visually tested in a live Obsidian window** — this was built in a headless
-  container with no GUI, verified via `tsc`/`vitest`/`esbuild` only. Please try it in your
-  real vault and report anything that looks wrong — pane/status-bar ledge geometry is the
-  most layout-sensitive part, and this is where hand-tuning against a real window is likely
-  needed most.
+  container with no GUI; every fix so far has been verified via `tsc`/`vitest`/`esbuild` plus
+  tests that exercise the real conf files in `Shimeji/conf/` directly (not just synthetic
+  fixtures), including one that drives a full BehaviorAI simulation from a fresh spawn. That
+  catches logic bugs but not "does this look/feel right" — pane/status-bar ledge geometry,
+  drag feel, and animation timing are exactly the kind of thing that needs a real window to
+  tune, so please keep reporting anything that looks or feels off.
 
 ## Using your own artwork
 
