@@ -285,7 +285,7 @@ export class ActionRunner {
 		}
 		const raw = frame.action.embeddedName ?? frame.action.name;
 		const mapped = raw === "FallWithIE" || raw === "ThrowIE" ? "Fall" : raw;
-		return applyNativeEmbedded(mapped, env.mascot, dt, ledges, env.ambient, env.config);
+		return applyNativeEmbedded(mapped, env.mascot, dt, ledges, env.ambient, env.config, frame.action.params);
 	}
 
 	private showPose(mascot: Mascot, pose: PoseDef): void {

@@ -30,6 +30,22 @@ export function clampToWalls(physics: MascotPhysics, ledges: Ledge[]): void {
 	}
 }
 
+/** Same idea as clampToWalls but for the top edge: a hard upward throw had nothing at all
+ * stopping it (only the floor was ever checked), so it could sail straight through the
+ * ceiling into permanent invisible freefall above the window. */
+export function clampToCeiling(physics: MascotPhysics, ledges: Ledge[]): void {
+	let maxCeilingY = -Infinity;
+	for (const ledge of ledges) {
+		if (ledge.kind !== "ceiling") continue;
+		if (physics.x < ledge.x1 || physics.x > ledge.x2) continue;
+		if (ledge.y > maxCeilingY) maxCeilingY = ledge.y;
+	}
+	if (maxCeilingY > -Infinity && physics.y < maxCeilingY) {
+		physics.y = maxCeilingY;
+		if (physics.vy < 0) physics.vy = 0;
+	}
+}
+
 /** Integrates gravity and snaps to a floor if one is crossed. Shared safety net used by
  * every native behavior so a mascot never gets stuck floating if its platform disappears. */
 export function applyGravityAndLand(args: TickArgs): boolean {
@@ -55,6 +71,7 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 	physics.x += physics.vx * dt;
 	physics.y += physics.vy * dt;
 	clampToWalls(physics, ledges);
+	clampToCeiling(physics, ledges);
 
 	if (floor && physics.y >= floor.y) {
 		physics.y = floor.y;

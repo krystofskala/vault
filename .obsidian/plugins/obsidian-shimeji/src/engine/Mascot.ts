@@ -101,15 +101,26 @@ export class Mascot {
 			this.activePointerId = ev.pointerId;
 			this.isDragging = true;
 			this.el.classList.add("is-dragging");
-			this.grabOffset = { x: ev.clientX - this.physics.x, y: ev.clientY - this.physics.y };
+			// Always grab by a fixed point near the top of the sprite — like being picked up
+			// by the scruff of the neck — regardless of exactly where on the sprite you
+			// clicked, matching the original app rather than dragging by whatever pixel was
+			// under the cursor (which also throws off the pack's own FootX-vs-cursor lean
+			// poses, since those assume a consistent hold point).
+			const anchor = this.getCurrentAnchor();
+			const topMarginPx = 18;
+			this.grabOffset = { x: 0, y: anchor.y * this.scale - topMarginPx };
 			this.dragTrack = { x: ev.clientX, y: ev.clientY, down: true, history: [{ x: ev.clientX, y: ev.clientY, t: performance.now() }] };
 		});
 		this.el.addEventListener("pointermove", (ev) => {
 			if (!this.isDragging) return;
 			this.dragTrack.x = ev.clientX;
 			this.dragTrack.y = ev.clientY;
-			this.dragTrack.history.push({ x: ev.clientX, y: ev.clientY, t: performance.now() });
-			if (this.dragTrack.history.length > 8) this.dragTrack.history.shift();
+			const now = performance.now();
+			this.dragTrack.history.push({ x: ev.clientX, y: ev.clientY, t: now });
+			// A time window, not a sample count: a fast pointer can fire far more samples per
+			// second than a slow one, and a too-short window on a fast mouse reads pure noise
+			// (hand tremor) as rapid direction changes — see the facing hysteresis in update().
+			this.dragTrack.history = this.dragTrack.history.filter((s) => now - s.t <= 120);
 		});
 		this.el.addEventListener("pointerup", () => this.finishDrag());
 		this.el.addEventListener("pointercancel", () => this.finishDrag());
@@ -152,8 +163,12 @@ export class Mascot {
 
 		if (this.isDragging) {
 			tickDragged(this.physics, this.dragTrack, this.grabOffset, dtSeconds, { width: window.innerWidth, height: window.innerHeight });
+			// Hysteresis (a dead zone in the middle, not a single threshold both ways): flip
+			// only on a confident swing past a real threshold, so ordinary hand jitter while
+			// moving in one clear direction can't make it flicker back and forth.
 			const swing = computeReleaseVelocity(this.dragTrack, this.deps.config);
-			if (Math.abs(swing.vx) > 20) this.physics.facing = swing.vx > 0 ? 1 : -1;
+			if (swing.vx > 90) this.physics.facing = 1;
+			else if (swing.vx < -90) this.physics.facing = -1;
 			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, ambient)) this.setVisualState("dragged");
 		} else if (this.driver) {
 			this.driver.tick(this, dtSeconds, ledges, ambient);
@@ -273,8 +288,12 @@ export class Mascot {
 		this.el.style.height = `${this.height}px`;
 	}
 
+	private getCurrentAnchor(): Vec2 {
+		return this.usingImage ? this.imageAnchor : { x: this.width / 2, y: this.height };
+	}
+
 	private render(): void {
-		const anchor = this.usingImage ? this.imageAnchor : { x: this.width / 2, y: this.height };
+		const anchor = this.getCurrentAnchor();
 		const left = this.physics.x - anchor.x * this.scale;
 		const top = this.physics.y - anchor.y * this.scale;
 		this.el.style.transform = `translate3d(${left}px, ${top}px, 0) scale(${this.scale})`;

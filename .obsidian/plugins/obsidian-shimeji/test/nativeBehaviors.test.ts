@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyGravityAndLand, clampToWalls, type TickArgs } from "../src/engine/nativeBehaviors";
+import { applyGravityAndLand, clampToCeiling, clampToWalls, type TickArgs } from "../src/engine/nativeBehaviors";
 import { computeLedgesFromRects } from "../src/engine/Ledges";
 import { DEFAULT_ENGINE_CONFIG, type MascotPhysics } from "../src/engine/types";
 
@@ -36,6 +36,29 @@ describe("clampToWalls", () => {
 		expect(landed).toBe(true);
 		expect(physics.x).toBeGreaterThanOrEqual(0);
 		expect(physics.x).toBeLessThanOrEqual(800);
+	});
+});
+
+describe("clampToCeiling", () => {
+	const ledges = computeLedgesFromRects({ width: 800, height: 600 }, []);
+
+	it("stops a mascot thrown upward from sailing through the top of the window", () => {
+		const physics = physicsAt(400, -50);
+		physics.vy = -300;
+		clampToCeiling(physics, ledges);
+		expect(physics.y).toBe(0);
+		expect(physics.vy).toBe(0);
+	});
+
+	it("a hard upward throw still lands instead of escaping through the ceiling", () => {
+		const physics = physicsAt(400, 300);
+		physics.vy = -5000; // an extreme upward throw
+		const args: TickArgs = { physics, ledges: computeLedgesFromRects({ width: 800, height: 600 }, []), dt: 0.05, config: DEFAULT_ENGINE_CONFIG };
+		let landed = false;
+		for (let i = 0; i < 500 && !landed; i++) landed = applyGravityAndLand(args);
+		expect(landed).toBe(true);
+		expect(physics.y).toBeGreaterThanOrEqual(0);
+		expect(physics.y).toBeLessThanOrEqual(600);
 	});
 });
 
