@@ -19,7 +19,10 @@ describe("Random", () => {
 		}
 	});
 
-	it("weightedPick respects zero-weight exclusion when a positive-weight option exists", () => {
+	it("weightedPick never lands on a zero-weight entry when a positive-weight one exists", () => {
+		// Faithful to the real engine's own pick (Configuration.buildBehavior): subtracting 0
+		// from the running roll can never be what pushes it negative, so a weight-0 candidate
+		// is naturally unreachable without any explicit filtering.
 		const rng = new Random(1);
 		for (let i = 0; i < 50; i++) {
 			const picked = rng.weightedPick([
@@ -27,6 +30,18 @@ describe("Random", () => {
 				{ item: "always", weight: 10 },
 			]);
 			expect(picked).toBe("always");
+		}
+	});
+
+	it("weightedPick skips zero-weight entries wherever they fall in the list", () => {
+		const rng = new Random(9);
+		for (let i = 0; i < 50; i++) {
+			const picked = rng.weightedPick([
+				{ item: "zeroA", weight: 0 },
+				{ item: "real", weight: 5 },
+				{ item: "zeroB", weight: 0 },
+			]);
+			expect(picked).toBe("real");
 		}
 	});
 

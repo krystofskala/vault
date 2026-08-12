@@ -224,6 +224,61 @@ describe("ActionRunner", () => {
 		expect(done).toBe(true);
 		expect(mascot.physics.x).toBeCloseTo(200, 5);
 	});
+
+	it("aborts and flags lostGround if a Wall-bordered Move's wall vanishes mid-climb (LostGroundException equivalent)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"ClimbWall",
+					action({
+						name: "ClimbWall",
+						type: "Move",
+						borderType: "Wall",
+						animations: animOf([{ image: "/climb.png", durationMs: 100000, velocity: { x: 0, y: -10 } }]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 500; // nowhere near any wall
+		mascot.physics.y = 500;
+		const env = envFor(pack, mascot);
+		runner.start("ClimbWall", env, { TargetY: "0" });
+
+		const done = runner.tick(env, 0.02, []); // no ledges at all -> no wall anywhere
+		expect(done).toBe(true);
+		expect(runner.lostGround).toBe(true);
+	});
+
+	it("does not flag lostGround while the wall being climbed is still there", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"ClimbWall",
+					action({
+						name: "ClimbWall",
+						type: "Move",
+						borderType: "Wall",
+						animations: animOf([{ image: "/climb.png", durationMs: 100000, velocity: { x: 0, y: -10 } }]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 0; // right at the window's left wall
+		mascot.physics.y = 500;
+		const env = envFor(pack, mascot);
+		const ledges = [{ kind: "wall" as const, side: "left" as const, x: 0, y1: 0, y2: 1000, source: "window" as const }];
+		runner.start("ClimbWall", env, { TargetY: "0" });
+
+		const done = runner.tick(env, 0.02, ledges);
+		expect(done).toBe(false);
+		expect(runner.lostGround).toBe(false);
+	});
 });
 
 describe("BehaviorAI", () => {
@@ -259,5 +314,100 @@ describe("BehaviorAI", () => {
 		}
 		expect(mascot.shownImages.every((src) => src === "resolved:/stand.png")).toBe(true);
 		expect(mascot.shownImages.length).toBeGreaterThan(0);
+	});
+
+	it("a NextBehavior reference is gated only by its own condition, never the target's separate top-level condition (matches Configuration.buildBehavior)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["From", action({ name: "From", type: "Animate", animations: animOf([{ image: "/from.png", durationMs: 10 }]) })],
+				["Gated", action({ name: "Gated", type: "Animate", animations: animOf([{ image: "/gated.png", durationMs: 100000 }]) })],
+			]),
+			behaviors: new Map([
+				[
+					"From",
+					behavior({
+						name: "From",
+						frequency: 100,
+						nextBehaviors: [{ name: "Gated", frequency: 100, condition: undefined, add: false }],
+					}),
+				],
+				// "Gated"'s own top-level Condition is always false. The real engine's
+				// Configuration.buildBehavior never re-checks this for a NextBehavior reference —
+				// only the reference's own condition (here, none at all) — so this must still be
+				// reachable via the transition above.
+				["Gated", behavior({ name: "Gated", frequency: 0, condition: parseCondition("#{mascot.anchor.x > 999999}") })],
+			]),
+		};
+		const ai = new BehaviorAI(pack, new Random(1));
+		const mascot = makeFakeMascot();
+		mascot.physics.grounded = true;
+		const ledges: never[] = [];
+
+		for (let i = 0; i < 5; i++) ai.tick(mascot as unknown as Mascot, 0.02, ledges, AMBIENT, DEFAULT_ENGINE_CONFIG);
+		expect(ai.currentBehaviorName).toBe("Gated");
+	});
+
+	it("respawns (random x, off-screen above) and forces Fall when nothing at all is eligible, instead of freezing forever", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["Fall", action({ name: "Fall", type: "Embedded", embeddedName: "Fall" })],
+				["Locked", action({ name: "Locked", type: "Animate", animations: animOf([{ image: "/locked.png", durationMs: 10 }]) })],
+			]),
+			behaviors: new Map([
+				["Fall", behavior({ name: "Fall", frequency: 0 })],
+				// The only other behavior's condition is always false, so nothing in the general
+				// pool ever carries positive weight.
+				["Locked", behavior({ name: "Locked", frequency: 100, condition: parseCondition("#{mascot.anchor.x > 999999}") })],
+			]),
+		};
+		const ai = new BehaviorAI(pack, new Random(3));
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 400;
+		mascot.physics.y = 500;
+		mascot.physics.grounded = true;
+		const ledges: never[] = [];
+
+		ai.tick(mascot as unknown as Mascot, 0.02, ledges, AMBIENT, DEFAULT_ENGINE_CONFIG);
+
+		expect(ai.currentBehaviorName).toBe("Fall");
+		// Respawns to exactly -256, but this same ai.tick() call also immediately advances the
+		// freshly-started Fall by its own first tick's worth of gravity (this behavior selection
+		// and the first physics tick of whatever gets selected always happen within the same
+		// ai.tick() call whenever nothing was already running) — so "close to -256", not exact.
+		expect(mascot.physics.y).toBeLessThan(-250);
+		expect(mascot.physics.x).toBeGreaterThanOrEqual(0);
+		expect(mascot.physics.x).toBeLessThanOrEqual(1000); // the fake mascot's own viewport width
+		expect(mascot.physics.grounded).toBe(false);
+	});
+
+	it("recovers (respawns, forces Fall) if a mascot ever drifts entirely off-screen mid-action", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["Fall", action({ name: "Fall", type: "Embedded", embeddedName: "Fall" })],
+				// A long-held Stay so the action is still "running" (not done) on every tick,
+				// matching the real check only applying while hasNext() is still true afterward.
+				["Stuck", action({ name: "Stuck", type: "Stay", animations: animOf([{ image: "/stuck.png", durationMs: 100000 }]) })],
+			]),
+			behaviors: new Map([
+				["Fall", behavior({ name: "Fall", frequency: 0 })],
+				["Stuck", behavior({ name: "Stuck", frequency: 100 })],
+			]),
+		};
+		const ai = new BehaviorAI(pack, new Random(1));
+		const mascot = makeFakeMascot();
+		mascot.physics.grounded = true;
+		const ledges: never[] = [];
+
+		ai.tick(mascot as unknown as Mascot, 0.02, ledges, AMBIENT, DEFAULT_ENGINE_CONFIG);
+		expect(ai.currentBehaviorName).toBe("Stuck");
+
+		mascot.physics.x = -99999; // drifted somehow far off the left edge
+		ai.tick(mascot as unknown as Mascot, 0.02, ledges, AMBIENT, DEFAULT_ENGINE_CONFIG);
+
+		expect(ai.currentBehaviorName).toBe("Fall");
+		expect(mascot.physics.y).toBe(-256);
 	});
 });

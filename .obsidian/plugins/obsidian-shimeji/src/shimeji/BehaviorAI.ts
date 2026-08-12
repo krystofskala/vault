@@ -52,7 +52,59 @@ export class BehaviorAI {
 		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(mascot, env), env);
 
 		const done = this.runner.isRunning ? this.runner.tick(env, dt, ledges) : true;
-		if (done) this.startBehavior(this.pickNextBehavior(mascot, env), env);
+
+		// Faithful to UserBehavior.next(): the off-screen recovery only applies while an action
+		// is still *continuing* (not on the same tick it just finished, which goes through the
+		// ordinary reselection below instead) and to the real engine's own LostGroundException
+		// path — a Wall/Ceiling-bordered Move whose border vanished mid-climb.
+		if (!done) {
+			if (this.runner.lostGround) {
+				this.startBehavior(this.forceFallBehavior(), env);
+				return;
+			}
+			if (this.isOffScreen(mascot)) {
+				this.startBehavior(this.respawnAndFall(mascot), env);
+				return;
+			}
+			return;
+		}
+
+		this.startBehavior(this.pickNextBehavior(mascot, env), env);
+	}
+
+	/** Faithful to UserBehavior.next()'s own bounds check: entirely past the left/right edge or
+	 * below the bottom (the real check compares the full sprite bounds; anchor plus a generous
+	 * margin is a reasonable stand-in without plumbing sprite dimensions through here). No
+	 * top-edge check, matching the original — gravity (or clampToCeiling) always brings it back
+	 * down eventually, so it can only ever drift further off *below*, never permanently above. */
+	private isOffScreen(mascot: Mascot): boolean {
+		const viewport = mascot.getViewportSize();
+		const margin = 100;
+		return mascot.physics.x < -margin || mascot.physics.x > viewport.width + margin || mascot.physics.y > viewport.height + margin;
+	}
+
+	/** Faithful to Configuration.buildBehavior's own totalFrequency==0 branch and
+	 * UserBehavior.next()'s off-screen recovery — both respawn the exact same way: a random x
+	 * across the window, dropped in from off-screen above (definitely clear of anything it
+	 * could spuriously already be "on"), then forced onto Fall. Without this, a mascot that
+	 * ever reached a state with nothing eligible would simply freeze forever — pickNextBehavior
+	 * would keep returning undefined every tick with nothing to show for it. */
+	private respawnAndFall(mascot: Mascot): BehaviorDef | undefined {
+		const viewport = mascot.getViewportSize();
+		mascot.physics.x = this.rng.range(0, viewport.width);
+		mascot.physics.y = -256;
+		mascot.physics.vx = 0;
+		mascot.physics.vy = 0;
+		mascot.physics.grounded = false;
+		mascot.physics.currentFloor = undefined;
+		mascot.physics.currentWall = undefined;
+		mascot.physics.currentCeiling = undefined;
+		debugLog("respawn (nothing eligible, or drifted off-screen)", { x: mascot.physics.x, y: mascot.physics.y });
+		return this.forceFallBehavior();
+	}
+
+	private forceFallBehavior(): BehaviorDef | undefined {
+		return this.pack.behaviors.get("Fall");
 	}
 
 	/** Used for a mouse-drag release: jump straight to the pack's own Fall/Thrown action. */
@@ -95,7 +147,11 @@ export class BehaviorAI {
 	 * with the general top-level pool — additively (both count) when every transition edge is
 	 * Add="true", exclusively (only the transitions count) otherwise, matching real packs
 	 * where e.g. ChaseMouse always leads to SitAndFaceMouse but SitDown can *also* fall back
-	 * to the general pool. */
+	 * to the general pool. Faithful to Configuration.buildBehavior: a NextBehavior reference is
+	 * gated *only* by its own condition (inherited from where it's declared), never by the
+	 * target's separate top-level `<Behavior Condition="...">` — the real engine builds the
+	 * chosen action directly from the reference site's own name/params/condition and never
+	 * re-checks the top-level entry with that name at all. */
 	private pickNextBehavior(mascot: Mascot, env: PushEnv): BehaviorDef | undefined {
 		const ctx = env.ctx;
 		const transitions = this.currentBehavior?.nextBehaviors ?? [];
@@ -104,7 +160,7 @@ export class BehaviorAI {
 		const candidates: Array<{ item: BehaviorDef; weight: number }> = [];
 		for (const t of transitions) {
 			const target = this.pack.behaviors.get(t.name);
-			if (target && evaluateCondition(t.condition, ctx) && evaluateCondition(target.condition, ctx)) {
+			if (target && evaluateCondition(t.condition, ctx)) {
 				candidates.push({ item: target, weight: t.frequency });
 			}
 		}
@@ -118,16 +174,12 @@ export class BehaviorAI {
 			}
 		}
 
-		// Real packs gate almost every positive-weight behavior behind "on the floor/wall/
-		// ceiling" — while genuinely unsupported (freshly spawned, or nothing else applies)
-		// every candidate here can end up weight-0, and picking among those is really just a
-		// tiebreak on whatever order the pack happened to declare them in. Prefer Fall in that
-		// case: falling is always the physically correct thing to do when ungrounded, not an
-		// arbitrary choice.
-		if (!mascot.physics.grounded && candidates.length > 0 && candidates.every((c) => c.weight <= 0)) {
-			const fallIndex = candidates.findIndex((c) => c.item.name === "Fall");
-			if (fallIndex > 0) candidates.unshift(candidates.splice(fallIndex, 1)[0]);
-		}
+		// Faithful to Configuration.buildBehavior's own totalFrequency==0 branch: when nothing
+		// eligible carries any real weight (freshly spawned, or nothing else applies), the real
+		// engine doesn't pick among the zero-weight leftovers at all — it respawns and forces
+		// Fall. Without this, weightedPick would have nothing usable to roll against.
+		const totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
+		if (totalWeight <= 0) return this.respawnAndFall(mascot);
 
 		const picked = this.rng.weightedPick(candidates);
 		if (picked?.name === "ChaseMouse") this.chaseMouseCooldownMs = this.rng.range(15000, 30000);

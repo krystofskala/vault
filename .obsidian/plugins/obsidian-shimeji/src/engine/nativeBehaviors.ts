@@ -109,6 +109,23 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 		physics.currentFloor = floor;
 		return true;
 	}
+
+	// Faithful to the real engine's Fall.hasNext(): `floor.isOn(pos) || wall.isOn(pos)` — touching
+	// a wall ends a fall too, not just landing on a floor. clampToWalls above already snapped
+	// physics.x exactly onto a wall's x if this tick's fall drifted past it, so a tight reach
+	// here only catches a genuine touch, not merely being nearby. Without this, hitting a wall
+	// mid-fall was invisible to Fall, so the Select right after it in the real Fall sequence
+	// (Bounce+Stand vs GrabWall) could never actually reach the GrabWall branch from an ordinary
+	// fall — falling into the side of a pane just silently clamped and kept falling past it.
+	const wall = findClingableWall(ledges, physics, 0.5);
+	if (wall) {
+		debugLog("landed on a wall while falling", { x: physics.x, y: physics.y, side: wall.side, source: wall.source });
+		physics.vx = 0;
+		physics.vy = 0;
+		physics.currentWall = wall;
+		return true;
+	}
+
 	return false;
 }
 

@@ -30,17 +30,23 @@ export class Random {
 		return items[Math.floor(this.next() * items.length) % items.length];
 	}
 
-	/** Weighted pick: entries with weight <= 0 are never chosen unless ALL weights are <= 0. */
+	/**
+	 * Faithful port of the real engine's own weighted pick (Configuration.buildBehavior):
+	 * `random = Math.random() * totalFrequency; for (candidate) { random -= frequency; if
+	 * (random < 0) return candidate; }`. A weight-0 entry can never be the one that makes
+	 * `random` go negative, so it's naturally unreachable — no explicit filtering needed, and
+	 * none is done. The real engine handles "nothing has positive weight at all" *before*
+	 * ever reaching this pick (see BehaviorAI's own totalWeight<=0 recovery, which mirrors
+	 * Configuration.buildBehavior's own respawn-and-fall branch), so this assumes the caller
+	 * already guarantees a usable total and does not fall back to anything on its own.
+	 */
 	weightedPick<T>(entries: Array<{ item: T; weight: number }>): T | undefined {
-		const positive = entries.filter((e) => e.weight > 0);
-		const pool = positive.length > 0 ? positive : entries;
-		const total = pool.reduce((sum, e) => sum + Math.max(0, e.weight), 0);
-		if (total <= 0) return pool.length > 0 ? pool[0].item : undefined;
+		const total = entries.reduce((sum, e) => sum + e.weight, 0);
 		let roll = this.next() * total;
-		for (const entry of pool) {
-			roll -= Math.max(0, entry.weight);
-			if (roll <= 0) return entry.item;
+		for (const entry of entries) {
+			roll -= entry.weight;
+			if (roll < 0) return entry.item;
 		}
-		return pool[pool.length - 1].item;
+		return entries.length > 0 ? entries[entries.length - 1].item : undefined;
 	}
 }

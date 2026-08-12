@@ -1,5 +1,6 @@
+import { findCeilingAt } from "../engine/Ledges";
 import type { Mascot } from "../engine/Mascot";
-import { applyGravityAndLand } from "../engine/nativeBehaviors";
+import { applyGravityAndLand, findClingableWall } from "../engine/nativeBehaviors";
 import type { EngineConfig, Ledge } from "../engine/types";
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "./constants";
 import { evaluate, evaluateCondition, parseParamValue, withLocals, type ExprContext, type ExprValue } from "./Expression";
@@ -56,8 +57,16 @@ function numOrUndefined(v: ExprValue): number | undefined {
 
 /** Frame-by-frame interpreter for a single named Action (and whatever it references). See
  * PackDriver/BehaviorAI for how this fits into the overall pack-driven mascot. */
+/** How far from a wall/ceiling ledge still counts as "on" it, for the sole purpose of
+ * re-validating an *already-climbing* Move each tick — see the lostGround check in tickMove.
+ * Deliberately more generous than updateWallCeilingAdherence's own 4px (detecting a *new*
+ * attachment), matching the native fallback state machine's own climb-wall tuning, so ordinary
+ * per-tick float drift while climbing can't spuriously read as having lost the wall. */
+const LOST_GROUND_REACH = 8;
+
 export class ActionRunner {
 	private stack: Frame[] = [];
+	private lostGroundFlag = false;
 
 	constructor(private pack: MascotPack) {}
 
@@ -65,8 +74,22 @@ export class ActionRunner {
 		return this.stack.length > 0;
 	}
 
+	/**
+	 * Faithful to the real engine's LostGroundException: a Wall/Ceiling-bordered Move (e.g.
+	 * ClimbWall) whose border has vanished mid-climb — a pane closed, or the mascot drifted off
+	 * its span — aborts the current action immediately rather than continuing to move against
+	 * nothing. Read-once: BehaviorAI consumes this right after tick() to force Fall, the same
+	 * way UserBehavior.next()'s own `catch (LostGroundException)` does.
+	 */
+	get lostGround(): boolean {
+		const flagged = this.lostGroundFlag;
+		this.lostGroundFlag = false;
+		return flagged;
+	}
+
 	start(name: string, env: PushEnv, overrides?: Record<string, string>): boolean {
 		this.stack = [];
+		this.lostGroundFlag = false;
 		return this.pushAction(name, env, overrides);
 	}
 
@@ -266,6 +289,18 @@ export class ActionRunner {
 		// started, so `mascot.environment.floor.isOn(...)` would keep reporting true (and
 		// floor-only behaviors selectable) the whole time the mascot is actually up a wall.
 		if (frame.action.borderType === "Wall" || frame.action.borderType === "Ceiling") {
+			// Faithful to the real engine's LostGroundException (BorderedAction/Move.tick()):
+			// if the border being climbed is no longer there — a pane closed, or drift carried
+			// the mascot off its span — abort immediately rather than keep moving against
+			// nothing. See the lostGround getter, consumed by BehaviorAI to force Fall.
+			const stillOnBorder =
+				frame.action.borderType === "Wall"
+					? findClingableWall(ledges, physics, LOST_GROUND_REACH) !== undefined
+					: findCeilingAt(ledges, physics.x, physics.y, LOST_GROUND_REACH) !== undefined;
+			if (!stillOnBorder) {
+				this.lostGroundFlag = true;
+				return true;
+			}
 			physics.grounded = false;
 			physics.currentFloor = undefined;
 		} else {

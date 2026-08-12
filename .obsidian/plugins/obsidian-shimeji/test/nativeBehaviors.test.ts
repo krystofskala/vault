@@ -204,5 +204,23 @@ describe("applyGravityAndLand grounded check", () => {
 		expect(landed).toBe(false);
 		expect(physics.grounded).toBe(false);
 	});
+
+	it("falling into a wall ends the fall too, not just landing on a floor (matches Fall.hasNext()'s floor.isOn||wall.isOn)", () => {
+		// A hard sideways throw toward the left wall, starting well clear of the floor below —
+		// without the real engine's wall check, this used to just clamp horizontally and keep
+		// falling straight past it, never actually "landing" on the wall the way Fall.java does.
+		const physics = physicsAt(80, 50);
+		physics.vx = -3000;
+		const ledges = computeLedgesFromRects({ width: 800, height: 6000 }, []); // floor far below
+		const args: TickArgs = { physics, ledges, dt: 0.02, config: DEFAULT_ENGINE_CONFIG };
+
+		let landed = false;
+		for (let i = 0; i < 20 && !landed; i++) landed = applyGravityAndLand(args);
+
+		expect(landed).toBe(true);
+		expect(physics.x).toBe(0);
+		expect(physics.grounded).toBe(false); // touching a wall, not a floor
+		expect(physics.currentWall && physics.currentWall.kind === "wall" ? physics.currentWall.side : undefined).toBe("left");
+	});
 });
 

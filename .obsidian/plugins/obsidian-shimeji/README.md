@@ -2,12 +2,82 @@
 
 An animated mascot that lives inside the Obsidian window — it walks, sits, falls, gets
 dragged around, and climbs the window edges — skinned with your own Shimeji-ee-compatible
-artwork. This is a from-scratch TypeScript reimplementation of the "desktop mascot" idea,
-not a port of shimeji-ee's Java code: Obsidian plugins run sandboxed inside the app's own
-window, so unlike the original Shimeji-ee (which overlays your whole screen and detects
-other OS windows natively), this mascot is confined to the Obsidian window by design.
+artwork. The *platform* is necessarily different from the original: Obsidian plugins run
+sandboxed inside the app's own window, so unlike the original Shimeji-ee (which overlays your
+whole screen and detects other OS windows natively via JNA), this mascot is confined to the
+Obsidian window and reads Obsidian's own panes instead of a tracked external window. But the
+*physics and behavior algorithms* are, wherever that platform difference doesn't force a
+change, direct ports of the real engine's actual Java source (`com.group_finity.mascot.*`),
+not reinventions — see "Ported directly from the real engine's source" below for specifics
+and exactly where the two necessarily diverge.
 
 ## Status
+
+### Ported directly from the real engine's source, not reinvented
+
+A full pass through the actual Java source
+([`logany20/shimeji-ee`](https://github.com/logany20/shimeji-ee/tree/master/src/com/group_finity/mascot),
+a direct mirror of the engine this plugin's own bundled `actions.xml`/`behaviors.xml` target —
+`Mascot.java`, `action/*.java`, `behavior/*.java`, `config/*.java`, `environment/*.java`), after
+several rounds of physics that turned out to be invented approximations rather than the real
+thing (see the drag section below for how that went wrong). Found and fixed:
+
+- **Weighted behavior selection had a real bug**: a `NextBehavior` reference was being gated by
+  *both* its own condition *and* the target's separate top-level `<Behavior Condition="...">` —
+  but the real engine's `Configuration.buildBehavior()` never re-checks the top-level entry for
+  a reference at all, only the reference's own (inherited-plus-own) condition. This made some
+  real transitions unreachable whenever the target's top-level definition happened to be
+  condition-gated in a way the reference site didn't share.
+- **A mascot could freeze forever**: if a tick ever landed on a state where nothing was
+  eligible (candidates empty, or all present ones weight-0), `pickNextBehavior` returned
+  `undefined` and nothing happened — forever, since the next tick would hit the exact same
+  state again. The real engine's `Configuration.buildBehavior()` has an explicit recovery for
+  this: teleport to a random x, drop in from `screenTop - 256` (definitely off-screen, so it
+  visibly falls into view), and force `Fall`. Ported exactly, replacing an invented "prefer
+  Fall in the tiebreak" heuristic that only covered a narrower case than the real one.
+- **A second, separate recovery** (`UserBehavior.next()`'s own bounds check): every tick, if a
+  mascot has drifted entirely past the left/right/bottom edge, the real engine recovers the
+  same way — random x, `screenTop - 256`, forced `Fall`. Added as a general defensive net.
+- **`Fall` only ever ended by landing on a floor** — the real `Fall.hasNext()` checks
+  `floor.isOn(pos) || wall.isOn(pos)`: touching a wall ends a fall too. Without this, falling
+  into the side of a pane just clamped horizontally and kept falling straight past it, and the
+  real Fall sequence's own `Select` step (`Bounce+Stand` if landed on a floor, `GrabWall`
+  otherwise) could never actually reach the `GrabWall` branch from an ordinary fall.
+- **`Fall` never updated facing** — real `Fall.tick()`: `if (velocityX != 0)
+  setLookRight(velocityX > 0)`, every tick. Ours left facing at whatever it was before the fall
+  started.
+- **Resistance/gravity silently defaulted to zero/wrong instead of the real engine's own
+  defaults** — `Fall.java`'s `getRegistanceX/Y()`/`getGravity()` fall back to real, nonzero
+  constants (0.05 / 0.1 / 2) when the action's XML omits the attribute; ours defaulted to no
+  resistance at all, and had `Fall` fall back to the pack-wide `config.gravity` instead of the
+  real engine's own default of 2 (the real engine has no "pack-wide gravity" concept — every
+  `Fall` reads only its own `Gravity` attribute).
+- **`LostGroundException`, ported as a `lostGround` flag**: the real engine aborts a
+  Wall/Ceiling-bordered `Move` immediately (straight to `Fall`) if its border vanishes
+  mid-climb (a tracked window closing, in the original). Ours never checked, so a pane closing
+  mid-climb left the mascot moving against a wall/ceiling that was no longer there. `tickMove`
+  now re-validates and flags it; `BehaviorAI` consumes the flag and forces `Fall`, mirroring
+  `UserBehavior.next()`'s own `catch (LostGroundException)`.
+- **`weightedPick` simplified to match the real, much simpler algorithm**: a plain weighted
+  roll (`random -= weight; if (random < 0) return`) with no special-casing — the "what if
+  nothing has positive weight" question the old version tried to answer internally is now
+  answered upstream, exactly where the real engine answers it (the respawn recovery above),
+  not inside the picker itself.
+
+**Deliberately not ported (documented, not silently skipped)**: `Fall.java`'s exact pixel-stepping
+sub-tick collision loop (an 80px look-back "HACK IE" specifically for tunneling through a
+*fast-moving tracked window* — our floors/walls are stable Obsidian panes, so the tunneling case
+it guards against is far less likely to matter, and continuous per-tick checks already catch a
+touch within the same tick); `Wall`/`FloorCeiling.move()`'s exact proportional-rescale-relative-
+to-a-moving-border math (a resizing/moving *tracked window* redistributes a mascot's relative
+position along it — ours just re-snaps to the nearest current ledge, see the resize-fall-through
+fix below, a simpler approximation of the same intent); `Move.tick()`'s exact
+target-overshoot timing (the real engine snaps position but still finishes the tick's own
+duration bookkeeping normally, only ending on the *next* `hasNext()` check — ours ends the frame
+immediately on overshoot, a minor animation-completeness difference, not a position error);
+`ChaseMouse`'s real trigger cadence (still no ground truth found for this — the real engine
+likely drives it from raw OS mouse-move events rather than anything visible in the
+config/behavior source read so far).
 
 - **A real `actions.xml`/`behaviors.xml` interpreter**, verified directly against the actual
   standard shimeji-ee conf files (checked into `Shimeji/conf/`) — Sequence/Select/Animate/

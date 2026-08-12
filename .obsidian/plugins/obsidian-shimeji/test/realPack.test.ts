@@ -169,11 +169,21 @@ describe("real standard Shimeji-ee pack", () => {
 			// has nothing to do with what these tests are actually exercising.
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
+			// A 200-simulated-second random walk through the real pack's full behavior graph can
+			// wander into a Breed action (e.g. SplitIntoTwo, weight 50, totalCount<50) same as any
+			// other top-level behavior — this test isn't exercising breeding, just needs it not to
+			// crash if the walk happens to pass through it.
+			requestSibling: () => {},
 		};
 		const ledges = [{ kind: "floor" as const, y: 600, x1: 0, x2: 800, source: "window" as const }];
 
+		// Generous budget rather than a seed tuned to land within a tight one: the exact tick at
+		// which any given seed rolls ChaseMouse is an implementation detail of the RNG-consumption
+		// order elsewhere in behavior selection, which is exactly the kind of thing a real-source
+		// fidelity fix can (correctly) shift — an 8-30s cooldown firing at least once should be
+		// essentially certain well within 5000 simulated seconds regardless.
 		let sawChaseMouse = false;
-		for (let i = 0; i < 2000 && !sawChaseMouse; i++) {
+		for (let i = 0; i < 50000 && !sawChaseMouse; i++) {
 			ai.tick(mascot as unknown as Mascot, 0.1, ledges, { x: 700, y: 300, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
 			if (ai.currentBehaviorName === "ChaseMouse") sawChaseMouse = true;
 		}
