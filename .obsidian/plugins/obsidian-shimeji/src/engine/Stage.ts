@@ -121,7 +121,11 @@ export class Stage {
 			getAmbientPointer: this.getAmbientPointer,
 			rng: this.rng,
 		};
-		this.mascot = new Mascot(deps, window.innerWidth / 2, 0);
+		// Not y=0 exactly: that coincides with the ceiling ledge's own y-coordinate, so a pack's
+		// ceiling.isOn(anchor) geometric check can't tell a freshly-spawned mascot apart from one
+		// that's legitimately attached to the ceiling, and picks a ceiling behavior instead of
+		// falling.
+		this.mascot = new Mascot(deps, window.innerWidth / 2, 40);
 		this.container.appendChild(this.mascot.el);
 		return this.mascot;
 	}

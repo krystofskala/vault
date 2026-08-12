@@ -232,6 +232,15 @@ export class ActionRunner {
 		this.showPose(env.mascot, pose);
 		const physics = env.mascot.physics;
 
+		// A Wall/Ceiling-bordered Move (ClimbWall, ClimbCeiling, ...) leaves the floor; without
+		// this, `grounded`/`currentFloor` stay stuck at whatever they were before climbing
+		// started, so `mascot.environment.floor.isOn(...)` would keep reporting true (and
+		// floor-only behaviors selectable) the whole time the mascot is actually up a wall.
+		if (frame.action.borderType === "Wall" || frame.action.borderType === "Ceiling") {
+			physics.grounded = false;
+			physics.currentFloor = undefined;
+		}
+
 		const targetX = numOrUndefined(frame.locals.TargetX);
 		const targetY = numOrUndefined(frame.locals.TargetY);
 

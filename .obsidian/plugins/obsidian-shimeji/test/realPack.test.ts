@@ -3,6 +3,11 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseActionsXml } from "../src/shimeji/ActionsParser";
 import { parseBehaviorsXml } from "../src/shimeji/BehaviorsParser";
+import { BehaviorAI } from "../src/shimeji/BehaviorAI";
+import { Random } from "../src/engine/Random";
+import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
+import type { Mascot } from "../src/engine/Mascot";
+import type { MascotPack } from "../src/shimeji/types";
 
 /**
  * Sanity check against the actual standard shimeji-ee conf files shipped in Shimeji/conf/
@@ -69,5 +74,25 @@ describe("real standard Shimeji-ee pack", () => {
 
 	it("behaviors on the floor inherit the enclosing <Condition> wrapper", () => {
 		expect(behaviors.get("StandUp")?.condition).toBeDefined();
+	});
+
+	it("a freshly spawned, ungrounded mascot reliably falls first, not some arbitrary zero-weight behavior", () => {
+		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
+		const ai = new BehaviorAI(pack, new Random(1));
+		const mascot = {
+			// y=40, matching Stage's actual spawn point — not y=0, which coincides with the
+			// ceiling ledge's own y-coordinate and would make ceiling.isOn(anchor) look true.
+			physics: { x: 400, y: 40, vx: 0, vy: 0, facing: 1 as const, grounded: false },
+			stateElapsedMs: 0,
+			setVisualImage: () => {},
+		};
+		const ledges = [{ kind: "floor" as const, y: 600, x1: 0, x2: 800, source: "window" as const }];
+
+		for (let i = 0; i < 30; i++) {
+			ai.tick(mascot as unknown as Mascot, 0.05, ledges, { x: 400, y: 300, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
+		}
+		// Falling for 1.5s of sim time should have made real downward progress, not left the
+		// mascot stuck sliding around at its spawn height.
+		expect(mascot.physics.y).toBeGreaterThan(50);
 	});
 });

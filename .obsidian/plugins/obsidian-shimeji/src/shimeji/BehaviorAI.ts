@@ -31,10 +31,10 @@ export class BehaviorAI {
 	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig): void {
 		const env = this.buildEnv(mascot, ambientPointer, config);
 
-		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(env.ctx), env);
+		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(mascot, env.ctx), env);
 
 		const done = this.runner.isRunning ? this.runner.tick(env, dt, ledges) : true;
-		if (done) this.startBehavior(this.pickNextBehavior(env.ctx), env);
+		if (done) this.startBehavior(this.pickNextBehavior(mascot, env.ctx), env);
 	}
 
 	/** Used for a mouse-drag release: jump straight to the pack's own Fall/Thrown action. */
@@ -65,7 +65,7 @@ export class BehaviorAI {
 	 * Add="true", exclusively (only the transitions count) otherwise, matching real packs
 	 * where e.g. ChaseMouse always leads to SitAndFaceMouse but SitDown can *also* fall back
 	 * to the general pool. */
-	private pickNextBehavior(ctx: ExprContext): BehaviorDef | undefined {
+	private pickNextBehavior(mascot: Mascot, ctx: ExprContext): BehaviorDef | undefined {
 		const transitions = this.currentBehavior?.nextBehaviors ?? [];
 		const additive = transitions.length === 0 || transitions.every((t) => t.add);
 
@@ -81,6 +81,18 @@ export class BehaviorAI {
 				if (evaluateCondition(behavior.condition, ctx)) candidates.push({ item: behavior, weight: behavior.frequency });
 			}
 		}
+
+		// Real packs gate almost every positive-weight behavior behind "on the floor/wall/
+		// ceiling" — while genuinely unsupported (freshly spawned, or nothing else applies)
+		// every candidate here can end up weight-0, and picking among those is really just a
+		// tiebreak on whatever order the pack happened to declare them in. Prefer Fall in that
+		// case: falling is always the physically correct thing to do when ungrounded, not an
+		// arbitrary choice.
+		if (!mascot.physics.grounded && candidates.length > 0 && candidates.every((c) => c.weight <= 0)) {
+			const fallIndex = candidates.findIndex((c) => c.item.name === "Fall");
+			if (fallIndex > 0) candidates.unshift(candidates.splice(fallIndex, 1)[0]);
+		}
+
 		return this.rng.weightedPick(candidates);
 	}
 }
