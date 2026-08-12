@@ -117,9 +117,29 @@ export function tickChaseMouse(args: TickArgs, pointer: { x: number; y: number }
 	return reached;
 }
 
-export function tickDragged(physics: MascotPhysics, pointer: PointerState, grabOffset: { x: number; y: number }): void {
-	physics.x = pointer.x - grabOffset.x;
-	physics.y = pointer.y - grabOffset.y;
+/**
+ * Springs toward the grabbed point rather than snapping to it exactly, so the mascot lags
+ * and "hangs" off the cursor the way the original app's held pose does instead of rigidly
+ * teleporting to it every frame. Also clamps to the viewport: pointer capture can keep
+ * delivering coordinates past the window edge (or even get stuck there if the OS cursor
+ * leaves the window before releasing), and without a clamp here that reads back as the
+ * mascot vanishing off the side while "stuck" mid-drag.
+ */
+export function tickDragged(
+	physics: MascotPhysics,
+	pointer: PointerState,
+	grabOffset: { x: number; y: number },
+	dt: number,
+	viewport: { width: number; height: number },
+	springPerSecond = 16,
+): void {
+	const targetX = pointer.x - grabOffset.x;
+	const targetY = pointer.y - grabOffset.y;
+	const t = Math.min(1, springPerSecond * dt);
+	physics.x += (targetX - physics.x) * t;
+	physics.y += (targetY - physics.y) * t;
+	physics.x = Math.max(0, Math.min(viewport.width, physics.x));
+	physics.y = Math.max(0, Math.min(viewport.height, physics.y));
 	physics.grounded = false;
 	physics.currentFloor = undefined;
 }

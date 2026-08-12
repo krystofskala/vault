@@ -29,6 +29,10 @@ export class Stage {
 		this.rng = new Random(opts.seed);
 		this.container = document.createElement("div");
 		this.container.className = "shimeji-stage";
+		// Set inline too (not just via styles.css): this must never depend on stylesheet load
+		// timing, since a full-window overlay that briefly fails to be click-through would
+		// swallow real Obsidian interactions (dragging the window, resizing panes) underneath it.
+		this.container.style.pointerEvents = "none";
 		document.body.appendChild(this.container);
 		this.recomputeLedges();
 		window.addEventListener("mousemove", this.onMouseMove);

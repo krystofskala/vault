@@ -4,6 +4,11 @@
 	overflow: hidden;
 	pointer-events: none;
 	z-index: 60;
+	/* -webkit-app-region hit-testing (used for OS-level window dragging on a custom title
+	 * bar) is a separate mechanism from pointer-events and ignores it, so a full-window
+	 * overlay on top can silently block dragging the window by its title bar unless it's
+	 * explicitly excluded here too. */
+	-webkit-app-region: no-drag;
 }
 
 .shimeji-mascot {
@@ -15,6 +20,7 @@
 	will-change: transform;
 	user-select: none;
 	-webkit-user-select: none;
+	-webkit-app-region: no-drag;
 }
 
 .shimeji-mascot.is-dragging {

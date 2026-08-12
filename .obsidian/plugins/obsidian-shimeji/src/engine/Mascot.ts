@@ -48,6 +48,7 @@ export class Mascot {
 	private walk?: WalkState;
 	private climbDirection: "up" | "down" = "up";
 	private isDragging = false;
+	private activePointerId: number | null = null;
 	private grabOffset: Vec2 = { x: 0, y: 0 };
 	private dragTrack: PointerState = { x: 0, y: 0, down: false, history: [] };
 	private usingImage = false;
@@ -97,6 +98,7 @@ export class Mascot {
 		this.el.addEventListener("pointerdown", (ev) => {
 			ev.preventDefault();
 			this.el.setPointerCapture(ev.pointerId);
+			this.activePointerId = ev.pointerId;
 			this.isDragging = true;
 			this.el.classList.add("is-dragging");
 			this.grabOffset = { x: ev.clientX - this.physics.x, y: ev.clientY - this.physics.y };
@@ -109,25 +111,38 @@ export class Mascot {
 			this.dragTrack.history.push({ x: ev.clientX, y: ev.clientY, t: performance.now() });
 			if (this.dragTrack.history.length > 8) this.dragTrack.history.shift();
 		});
-		const endDrag = (ev: PointerEvent) => {
-			if (!this.isDragging) return;
-			this.isDragging = false;
-			this.el.classList.remove("is-dragging");
-			this.dragTrack.down = false;
+		this.el.addEventListener("pointerup", () => this.finishDrag());
+		this.el.addEventListener("pointercancel", () => this.finishDrag());
+		// Pointer capture is page-level, not real OS mouse capture: if the cursor leaves the
+		// window entirely mid-swing, pointermove/pointerup can stop arriving altogether and
+		// the drag would otherwise get stuck forever wherever it last was (reading as the
+		// mascot "vanishing" at the edge). A window blur is a reliable enough signal to let go.
+		window.addEventListener("blur", this.onWindowBlur);
+	}
+
+	private onWindowBlur = (): void => {
+		if (this.isDragging) this.finishDrag();
+	};
+
+	private finishDrag(): void {
+		if (!this.isDragging) return;
+		this.isDragging = false;
+		this.el.classList.remove("is-dragging");
+		this.dragTrack.down = false;
+		if (this.activePointerId !== null) {
 			try {
-				this.el.releasePointerCapture(ev.pointerId);
+				this.el.releasePointerCapture(this.activePointerId);
 			} catch {
 				/* pointer capture already released */
 			}
-			const release = computeReleaseVelocity(this.dragTrack, this.deps.config);
-			this.physics.vx = release.vx;
-			this.physics.vy = release.vy;
-			const wasThrown = Math.hypot(release.vx, release.vy) > this.deps.config.minThrowSpeed;
-			this.enterState(wasThrown ? "thrown" : "fall");
-			this.driver?.notifyReleased?.(this, wasThrown, this.deps.getAmbientPointer());
-		};
-		this.el.addEventListener("pointerup", endDrag);
-		this.el.addEventListener("pointercancel", endDrag);
+			this.activePointerId = null;
+		}
+		const release = computeReleaseVelocity(this.dragTrack, this.deps.config);
+		this.physics.vx = release.vx;
+		this.physics.vy = release.vy;
+		const wasThrown = Math.hypot(release.vx, release.vy) > this.deps.config.minThrowSpeed;
+		this.enterState(wasThrown ? "thrown" : "fall");
+		this.driver?.notifyReleased?.(this, wasThrown, this.deps.getAmbientPointer());
 	}
 
 	/** Called once per frame before rendering. */
@@ -136,7 +151,7 @@ export class Mascot {
 		const ambient = this.deps.getAmbientPointer();
 
 		if (this.isDragging) {
-			tickDragged(this.physics, this.dragTrack, this.grabOffset);
+			tickDragged(this.physics, this.dragTrack, this.grabOffset, dtSeconds, { width: window.innerWidth, height: window.innerHeight });
 			const swing = computeReleaseVelocity(this.dragTrack, this.deps.config);
 			if (Math.abs(swing.vx) > 20) this.physics.facing = swing.vx > 0 ? 1 : -1;
 			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, ambient)) this.setVisualState("dragged");
@@ -271,6 +286,7 @@ export class Mascot {
 	}
 
 	destroy(): void {
+		window.removeEventListener("blur", this.onWindowBlur);
 		this.detachDriver();
 		this.el.remove();
 	}
