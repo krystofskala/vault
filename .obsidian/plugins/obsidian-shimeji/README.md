@@ -40,9 +40,26 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   starting guess rather than a verified value.
 - **Approximated, not literal**: the original engine tracks a specific external OS window
   ("activeIE" in its own naming, from its IE-integration history) that mascots can climb on;
-  here that concept maps to whichever open pane/status-bar ledge the mascot is currently
-  standing on. Side/underneath tracking of that pane isn't implemented, only its top as a
-  floor.
+  here that concept maps to whichever open pane the mascot is currently against — its top,
+  either side, or its underside all count, matching a real pane's full bounding box (see the
+  next point). The status bar only ever contributes a floor, not a climbable rect, since it's
+  a thin strip rather than a tracked "window."
+- **A pane's sides and underside are climbable too, not just its top**: auditing the real
+  files for this turned up an entire category of authored behaviors —
+  `HoldOntoIEWall`/`ClimbIEWall` (a pane's side), `ClimbIEBottom`/`GrabIEBottomLeftWall`/
+  `GrabIEBottomRightWall` (hanging off its underside), plus pane-aware variants of
+  `HoldOntoWall`/`FallFromWall`/`HoldOntoCeiling`/`FallFromCeiling` — that reference
+  `mascot.environment.activeIE.leftBorder`/`rightBorder`/`bottomBorder.isOn(...)`, which were
+  all hardcoded to `false`, so none of them could ever be selected. `computeLedgesFromRects`
+  now emits wall/ceiling ledges for a pane's own left/right/bottom edges (not just its top as a
+  floor), each carrying a back-reference to that pane's full rect so `activeIE.left/right/top/
+  bottom/width/height` all resolve consistently to whichever *one* pane the mascot is
+  currently against — floor takes precedence, then wall, then ceiling. A new
+  `updateWallCeilingAdherence` keeps `currentWall`/`currentCeiling` fresh every tick,
+  unconditionally (mirroring how gravity already keeps `currentFloor` fresh), since a mascot
+  can end up against a wall from simply walking into one during an ordinary Floor-bordered
+  action — it can't be limited to only running during an already-Wall/Ceiling-bordered action,
+  or the condition that triggers climbing in the first place could never become true.
 - **Real multiple mascots, including real `Breed`**: `Stage` now runs any number of
   independent mascots (capped by a settings limit) instead of just one. A pack's own Breed
   actions (`PullUpShimeji1`/`Divide1` in the real pack, verified against the actual XML) spawn

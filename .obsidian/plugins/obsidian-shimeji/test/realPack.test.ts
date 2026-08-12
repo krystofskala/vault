@@ -8,8 +8,9 @@ import { ActionRunner, type PushEnv } from "../src/shimeji/ActionRunner";
 import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
 import { evaluateCondition, withLocals } from "../src/shimeji/Expression";
 import { Random } from "../src/engine/Random";
-import { computeLeanPointer } from "../src/engine/nativeBehaviors";
-import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
+import { computeLeanPointer, updateWallCeilingAdherence } from "../src/engine/nativeBehaviors";
+import { computeLedgesFromRects } from "../src/engine/Ledges";
+import { DEFAULT_ENGINE_CONFIG, type MascotPhysics } from "../src/engine/types";
 import type { Mascot } from "../src/engine/Mascot";
 import type { MascotPack } from "../src/shimeji/types";
 
@@ -247,5 +248,45 @@ describe("real standard Shimeji-ee pack", () => {
 			expect(behavior.nextBehaviors.some((n) => n.name === "Divided")).toBe(false);
 			expect(behavior.nextBehaviors.some((n) => n.name === "PullUp")).toBe(false);
 		}
+	});
+
+	it("HoldOntoIEWall/ClimbIEWall/ClimbIEBottom/GrabIEBottomLeftWall/RightWall are reachable now that a pane's sides/underside are tracked (previously always false)", () => {
+		const paneRect = { left: 100, top: 300, right: 400, bottom: 580 };
+		const ledges = computeLedgesFromRects({ width: 800, height: 900 }, [{ rect: paneRect, source: "pane" }]);
+		const buildCtx = (physics: MascotPhysics) => {
+			updateWallCeilingAdherence(physics, ledges);
+			return createRuntimeContext(
+				physics,
+				{ viewportWidth: 800, viewportHeight: 900, pointer: { x: 0, y: 0, dx: 0, dy: 0 }, totalMascotCount: 1 },
+				0,
+				new Random(1),
+			);
+		};
+
+		// Facing right, standing at the pane's own left wall — "On IE's Side" is
+		// `mascot.lookRight ? activeIE.leftBorder.isOn : activeIE.rightBorder.isOn`.
+		const atLeftWall: MascotPhysics = { x: paneRect.left, y: 400, vx: 0, vy: 0, facing: 1, grounded: false };
+		const wallCtx = buildCtx(atLeftWall);
+		expect(evaluateCondition(behaviors.get("HoldOntoIEWall")?.condition, wallCtx)).toBe(true);
+		expect(evaluateCondition(behaviors.get("ClimbIEWall")?.condition, wallCtx)).toBe(true);
+		// activeIE.top/bottom must reflect this pane's own rect (ClimbIEWall's real TargetY
+		// expression is #{mascot.environment.activeIE.top+64}) — not the old approximation that
+		// hardcoded activeIE.bottom to the viewport's own height.
+		expect(wallCtx.resolve(["mascot", "environment", "activeIE", "top"])).toBe(paneRect.top);
+		expect(wallCtx.resolve(["mascot", "environment", "activeIE", "bottom"])).toBe(paneRect.bottom);
+
+		// Standing right at the pane's underside — "On the Bottom of IE" is just
+		// activeIE.bottomBorder.isOn, no facing dependency.
+		const atBottom: MascotPhysics = { x: 250, y: paneRect.bottom, vx: 0, vy: 0, facing: 1, grounded: false };
+		const bottomCtx = buildCtx(atBottom);
+		expect(evaluateCondition(behaviors.get("ClimbIEBottom")?.condition, bottomCtx)).toBe(true);
+		expect(evaluateCondition(behaviors.get("GrabIEBottomLeftWall")?.condition, bottomCtx)).toBe(true);
+		expect(evaluateCondition(behaviors.get("GrabIEBottomRightWall")?.condition, bottomCtx)).toBe(true);
+
+		// Well away from any pane, none of these should be reachable.
+		const elsewhere: MascotPhysics = { x: 700, y: 100, vx: 0, vy: 0, facing: 1, grounded: false };
+		const elsewhereCtx = buildCtx(elsewhere);
+		expect(evaluateCondition(behaviors.get("HoldOntoIEWall")?.condition, elsewhereCtx)).toBe(false);
+		expect(evaluateCondition(behaviors.get("ClimbIEBottom")?.condition, elsewhereCtx)).toBe(false);
 	});
 });

@@ -1,4 +1,5 @@
 import type { Mascot } from "../engine/Mascot";
+import { updateWallCeilingAdherence } from "../engine/nativeBehaviors";
 import type { Random } from "../engine/Random";
 import type { EngineConfig, Ledge } from "../engine/types";
 import { ActionRunner, type PushEnv } from "./ActionRunner";
@@ -41,6 +42,10 @@ export class BehaviorAI {
 
 	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig): void {
 		this.chaseMouseCooldownMs -= dt * 1000;
+		// Before building this tick's context: a mascot can be "against a wall" (or under a
+		// pane's underside) regardless of what action put it there, most commonly just having
+		// walked into one — see updateWallCeilingAdherence.
+		updateWallCeilingAdherence(mascot.physics, ledges);
 		const env = this.buildEnv(mascot, ambientPointer, config);
 
 		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(mascot, env), env);

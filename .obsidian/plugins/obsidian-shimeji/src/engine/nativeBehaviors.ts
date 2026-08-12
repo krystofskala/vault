@@ -1,4 +1,4 @@
-import { findFloorBelow, findWallAt } from "./Ledges";
+import { findCeilingAt, findFloorBelow, findWallAt } from "./Ledges";
 import type { EngineConfig, Ledge, MascotPhysics, PointerState, Vec2, WallLedge } from "./types";
 import type { Random } from "./Random";
 
@@ -44,6 +44,25 @@ export function clampToCeiling(physics: MascotPhysics, ledges: Ledge[]): void {
 		physics.y = maxCeilingY;
 		if (physics.vy < 0) physics.vy = 0;
 	}
+}
+
+const WALL_CEILING_ADHERENCE_REACH = 4;
+
+/**
+ * Keeps physics.currentWall/currentCeiling fresh every tick — mirroring how gravity/landing
+ * already keeps currentFloor fresh via applyGravityAndLand below, which real packs lean on for
+ * mascot.environment.floor.isOn(...). A mascot can be "against a wall" (or under a ceiling)
+ * regardless of what specific action put it there — most commonly, simply having walked into
+ * one during an ordinary Floor-bordered Walk — so this can't be limited to only running during
+ * an already-Wall/Ceiling-bordered action; it has to run unconditionally, every tick, the same
+ * way gravity's floor check does, or the real pack's own "On the Wall"/"On IE's Side"/etc.
+ * conditions could never become true in the first place (nothing else would ever set them).
+ */
+export function updateWallCeilingAdherence(physics: MascotPhysics, ledges: Ledge[]): void {
+	physics.currentWall =
+		findWallAt(ledges, physics.x, physics.y, "left", WALL_CEILING_ADHERENCE_REACH) ??
+		findWallAt(ledges, physics.x, physics.y, "right", WALL_CEILING_ADHERENCE_REACH);
+	physics.currentCeiling = findCeilingAt(ledges, physics.x, physics.y, WALL_CEILING_ADHERENCE_REACH);
 }
 
 /** Integrates gravity and snaps to a floor if one is crossed. Shared safety net used by

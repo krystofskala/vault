@@ -33,23 +33,34 @@ function toNum(v: ExprValue): number {
  * `mascot.environment.workArea.rightBorder.isOn(...)`, `mascot.environment.activeIE.*`) that
  * originally reflects OS-level window tracking we don't have. Here it's approximated from our
  * own ledges: "floor"/"ceiling"/"*Border" map to the outer window edges, and "activeIE" (the
- * original engine's tracked external window) maps to whichever pane ledge the mascot is
- * currently standing on, when any — a reasonable analogue, not a literal equivalent.
+ * original engine's tracked external window) maps to whichever *pane* the mascot is currently
+ * against — its top (as a floor), one of its sides, or its underside — a reasonable analogue,
+ * not a literal equivalent.
  */
 export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, elapsedMs: number, rng: Random): ExprContext {
 	const floor = physics.currentFloor?.kind === "floor" ? physics.currentFloor : undefined;
+	const wall = physics.currentWall?.kind === "wall" ? physics.currentWall : undefined;
+	const ceiling = physics.currentCeiling?.kind === "ceiling" ? physics.currentCeiling : undefined;
 	const onPaneFloor = physics.grounded && floor?.source === "pane";
 	const onWindowFloor = physics.grounded && !!floor && floor.source !== "pane";
+	const onPaneWall = wall?.source === "pane";
+	const onPaneCeiling = ceiling?.source === "pane";
 	const EPS = 4;
 
-	const activeIE = onPaneFloor && floor
+	// Whichever single pane (if any) the mascot is currently against — floor takes precedence
+	// since it's the most common, most stable case; a mascot is never against more than one of
+	// these at once in practice, but if it somehow were, this is at least a consistent pick
+	// rather than an arbitrary one.
+	const activePaneRect = onPaneFloor ? floor?.rect : onPaneWall ? wall?.rect : onPaneCeiling ? ceiling?.rect : undefined;
+
+	const activeIE = activePaneRect
 		? {
-				left: floor.x1,
-				right: floor.x2,
-				top: floor.y,
-				bottom: env.viewportHeight,
-				width: floor.x2 - floor.x1,
-				height: env.viewportHeight - floor.y,
+				left: activePaneRect.left,
+				right: activePaneRect.right,
+				top: activePaneRect.top,
+				bottom: activePaneRect.bottom,
+				width: activePaneRect.right - activePaneRect.left,
+				height: activePaneRect.bottom - activePaneRect.top,
 				visible: true,
 			}
 		: undefined;
@@ -77,10 +88,11 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 			case "mascot.environment.activeIE.topBorder.isOn":
 				return onPaneFloor;
 			case "mascot.environment.activeIE.leftBorder.isOn":
+				return onPaneWall && wall?.side === "left";
 			case "mascot.environment.activeIE.rightBorder.isOn":
+				return onPaneWall && wall?.side === "right";
 			case "mascot.environment.activeIE.bottomBorder.isOn":
-				// We don't track a pane's sides/underside, only its top-as-floor.
-				return false;
+				return onPaneCeiling;
 		}
 		warnUnknown(`function "${name}(...)"`);
 		return undefined;

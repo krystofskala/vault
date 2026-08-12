@@ -12,10 +12,15 @@ export interface Rect {
 
 export type LedgeSource = "window" | "pane" | "statusbar";
 
+/** `rect` (only ever set for pane-sourced ledges) points back at the full bounding box of the
+ * pane this ledge was derived from — a floor/wall/ceiling ledge all sourced from the *same*
+ * pane carry the *same* rect, so whichever one the mascot currently happens to be against, its
+ * `mascot.environment.activeIE.*` (left/right/top/bottom/width/height) all resolve consistently
+ * to that one pane, not whichever ledge answered a given query. */
 export type Ledge =
-	| { kind: "floor"; y: number; x1: number; x2: number; source: LedgeSource }
-	| { kind: "ceiling"; y: number; x1: number; x2: number; source: LedgeSource }
-	| { kind: "wall"; side: "left" | "right"; x: number; y1: number; y2: number; source: LedgeSource };
+	| { kind: "floor"; y: number; x1: number; x2: number; source: LedgeSource; rect?: Rect }
+	| { kind: "ceiling"; y: number; x1: number; x2: number; source: LedgeSource; rect?: Rect }
+	| { kind: "wall"; side: "left" | "right"; x: number; y1: number; y2: number; source: LedgeSource; rect?: Rect };
 
 export type FloorLedge = Extract<Ledge, { kind: "floor" }>;
 export type CeilingLedge = Extract<Ledge, { kind: "ceiling" }>;
@@ -62,6 +67,7 @@ export interface MascotPhysics {
 	grounded: boolean;
 	currentFloor?: Ledge;
 	currentWall?: Ledge;
+	currentCeiling?: Ledge;
 }
 
 export interface EngineConfig {

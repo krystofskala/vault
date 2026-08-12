@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyGravityAndLand, clampToCeiling, clampToWalls, computeLeanPointer, type TickArgs } from "../src/engine/nativeBehaviors";
+import { applyGravityAndLand, clampToCeiling, clampToWalls, computeLeanPointer, updateWallCeilingAdherence, type TickArgs } from "../src/engine/nativeBehaviors";
 import { computeLedgesFromRects } from "../src/engine/Ledges";
 import { DEFAULT_ENGINE_CONFIG, type MascotPhysics } from "../src/engine/types";
 
@@ -91,6 +91,44 @@ describe("computeLeanPointer", () => {
 			const lean = computeLeanPointer({ x: pointerX, y: 0 }, { vx, vy: 0 }, 0.05);
 			expect(lean.x).toBeGreaterThan(pointerX); // always ahead, never behind, while vx > 0
 		}
+	});
+});
+
+describe("updateWallCeilingAdherence", () => {
+	const paneRect = { left: 100, top: 300, right: 400, bottom: 580 };
+	const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect: paneRect, source: "pane" }]);
+
+	it("sets currentWall when standing right at a pane's side, regardless of what action is running", () => {
+		// The mascot need not be doing anything wall-specific — it's enough to simply be
+		// positioned there, e.g. having walked into it during an ordinary floor-bordered Walk.
+		const physics = physicsAt(100, 400);
+		updateWallCeilingAdherence(physics, ledges);
+		expect(physics.currentWall?.kind).toBe("wall");
+		expect(physics.currentWall && "side" in physics.currentWall ? physics.currentWall.side : undefined).toBe("left");
+		expect(physics.currentWall?.source).toBe("pane");
+	});
+
+	it("sets currentCeiling when positioned right at a pane's underside", () => {
+		const physics = physicsAt(200, 580);
+		updateWallCeilingAdherence(physics, ledges);
+		expect(physics.currentCeiling?.kind).toBe("ceiling");
+		expect(physics.currentCeiling?.source).toBe("pane");
+	});
+
+	it("clears both when not near any wall or ceiling", () => {
+		const physics = physicsAt(200, 400);
+		physics.currentWall = ledges.find((l) => l.kind === "wall");
+		physics.currentCeiling = ledges.find((l) => l.kind === "ceiling");
+		updateWallCeilingAdherence(physics, ledges);
+		expect(physics.currentWall).toBeUndefined();
+		expect(physics.currentCeiling).toBeUndefined();
+	});
+
+	it("still finds the plain window walls/ceiling when no pane is nearby", () => {
+		const physics = physicsAt(1, 1);
+		updateWallCeilingAdherence(physics, ledges);
+		expect(physics.currentWall?.source).toBe("window");
+		expect(physics.currentCeiling?.source).toBe("window");
 	});
 });
 

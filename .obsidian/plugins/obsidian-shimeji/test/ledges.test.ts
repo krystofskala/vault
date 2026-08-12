@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { computeLedgesFromRects, findFloorBelow, findWallAt } from "../src/engine/Ledges";
+import { computeLedgesFromRects, findCeilingAt, findFloorBelow, findWallAt } from "../src/engine/Ledges";
+
+const PANE_RECT = { left: 100, top: 300, right: 400, bottom: 580 };
 
 describe("computeLedgesFromRects", () => {
 	it("always includes the four window edges", () => {
@@ -11,10 +13,41 @@ describe("computeLedgesFromRects", () => {
 	});
 
 	it("adds a floor ledge along the top of a platform rect", () => {
-		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [
-			{ rect: { left: 100, top: 300, right: 400, bottom: 580 }, source: "pane" },
-		]);
-		expect(ledges).toContainEqual({ kind: "floor", y: 300, x1: 100, x2: 400, source: "pane" });
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect: PANE_RECT, source: "pane" }]);
+		expect(ledges).toContainEqual({ kind: "floor", y: 300, x1: 100, x2: 400, source: "pane", rect: PANE_RECT });
+	});
+
+	it("also adds a ceiling (its underside) and left/right walls for a pane, unlike a plain floor-only source", () => {
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect: PANE_RECT, source: "pane" }]);
+		expect(ledges).toContainEqual({ kind: "ceiling", y: 580, x1: 100, x2: 400, source: "pane", rect: PANE_RECT });
+		expect(ledges).toContainEqual({ kind: "wall", side: "left", x: 100, y1: 300, y2: 580, source: "pane", rect: PANE_RECT });
+		expect(ledges).toContainEqual({ kind: "wall", side: "right", x: 400, y1: 300, y2: 580, source: "pane", rect: PANE_RECT });
+	});
+
+	it("does not add walls/ceiling for a non-pane source (e.g. the status bar) — only its top as a floor", () => {
+		const rect = { left: 0, top: 590, right: 800, bottom: 600 };
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect, source: "statusbar" }]);
+		const statusbarLedges = ledges.filter((l) => l.source === "statusbar");
+		expect(statusbarLedges).toHaveLength(1);
+		expect(statusbarLedges[0].kind).toBe("floor");
+	});
+
+	it("skips a pane's own wall/ceiling when it would exactly coincide with the window's edge", () => {
+		// A pane flush against the left edge and reaching the bottom of the window: its left
+		// wall and bottom-as-ceiling would just duplicate the window's own left wall / floor.
+		const rect = { left: 0, top: 200, right: 300, bottom: 600 };
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect, source: "pane" }]);
+		const paneLedges = ledges.filter((l) => l.source === "pane");
+		expect(paneLedges.some((l) => l.kind === "wall" && l.side === "left")).toBe(false);
+		expect(paneLedges.some((l) => l.kind === "ceiling")).toBe(false);
+		expect(paneLedges.some((l) => l.kind === "wall" && l.side === "right")).toBe(true);
+	});
+
+	it("every ledge derived from the same pane rect carries a back-reference to that exact rect", () => {
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect: PANE_RECT, source: "pane" }]);
+		const paneLedges = ledges.filter((l) => l.source === "pane");
+		expect(paneLedges).toHaveLength(4); // floor, ceiling, left wall, right wall
+		for (const ledge of paneLedges) expect(ledge.rect).toEqual(PANE_RECT);
 	});
 
 	it("ignores degenerate (hidden/zero-size) platform rects", () => {
@@ -23,6 +56,24 @@ describe("computeLedgesFromRects", () => {
 			{ rect: { left: 10, top: 0, right: 20, bottom: 600 }, source: "pane" },
 		]);
 		expect(ledges.filter((l) => l.source === "pane")).toHaveLength(0);
+	});
+});
+
+describe("findCeilingAt", () => {
+	const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect: PANE_RECT, source: "pane" }]);
+
+	it("finds a pane's underside within reach and x-range", () => {
+		const ceiling = findCeilingAt(ledges, 200, 580, 4);
+		expect(ceiling?.source).toBe("pane");
+		expect(ceiling?.y).toBe(580);
+	});
+
+	it("does not match outside the pane's x-range", () => {
+		expect(findCeilingAt(ledges, 700, 580, 4)).toBeUndefined();
+	});
+
+	it("still finds the window's own ceiling at y=0", () => {
+		expect(findCeilingAt(ledges, 400, 1, 4)?.source).toBe("window");
 	});
 });
 
