@@ -1,4 +1,4 @@
-import type { App } from "obsidian";
+import { normalizePath, type App } from "obsidian";
 import { parseActionsXml } from "./ActionsParser";
 import { parseBehaviorsXml } from "./BehaviorsParser";
 import type { MascotPack } from "./types";
@@ -14,14 +14,32 @@ async function tryLoadCharacter(app: App, name: string, imgDir: string, confDir:
 
 	const [actionsXml, behaviorsXml] = await Promise.all([app.vault.adapter.read(actionsPath), app.vault.adapter.read(behaviorsPath)]);
 
+	// resolveImage runs on every pose tick (many times a second, for whatever pose is
+	// currently showing) — getResourcePath isn't guaranteed to return the exact same string on
+	// repeat calls for the same file (e.g. if it embeds a cache-busting token), which would
+	// defeat Mascot.setVisualImage's own de-dup check and mean re-requesting the same image
+	// dozens of times a second — exactly the kind of flood that can make the whole renderer
+	// process sluggish. Caching by raw path here makes resolution stable regardless of that,
+	// and skips the adapter call entirely once a path's been seen.
+	const resolvedCache = new Map<string, string>();
+	let loggedSample = false;
 	return {
 		id: name,
 		name,
 		actions: parseActionsXml(actionsXml),
 		behaviors: parseBehaviorsXml(behaviorsXml),
 		resolveImage: (rawPath: string): string => {
+			const cached = resolvedCache.get(rawPath);
+			if (cached !== undefined) return cached;
 			const clean = rawPath.replace(/^[/\\]+/, "");
-			return app.vault.adapter.getResourcePath(`${imgDir}/${clean}`);
+			const fullPath = normalizePath(`${imgDir}/${clean}`);
+			const resolved = app.vault.adapter.getResourcePath(fullPath);
+			resolvedCache.set(rawPath, resolved);
+			if (!loggedSample) {
+				loggedSample = true;
+				console.info(`[obsidian-shimeji] pack "${name}" resolves images under "${imgDir}" — e.g. "${rawPath}" -> "${fullPath}" -> ${resolved}`);
+			}
+			return resolved;
 		},
 		imgDir,
 	};
