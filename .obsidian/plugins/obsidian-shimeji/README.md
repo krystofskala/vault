@@ -91,15 +91,6 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   `Dragged`) was falling back to gravity instead of just holding its pose in place, and `Jump`
   was logging a spurious "unrecognized embedded action" warning despite already behaving
   correctly (an initial arc velocity, then plain gravity, same as `Fall`).
-- **Fixed a real drag bug**: while being dragged, a pack's own lean poses (e.g. Pinched's five
-  Dragged variants) compare the mascot's own anchor against `mascot.environment.cursor.x/y` —
-  but that was being fed from Stage's separately-sampled ambient mouse tracker while the
-  mascot's own position came from its own pointer-capture events, and those two independent
-  samples of "the same" cursor could disagree in either direction from tick to tick. During a
-  fast swing this flipped which side a lean pose read as even though the drag never actually
-  changed direction. Fixed by deriving everything from one source — the drag's own recent
-  swing velocity, extrapolated forward by a small fixed lag (`computeLeanPointer`) — instead
-  of mixing in a second, independently-timed reading.
 - **Mobile**: dragging is already built on Pointer Events, which cover touch, and pack loading
   already goes through the cross-platform vault adapter API rather than Node's `fs`, so most
   of this needed no changes. The one real gap — no right-click on a touchscreen — is closed
@@ -114,7 +105,7 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   vault is later opened on desktop. Untested on a real device so far — the timer/event-lifecycle
   wiring here specifically couldn't be covered by the test suite (this repo's jsdom has no
   `PointerEvent`/`setPointerCapture` at
-  all), unlike the drag lean-pose fix above, which does have regression tests.
+  all), unlike the drag mechanics below, which do have regression tests.
 - **Fixed a real "fall through the floor" bug**: the check for "is the floor I'm standing on
   still there" only accepted a floor at-or-below the mascot's current position
   (`findFloorBelow`) — correct for catching an active fall, but wrong for re-validating an
@@ -124,15 +115,6 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   forever, off-screen. `findNearestFloorAt` (direction-agnostic — closest floor at this x,
   above or below) is now used specifically for that re-validation, so a grounded mascot
   re-anchors to wherever its floor actually is now instead of falling through it.
-- **Fixed the drag lean-pose flicker introduced by the previous lean-pose fix**: extrapolating
-  the drag's own swing velocity forward (`computeLeanPointer`, see above) fixed the sign-flip
-  bug, but feeding it `computeReleaseVelocity`'s raw two-sample secant fresh every 40ms tick
-  turned out to be noisy enough (ordinary hand tremor, uneven native mouse-event delivery) to
-  swing past the real Pinched action's ±30/±50px thresholds and back within a couple of ticks
-  even during a smooth, steady drag — reading as the held pose flickering rather than tracking
-  the swing. `smoothSwing` exponentially smooths the velocity fed into the lean-pose comparison
-  specifically (release-throw velocity and the facing-flip hysteresis are untouched), damping
-  tick-to-tick noise while still tracking a real sustained swing within a few ticks.
 - **Live console diagnostics** (`window.shimejiDebug` in Obsidian's DevTools console) for
   issues that are easy to trigger interactively but hard to reproduce blind:
   `stageCount()` (catches a leaked `Stage` instance from a previous reload still running
@@ -148,18 +130,34 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   the plugin is the cause — disabling it fixes dragging immediately — but not yet which part
   of it), and a mascot dropped from a height has been reported to visually skip most of the
   fall. Both need real DevTools output from a live window to localize further.
-- **Fixed a second, subtler drag bug the lean-pose fix above had been masking**: `render()`
-  mirrors *every* pose via `scaleX(-1)` based on `physics.facing`, which is correct for Walk
-  (a single left-authored sprite set that needs mirroring to face right) but wrong for
-  Dragged/Pinched — those five poses are chosen by *absolute* `FootX`-vs-`cursor.x` comparison
-  with no `lookRight`/facing anywhere in their conditions, so the art is already
-  direction-specific and doesn't want mirroring on top. Applying it anyway double-transformed
-  the pose, which read as the drag always leaning toward whichever side `facing` (a separate,
-  coarser 90px/s hysteresis) last happened to settle on — regardless of which way the swing was
-  actually pulling — rather than tracking the real drag direction. This was likely always there
-  but hidden by the flicker the lean-pose fix (previous bullet's follow-up, `smoothSwing`) was
-  itself fixing; stabilizing pose selection made the wrong-side mirroring consistent enough to
-  notice instead of lost in the noise. The mirror is now skipped specifically while dragging.
+- **Drag is now a direct port of the real engine's own `Dragged.java`, not an invented
+  approximation**: several rounds of home-grown drag heuristics here (a critically-damped
+  spring for position, then an extrapolated-cursor "lean pointer", then exponential smoothing
+  on top of that) each fixed one symptom while introducing another — culminating in a drag
+  that consistently leaned toward one side regardless of which way it was actually pulled.
+  Pulling the actual source
+  ([`Dragged.java`](https://github.com/logany20/shimeji-ee/blob/master/src/com/group_finity/mascot/action/Dragged.java),
+  the Java class the real pack's `Pinched` action names as its `Class`) showed the real
+  mechanism is simpler than any of that and not what was being approximated:
+    - **Position has no lag or lerp at all**: every tick, the anchor is set to exactly
+      `(cursor.x, cursor.y + 120)` — a fixed offset below the cursor (holding the sprite by the
+      scruff of the neck, not by whatever pixel you clicked), snapped instantly, every time.
+      There's no spring constant to tune because the original doesn't have one.
+    - **The swing/lean effect is a *separate* variable, not derived from the position at
+      all**: a `FootX` value trails the cursor via `footDx = (footDx + (cursor.x - footX) *
+      0.1) * 0.8; footX += footDx` — a small, specific recurrence, run once per tick — and it's
+      *that* lagging value, compared against the live (unlagged) cursor.x, that the real
+      Pinched action's five poses are conditioned on. `tickDragFootX` ports this formula
+      exactly (regression tests assert hand-computed values tick-for-tick, not just "looks
+      plausible").
+    - **`lookRight` (facing) is forced `false` unconditionally, every tick, for the entire
+      drag** — the mascot never mirrors while being dragged, full stop, because the five
+      Pinched images already encode their own left/right and mirroring on top of them was
+      exactly the "always leans one side" bug.
+  All of the invented machinery this replaced — a spring-based `tickDragged`, the
+  velocity-extrapolating `computeLeanPointer`, and the `smoothSwing` damping added on top of
+  that — is gone; there's nothing left to smooth once the lag lives in the same place the
+  original puts it.
 - **Not visually tested in a live Obsidian window** — this was built in a headless
   container with no GUI; every fix so far has been verified via `tsc`/`vitest`/`esbuild` plus
   tests that exercise the real conf files in `Shimeji/conf/` directly (not just synthetic

@@ -1,13 +1,12 @@
 import { applyPlaceholderPose, createPlaceholderElement, PLACEHOLDER_HEIGHT, PLACEHOLDER_WIDTH } from "../placeholder/placeholderSprite";
 import {
 	applyGravityAndLand,
-	computeLeanPointer,
 	computeReleaseVelocity,
 	findClingableWall,
 	pickWalk,
-	smoothSwing,
 	tickChaseMouse,
 	tickClimbWall,
+	tickDragFootX,
 	tickDragged,
 	tickFall,
 	tickWalk,
@@ -16,11 +15,11 @@ import {
 import type { AmbientPointer, EngineConfig, Ledge, MascotPhysics, NativeStateName, PointerState, Vec2 } from "./types";
 import type { Random } from "./Random";
 
-/** How far ahead (seconds) to extrapolate the drag's own swing velocity for a pack's lean-pose
- * comparisons — see computeLeanPointer. Tuned so a real flick (roughly 800-2000px/s) crosses
- * the real Pinched action's ±30/±50px thresholds; not meant to be precise, just "roughly one
- * native mouse-delivery tick's worth of lag." */
-const DRAG_LEAN_LAG_SECONDS = 0.05;
+/** The real engine's own constant (Dragged.java: `cursor.getY() + 120`) — the anchor sits this
+ * far below the cursor throughout a drag, regardless of where on the sprite you actually
+ * clicked. Scaled by the mascot's own render scale, which the original has no equivalent of, so
+ * it still lands in a sensible spot if the sprite's been resized. */
+const DRAG_ANCHOR_OFFSET_Y = 120;
 
 /** Touch/pen has no right-click, so holding still opens the context menu instead — the same
  * long-press-for-options gesture Obsidian's own mobile UI already uses elsewhere (e.g. the
@@ -82,11 +81,12 @@ export class Mascot {
 	private climbDirection: "up" | "down" = "up";
 	private isDragging = false;
 	private activePointerId: number | null = null;
-	private grabOffset: Vec2 = { x: 0, y: 0 };
 	private dragTrack: PointerState = { x: 0, y: 0, down: false, history: [] };
-	/** Smoothed separately from dragTrack's own raw history — see smoothSwing — so the lean-pose
-	 * comparison doesn't flicker on ordinary hand tremor. Reset at the start of each new drag. */
-	private smoothedSwing: { vx: number; vy: number } = { vx: 0, vy: 0 };
+	/** Faithful port of Dragged.java's own footX/footDx fields — see tickDragFootX. Public
+	 * (read-only in spirit) so PackDriver can read it the same way the real engine's Pinched
+	 * poses read the `FootX` variable, without a dedicated interface just for this one value. */
+	dragFootX = 0;
+	private dragFootDx = 0;
 	private usingImage = false;
 	private imageAnchor: Vec2 = { x: PLACEHOLDER_WIDTH / 2, y: PLACEHOLDER_HEIGHT };
 	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -166,19 +166,11 @@ export class Mascot {
 			this.activePointerId = ev.pointerId;
 			this.isDragging = true;
 			this.el.classList.add("is-dragging");
-			// Always grab by a fixed point near the top of the sprite — like being picked up
-			// by the scruff of the neck — regardless of exactly where on the sprite you
-			// clicked, matching the original app rather than dragging by whatever pixel was
-			// under the cursor (which also throws off the pack's own FootX-vs-cursor lean
-			// poses, since those assume a consistent hold point).
-			// physics.y = pointer.y - grabOffset.y, and image top = physics.y - anchor.y*scale,
-			// so to put the cursor topMarginPx below the image's top edge we need
-			// grabOffset.y = topMarginPx - anchor.y*scale.
-			const anchor = this.getCurrentAnchor();
-			const topMarginPx = 18;
-			this.grabOffset = { x: 0, y: topMarginPx - anchor.y * this.scale };
 			this.dragTrack = { x: ev.clientX, y: ev.clientY, down: true, history: [{ x: ev.clientX, y: ev.clientY, t: performance.now() }] };
-			this.smoothedSwing = { vx: 0, vy: 0 };
+			// Dragged.java's own init(): `footX = cursor.getX()`, so the lag simulation starts
+			// with zero gap (no lean pose) rather than snapping in from wherever it last was.
+			this.dragFootX = ev.clientX;
+			this.dragFootDx = 0;
 
 			// Touch/pen has no right mouse button, so a held-still touch opens the context menu
 			// instead — dragging still starts immediately either way (below); this timer just
@@ -280,20 +272,23 @@ export class Mascot {
 		const ambient = this.deps.getAmbientPointer();
 
 		if (this.isDragging) {
-			tickDragged(this.physics, this.dragTrack, this.grabOffset, dtSeconds, this.deps.getViewportSize());
-			// Hysteresis (a dead zone in the middle, not a single threshold both ways): flip
-			// only on a confident swing past a real threshold, so ordinary hand jitter while
-			// moving in one clear direction can't make it flicker back and forth.
+			// Faithful port of Dragged.java's tick(), in order: force lookRight=false every
+			// tick (the sprite never mirrors while dragging — its five lean poses already
+			// encode their own left/right, see render()), hard-follow the cursor with no lag
+			// for the actual rendered position, and update the *separate* FootX lag simulation
+			// used only for the pack's own lean-pose comparison.
+			this.physics.facing = -1;
+			tickDragged(this.physics, this.dragTrack, DRAG_ANCHOR_OFFSET_Y * this.scale, this.deps.getViewportSize());
+			const nextFoot = tickDragFootX(this.dragFootX, this.dragFootDx, this.dragTrack.x);
+			this.dragFootX = nextFoot.footX;
+			this.dragFootDx = nextFoot.footDx;
+			// The real engine's `mascot.environment.cursor` is one live reading used everywhere
+			// (never a second, independently-sampled one) — this drag's own pointer-capture
+			// tracking *is* that reading here, matching Stage's ambient tracker only in dx/dy
+			// convenience, not in x/y (which come straight from dragTrack, unlagged).
 			const swing = computeReleaseVelocity(this.dragTrack, this.deps.config);
-			if (swing.vx > 90) this.physics.facing = 1;
-			else if (swing.vx < -90) this.physics.facing = -1;
-			// Deliberately NOT `ambient` here — see computeLeanPointer for why a pack's own
-			// lean-pose comparisons need a reading derived entirely from this same drag's own
-			// pointer, not Stage's independently-sampled one. Smoothed (not the raw swing) so the
-			// held pose doesn't flicker on ordinary hand tremor — see smoothSwing.
-			this.smoothedSwing = smoothSwing(this.smoothedSwing, swing, dtSeconds);
-			const leanPointer = computeLeanPointer(this.dragTrack, this.smoothedSwing, DRAG_LEAN_LAG_SECONDS);
-			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, leanPointer)) this.setVisualState("dragged");
+			const cursorPointer = { x: this.dragTrack.x, y: this.dragTrack.y, dx: swing.vx, dy: swing.vy };
+			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, cursorPointer)) this.setVisualState("dragged");
 		} else if (this.driver) {
 			this.driver.tick(this, dtSeconds, ledges, ambient);
 		} else {
@@ -431,14 +426,11 @@ export class Mascot {
 		this.inner.style.transformOrigin = `${anchor.x}px ${anchor.y}px`;
 		// facing=1 means "facing/moving right" by convention; real Shimeji-ee artwork is
 		// authored facing left (confirmed by its Walk poses using negative x velocity), so a
-		// rightward-facing mascot is the *mirrored* rendering, not the base one. NOT while
-		// dragging, though: the real pack's Dragged/Pinched poses are five distinct images
-		// chosen by *absolute* FootX-vs-cursor.x comparison (no lookRight/facing anywhere in
-		// those conditions) — they already encode their own left/right, unlike Walk's single
-		// left-authored sprite set. Mirroring on top of that double-transforms them, which
-		// reads as the drag always leaning toward whichever side `facing` last settled on
-		// (a coarser, independent threshold) rather than tracking the actual swing direction.
-		this.inner.style.transform = this.physics.facing === 1 && !this.isDragging ? "scaleX(-1)" : "none";
+		// rightward-facing mascot is the *mirrored* rendering, not the base one. While
+		// dragging, simulate() forces facing to -1 every tick (Dragged.java's own unconditional
+		// `setLookRight(false)`) — the real Pinched poses are five distinct images already
+		// encoding their own left/right, and mirroring on top used to double-transform them.
+		this.inner.style.transform = this.physics.facing === 1 ? "scaleX(-1)" : "none";
 	}
 
 	destroy(): void {

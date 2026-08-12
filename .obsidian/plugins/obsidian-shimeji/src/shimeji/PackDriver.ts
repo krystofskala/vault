@@ -33,7 +33,9 @@ export class PackDriver implements MascotDriver {
 		if (!actionName) return false;
 		// Real packs pick between several poses for e.g. Dragged based on how far the mascot
 		// is being swung relative to the pointer (Pinched's FootX-vs-cursor.x conditions), so
-		// this needs a live context, not just a static "first pose found" fallback.
+		// this needs a live context, not just a static "first pose found" fallback. FootX itself
+		// is mascot.dragFootX — a separate, independently-lagging simulation (see
+		// tickDragFootX), not the mascot's own (instant, unlagged) position.
 		const viewport = mascot.getViewportSize();
 		const baseCtx = createRuntimeContext(
 			mascot.physics,
@@ -41,7 +43,7 @@ export class PackDriver implements MascotDriver {
 			elapsedMs,
 			this.rng,
 		);
-		const ctx = withLocals(baseCtx, { FootX: mascot.physics.x });
+		const ctx = withLocals(baseCtx, { FootX: mascot.dragFootX });
 		const poses = this.resolveDisplayPoses(actionName, ctx);
 		if (poses.length === 0) return false;
 		const pose = pickLoopingPose(poses, elapsedMs);

@@ -8,7 +8,7 @@ import { ActionRunner, type PushEnv } from "../src/shimeji/ActionRunner";
 import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
 import { evaluateCondition, withLocals } from "../src/shimeji/Expression";
 import { Random } from "../src/engine/Random";
-import { computeLeanPointer, updateWallCeilingAdherence } from "../src/engine/nativeBehaviors";
+import { tickDragFootX, updateWallCeilingAdherence } from "../src/engine/nativeBehaviors";
 import { computeLedgesFromRects } from "../src/engine/Ledges";
 import { DEFAULT_ENGINE_CONFIG, type MascotPhysics } from "../src/engine/types";
 import type { Mascot } from "../src/engine/Mascot";
@@ -75,11 +75,11 @@ describe("real standard Shimeji-ee pack", () => {
 		const pinched = actions.get("Pinched");
 		expect(pinched).toBeDefined();
 
-		function winningImage(footX: number, cursor: { x: number; y: number; dx: number; dy: number }): string | undefined {
+		function winningImage(footX: number, cursorX: number): string | undefined {
 			const ctx = withLocals(
 				createRuntimeContext(
-					{ x: footX, y: 0, vx: 0, vy: 0, facing: 1, grounded: false },
-					{ viewportWidth: 800, viewportHeight: 900, pointer: cursor, totalMascotCount: 1 },
+					{ x: 0, y: 0, vx: 0, vy: 0, facing: -1, grounded: false },
+					{ viewportWidth: 800, viewportHeight: 900, pointer: { x: cursorX, y: 0, dx: 0, dy: 0 }, totalMascotCount: 1 },
 					0,
 					new Random(1),
 				),
@@ -98,18 +98,21 @@ describe("real standard Shimeji-ee pack", () => {
 		}
 
 		// A real hand's swing speed fluctuates tick to tick even while moving one consistent
-		// direction — this drives that fluctuation on purpose, at speeds that do cross Pinched's
-		// real ±30/±50px thresholds, to prove the *sign* never depends on the noise.
+		// direction — this drives the cursor with that kind of fluctuation, running the *real*
+		// footX/footDx recurrence (tickDragFootX, same as Mascot.simulate()) against it, to prove
+		// the lean-pose's side never depends on the noise while the actual drag never reversed.
 		for (const speeds of [
 			[150, 500, 1200, 2000, 300, 1800, 700],
 			[-150, -500, -1200, -2000, -300, -1800, -700],
 		]) {
-			let footX = 400;
+			let cursorX = 400;
+			let footX = cursorX;
+			let footDx = 0;
 			const seen = new Set<string>();
 			for (const vx of speeds) {
-				footX += vx * 0.04;
-				const lean = computeLeanPointer({ x: footX, y: 0 }, { vx, vy: 0 }, 0.05);
-				seen.add(classify(winningImage(footX, lean)));
+				cursorX += vx * 0.04;
+				({ footX, footDx } = tickDragFootX(footX, footDx, cursorX));
+				seen.add(classify(winningImage(footX, cursorX)));
 			}
 			expect(seen.has("extremeA") && seen.has("extremeB")).toBe(false);
 		}

@@ -3,8 +3,7 @@ import {
 	applyGravityAndLand,
 	clampToCeiling,
 	clampToWalls,
-	computeLeanPointer,
-	smoothSwing,
+	tickDragFootX,
 	updateWallCeilingAdherence,
 	type TickArgs,
 } from "../src/engine/nativeBehaviors";
@@ -70,35 +69,57 @@ describe("clampToCeiling", () => {
 	});
 });
 
-describe("computeLeanPointer", () => {
-	it("extrapolates ahead of the pointer in the swing's own direction, proportional to speed", () => {
-		const rightward = computeLeanPointer({ x: 100, y: 50 }, { vx: 1000, vy: 0 }, 0.05);
-		expect(rightward.x).toBe(100 + 1000 * 0.05);
-		expect(rightward.y).toBe(50);
-		expect(rightward.dx).toBe(1000);
+describe("tickDragFootX", () => {
+	// Faithful port of the real engine's Dragged.java: footDx = (footDx + (cursorX-footX)*0.1)*0.8;
+	// footX += footDx. Values below are hand-computed from that exact recurrence so a
+	// transcription slip would actually fail the test, not just "look plausible".
+	it("matches the real recurrence tick-for-tick for a held cursor step", () => {
+		let footX = 0;
+		let footDx = 0;
+		({ footX, footDx } = tickDragFootX(footX, footDx, 1000));
+		expect(footDx).toBeCloseTo(80, 5);
+		expect(footX).toBeCloseTo(80, 5);
 
-		const leftward = computeLeanPointer({ x: 100, y: 50 }, { vx: -1000, vy: 0 }, 0.05);
-		expect(leftward.x).toBe(100 - 1000 * 0.05);
+		({ footX, footDx } = tickDragFootX(footX, footDx, 1000));
+		expect(footDx).toBeCloseTo(137.6, 5);
+		expect(footX).toBeCloseTo(217.6, 5);
+
+		({ footX, footDx } = tickDragFootX(footX, footDx, 1000));
+		expect(footDx).toBeCloseTo(172.672, 5);
+		expect(footX).toBeCloseTo(390.272, 5);
 	});
 
-	it("collapses to the raw pointer position when not swinging at all", () => {
-		const still = computeLeanPointer({ x: 42, y: 7 }, { vx: 0, vy: 0 }, 0.05);
-		expect(still).toEqual({ x: 42, y: 7, dx: 0, dy: 0 });
+	it("stays put once footX has caught up to a steady cursor (no gap, no drift)", () => {
+		const { footX, footDx } = tickDragFootX(500, 0, 500);
+		expect(footX).toBe(500);
+		expect(footDx).toBe(0);
 	});
 
-	it("never changes sign of the (pointer - result) gap while the swing direction is held constant", () => {
-		// This is the crux of the drag lean-pose bug: as long as vx keeps the same sign, the
-		// gap between "where the pointer is" and "the lean reading" must too, however much vx
-		// itself fluctuates in magnitude tick to tick (real hand movement is never perfectly
-		// smooth) — a real Pinched-style condition must never flip which side it reads as
-		// while the actual drag never reversed.
-		const speeds = [120, 400, 900, 1800, 260, 1500];
-		let pointerX = 0;
-		for (const vx of speeds) {
-			pointerX += vx * 0.04;
-			const lean = computeLeanPointer({ x: pointerX, y: 0 }, { vx, vy: 0 }, 0.05);
-			expect(lean.x).toBeGreaterThan(pointerX); // always ahead, never behind, while vx > 0
-		}
+	it("lags behind rather than snapping — never reaches the cursor in a single tick", () => {
+		const { footX } = tickDragFootX(0, 0, 1000);
+		expect(footX).toBeGreaterThan(0);
+		expect(footX).toBeLessThan(1000);
+	});
+
+	it("converges toward a sustained cursor position over many ticks", () => {
+		// The real recurrence is slightly underdamped (a small overshoot before settling, not a
+		// monotonic approach) — a genuine property of the original's own tuning, not something
+		// to round away, so the tolerance here is deliberately loose rather than exact.
+		let footX = 0;
+		let footDx = 0;
+		for (let i = 0; i < 60; i++) ({ footX, footDx } = tickDragFootX(footX, footDx, 1000));
+		expect(footX).toBeGreaterThan(990);
+		expect(footX).toBeLessThan(1010);
+	});
+
+	it("lags in the correct direction on both sides (never leads the cursor)", () => {
+		const movingRight = tickDragFootX(0, 0, 500);
+		expect(movingRight.footX).toBeGreaterThan(0);
+		expect(movingRight.footX).toBeLessThan(500);
+
+		const movingLeft = tickDragFootX(0, 0, -500);
+		expect(movingLeft.footX).toBeLessThan(0);
+		expect(movingLeft.footX).toBeGreaterThan(-500);
 	});
 });
 
@@ -185,31 +206,3 @@ describe("applyGravityAndLand grounded check", () => {
 	});
 });
 
-describe("smoothSwing", () => {
-	it("moves toward the raw value rather than snapping to it instantly", () => {
-		const smoothed = smoothSwing({ vx: 0, vy: 0 }, { vx: 1000, vy: 0 }, 0.04);
-		expect(smoothed.vx).toBeGreaterThan(0);
-		expect(smoothed.vx).toBeLessThan(1000);
-	});
-
-	it("converges to a sustained raw value over repeated ticks", () => {
-		let smoothed = { vx: 0, vy: 0 };
-		for (let i = 0; i < 60; i++) smoothed = smoothSwing(smoothed, { vx: 1000, vy: -500 }, 0.04);
-		expect(smoothed.vx).toBeCloseTo(1000, 0);
-		expect(smoothed.vy).toBeCloseTo(-500, 0);
-	});
-
-	it("damps a single noisy outlier tick far more than a real sustained swing", () => {
-		// One jittery tick reading 2000 in the middle of an otherwise steady ~200 swing should
-		// barely nudge the smoothed value, unlike feeding the raw per-tick value straight into
-		// computeLeanPointer, which would jump the full amount immediately.
-		let smoothed = { vx: 0, vy: 0 };
-		for (let i = 0; i < 20; i++) smoothed = smoothSwing(smoothed, { vx: 200, vy: 0 }, 0.04);
-		const beforeOutlier = smoothed.vx;
-		smoothed = smoothSwing(smoothed, { vx: 2000, vy: 0 }, 0.04);
-		// One tick only closes part of the gap toward the outlier, unlike feeding the raw
-		// per-tick value straight into computeLeanPointer, which would jump the full 1800px/s
-		// in a single 40ms tick.
-		expect(smoothed.vx - beforeOutlier).toBeLessThan((2000 - beforeOutlier) * 0.5);
-	});
-});

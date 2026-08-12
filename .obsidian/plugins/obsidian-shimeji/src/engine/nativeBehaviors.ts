@@ -163,76 +163,38 @@ export function tickChaseMouse(args: TickArgs, pointer: { x: number; y: number }
 }
 
 /**
- * Follows the grabbed point every tick — at the current tick rate and springPerSecond, `t`
- * clamps to 1, so this is an instant snap rather than a real lag/spring (bumped up from a
- * genuinely springy feel per "drag was better before... stiff" — see computeLeanPointer for
- * why a pack's own lean-pose logic needs a separately-computed, deliberately lagged reading
- * instead of reusing this position directly). Also clamps to the viewport: pointer capture
- * can keep delivering coordinates past the window edge (or even get stuck there if the OS
- * cursor leaves the window before releasing), and without a clamp here that reads back as the
- * mascot vanishing off the side while "stuck" mid-drag.
+ * Faithful port of the real engine's Dragged.java `tick()`:
+ * `getMascot().setAnchor(new Point(cursor.getX(), cursor.getY() + 120));` — every tick, no
+ * spring, no lerp, no per-click grab offset. The anchor just *is* the cursor position, offset
+ * 120px down (holding the sprite by the scruff of the neck rather than wherever you happened
+ * to click) — any "lag" or swing feel in the original comes entirely from the separate FootX
+ * simulation below, never from the mascot's own rendered position. 120 is scaled by the
+ * mascot's own render scale, which the original has no equivalent of (no runtime scale
+ * slider), so it still lands in a sensible spot if the sprite's been resized. Still clamped to
+ * the viewport: pointer capture can keep delivering coordinates past the window edge (or get
+ * stuck there if the OS cursor leaves the window before releasing), and without a clamp here
+ * that reads back as the mascot vanishing off the side while "stuck" mid-drag.
  */
-export function tickDragged(
-	physics: MascotPhysics,
-	pointer: PointerState,
-	grabOffset: { x: number; y: number },
-	dt: number,
-	viewport: { width: number; height: number },
-	springPerSecond = 28,
-): void {
-	const targetX = pointer.x - grabOffset.x;
-	const targetY = pointer.y - grabOffset.y;
-	const t = Math.min(1, springPerSecond * dt);
-	physics.x += (targetX - physics.x) * t;
-	physics.y += (targetY - physics.y) * t;
-	physics.x = Math.max(0, Math.min(viewport.width, physics.x));
-	physics.y = Math.max(0, Math.min(viewport.height, physics.y));
+export function tickDragged(physics: MascotPhysics, pointer: Vec2, anchorOffsetY: number, viewport: { width: number; height: number }): void {
+	physics.x = Math.max(0, Math.min(viewport.width, pointer.x));
+	physics.y = Math.max(0, Math.min(viewport.height, pointer.y + anchorOffsetY));
 	physics.grounded = false;
 	physics.currentFloor = undefined;
 }
 
 /**
- * A pack's own held-pose logic during a drag (e.g. the real Pinched action's five lean poses)
- * compares the mascot's own anchor against `mascot.environment.cursor.x/y`, expecting some
- * real, swing-direction-consistent gap between the two — the same way native OS mouse
- * delivery naturally lags a fast-moving cursor by a frame or so. But tickDragged's own
- * position (physics.x/y) already tracks the pointer with near-zero lag by design, so handing
- * that same reading back as "cursor" would make the comparison read as ~0 always, and mixing
- * in a *different*, independently-sampled ambient pointer (e.g. one tracked window-wide by
- * Stage) is worse: two separately-timed samples of "the same" cursor can disagree in either
- * direction from one tick to the next, flipping which side a lean pose reads as even while the
- * actual drag never changed direction. Extrapolating the drag's own recent swing velocity
- * forward by a small fixed lag reproduces a real, sign-consistent gap — proportional to how
- * hard the mascot is actually being swung, never flip-flopping — without touching how
- * snappily tickDragged itself tracks the pointer.
+ * Faithful port of Dragged.java's own FootX tracking:
+ * `footDx = (footDx + (cursor.x - footX) * 0.1) * 0.8; footX += footDx;` — a *separate*,
+ * independently-lagging simulation of "where the foot/anchor appears to trail from",
+ * decoupled from the mascot's own (instant, unlagged — see tickDragged) position. The real
+ * Pinched action's five lean poses compare this against the live, un-lagged cursor.x
+ * (`mascot.environment.cursor.x`) to gauge how hard the mascot is being swung; this recurrence
+ * is the entire source of that effect in the original, not any property of the rendered
+ * position itself. Units are screen pixels per tick, at the real engine's own fixed tick rate.
  */
-export function computeLeanPointer(pointer: Vec2, swing: { vx: number; vy: number }, lagSeconds: number): { x: number; y: number; dx: number; dy: number } {
-	return {
-		x: pointer.x + swing.vx * lagSeconds,
-		y: pointer.y + swing.vy * lagSeconds,
-		dx: swing.vx,
-		dy: swing.vy,
-	};
-}
-
-/**
- * Exponential smoothing for the swing velocity fed into computeLeanPointer. computeReleaseVelocity
- * is a raw two-sample secant over whatever's in the last ~120ms of pointer history — precise
- * enough for a one-shot release throw, but read fresh every 40ms tick during an active drag
- * it's noisy enough (ordinary hand tremor, or just an uneven native mouse-event delivery rate)
- * to swing past the real Pinched action's ±30/±50px thresholds and back within a couple of
- * ticks even while the drag itself is moving smoothly in one steady direction — reading as the
- * held pose flickering rather than tracking the swing. Smoothing damps that transient noise
- * while still tracking a real, sustained swing within a few ticks.
- */
-export function smoothSwing(
-	prev: { vx: number; vy: number },
-	raw: { vx: number; vy: number },
-	dt: number,
-	timeConstantSeconds = 0.15,
-): { vx: number; vy: number } {
-	const alpha = 1 - Math.exp(-dt / timeConstantSeconds);
-	return { vx: prev.vx + (raw.vx - prev.vx) * alpha, vy: prev.vy + (raw.vy - prev.vy) * alpha };
+export function tickDragFootX(footX: number, footDx: number, cursorX: number): { footX: number; footDx: number } {
+	const nextFootDx = (footDx + (cursorX - footX) * 0.1) * 0.8;
+	return { footX: footX + nextFootDx, footDx: nextFootDx };
 }
 
 /** Average velocity over the pointer's recent history, used to launch a Thrown action on release. */

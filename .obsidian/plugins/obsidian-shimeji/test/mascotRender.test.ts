@@ -90,11 +90,12 @@ describe("Mascot renderer", () => {
 	});
 
 	it("suppresses the mirror while a drag is in progress, even when facing right", () => {
-		// The real pack's Dragged/Pinched poses are five distinct images chosen by *absolute*
-		// FootX-vs-cursor.x comparison, with no lookRight/facing involved at all — mirroring on
-		// top of that (as every other state correctly does) double-transforms already
-		// direction-specific art, which is what made a steady drag look "stuck" leaning toward
-		// whichever side `facing` last settled on.
+		// Faithful to the real engine's Dragged.java: `getMascot().setLookRight(false)` runs
+		// unconditionally on every tick *while dragging* (simulate()), not at the instant of
+		// grab — the real Pinched poses are five distinct images chosen by *absolute*
+		// FootX-vs-cursor.x comparison with no lookRight involved at all, so mirroring on top of
+		// them (as every other state correctly does) double-transforms already
+		// direction-specific art.
 		const mascot = new Mascot(makeDeps(), 100, 200);
 		const inner = mascot.el.firstElementChild as HTMLElement;
 		mascot.physics.facing = 1;
@@ -107,7 +108,7 @@ describe("Mascot renderer", () => {
 		mascot.el.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
 		expect(mascot.isBeingDragged).toBe(true);
 
-		mascot.render();
+		mascot.update(0.04, []); // a real Stage tick, same as simulate() forcing facing every tick
 		expect(inner.style.transform).toBe("none");
 	});
 
