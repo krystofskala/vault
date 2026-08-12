@@ -130,13 +130,26 @@ Cross-checked every function call actually used across `actions.xml`/`behaviors.
 
 ## Out of scope (⛔ — Java-desktop-only, no Obsidian analog)
 
-`NativeFactory.java`, `LogFormatter.java` (JNA-OS-native bridge / logging setup — no menu-wiring
-logic like `Main.java` has, safe to skip entirely), `editor/action/ActionEditorFrame.java` (a
-*separate* Swing GUI tool for authoring packs — our `CustomContentModal` is the analog, not a
-port target), `image/*.java` (AWT/Swing image loading — we use `<img>`/CSS),
-`imagesetchooser/*.java` (Swing character picker — our settings UI is the analog), `menu/*.java`
-(Swing right-click/scrollable-menu widgetry — our Obsidian-native context menu is the analog),
-`exception/*.java` (plain exception classes, no logic to port).
+Two different confidence levels live in this list, worth being honest about rather than blurring
+together as one undifferentiated "out of scope":
+
+- **Actually opened and confirmed harmless**: `exception/*.java` (all 7 read in full — plain
+  `Exception` subclasses, message/cause constructors only, no fields, no logic; `LostGroundException`
+  doesn't even have a message constructor, just a bare signal type, matching our own
+  `lostGroundFlag` boolean).
+- **Categorized by directory/file name and by what referenced them, never actually opened**:
+  `NativeFactory.java`, `LogFormatter.java` (JNA-OS-native bridge / logging setup — no menu-wiring
+  logic like `Main.java` turned out to have, so presumed safe to skip, but not verified the way
+  `Main.java` itself now has been), `editor/action/ActionEditorFrame.java` (a *separate* Swing GUI
+  tool for authoring packs — our `CustomContentModal` is the analog, not a port target),
+  `image/*.java` (6 files, AWT/Swing image loading — we use `<img>`/CSS), `imagesetchooser/*.java`
+  (3 files, Swing character picker — our settings UI is the analog), `menu/*.java` (2 files, Swing
+  right-click/scrollable-menu widgetry — our Obsidian-native context menu is the analog). This is
+  inference from strong contextual signal (these packages exist for AWT/Swing/JNA concerns that
+  don't exist in a browser context at all, and nothing in any file actually read this session
+  imports from them for anything behavioral), not verification — the honest caveat on this whole
+  audit is that it covers the *core simulation logic* file-by-file, not literally every file in
+  the repository.
 
 ## Bugs found & fixed, by pass
 
