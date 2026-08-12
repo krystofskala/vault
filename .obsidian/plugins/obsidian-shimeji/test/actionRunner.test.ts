@@ -136,6 +136,47 @@ describe("ActionRunner", () => {
 		expect(mascot.physics.grounded).toBe(true);
 	});
 
+	it("a Floor-bordered Stay settles onto the real floor instead of freezing mid-air (FallFromWall's pattern: no explicit Falling step)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["Stand", action({ name: "Stand", type: "Stay", borderType: "Floor", animations: animOf([{ image: "/stand.png", durationMs: 100000 }]) })],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		// Simulate having just left a wall partway up: well above the real floor, not grounded.
+		mascot.physics.y = 20;
+		mascot.physics.grounded = false;
+		const env = envFor(pack, mascot);
+		runner.start("Stand", env);
+		const ledges = [{ kind: "floor" as const, y: 300, x1: -1000, x2: 1000, source: "window" as const }];
+
+		for (let i = 0; i < 200; i++) runner.tick(env, 0.016, ledges);
+		expect(mascot.physics.y).toBe(300);
+		expect(mascot.physics.grounded).toBe(true);
+	});
+
+	it("a Floor-bordered action already resting on the floor does not drift or lose grounded state", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["Stand", action({ name: "Stand", type: "Stay", borderType: "Floor", animations: animOf([{ image: "/stand.png", durationMs: 100000 }]) })],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.y = 300;
+		mascot.physics.grounded = true;
+		const env = envFor(pack, mascot);
+		runner.start("Stand", env);
+		const ledges = [{ kind: "floor" as const, y: 300, x1: -1000, x2: 1000, source: "window" as const }];
+
+		for (let i = 0; i < 30; i++) runner.tick(env, 0.016, ledges);
+		expect(mascot.physics.y).toBe(300);
+		expect(mascot.physics.grounded).toBe(true);
+	});
+
 	it("a targeted Move walks toward TargetX, facing it, and loops its gait until it arrives", () => {
 		const pack: MascotPack = {
 			...NOOP_PACK,

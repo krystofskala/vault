@@ -1,4 +1,5 @@
 import type { Mascot } from "../engine/Mascot";
+import { applyGravityAndLand } from "../engine/nativeBehaviors";
 import type { EngineConfig, Ledge } from "../engine/types";
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "./constants";
 import { evaluate, evaluateCondition, parseParamValue, withLocals, type ExprContext, type ExprValue } from "./Expression";
@@ -160,14 +161,14 @@ export class ActionRunner {
 			case "Select":
 				return this.tickSelect(frame, env);
 			case "Move":
-				return this.tickMove(frame, env, dt);
+				return this.tickMove(frame, env, dt, ledges);
 			case "Embedded":
-				if (frame.action.embeddedName === "WalkWithIE") return this.tickMove(frame, env, dt);
+				if (frame.action.embeddedName === "WalkWithIE") return this.tickMove(frame, env, dt, ledges);
 				return this.tickEmbedded(frame, env, dt, ledges);
 			case "Stay":
 			case "Animate":
 			default:
-				return this.tickHold(frame, env, dt);
+				return this.tickHold(frame, env, dt, ledges);
 		}
 	}
 
@@ -204,11 +205,28 @@ export class ActionRunner {
 		return true;
 	}
 
-	private tickHold(frame: Frame, env: PushEnv, dt: number): boolean {
+	/**
+	 * Floor-bordered actions (Stand, Sit, Walk, ...) are only ever selected once
+	 * mascot.environment.floor.isOn(anchor) is already true, but real packs also route
+	 * "stop climbing" straight into a plain Floor action with no explicit falling step at all
+	 * (e.g. FallFromWall is just an Offset then Stand) — implying the original engine keeps
+	 * any currently-running Floor action glued to whatever's actually beneath it as a
+	 * background process, falling to reach it if needed, independent of the action's own pose
+	 * velocities. This both provides that (so hopping off a wall partway up actually settles
+	 * onto the real floor instead of freezing at wall height) and reconfirms `grounded` after
+	 * a Wall/Ceiling action cleared it.
+	 */
+	private stickToFloorIfBordered(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): void {
+		if (frame.action.borderType !== "Floor") return;
+		applyGravityAndLand({ physics: env.mascot.physics, ledges, dt, config: env.config });
+	}
+
+	private tickHold(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		const poses = frame.poses;
 		if (poses.length === 0) return true;
 		const pose = poses[frame.poseIndex];
 		this.showPose(env.mascot, pose);
+		this.stickToFloorIfBordered(frame, env, dt, ledges);
 
 		const durationOverride = numOrUndefined(frame.locals.Duration);
 		const effectiveDuration = durationOverride !== undefined && poses.length === 1 ? durationOverride * SHIMEJI_TICK_MS : pose.durationMs;
@@ -225,7 +243,7 @@ export class ActionRunner {
 		return true;
 	}
 
-	private tickMove(frame: Frame, env: PushEnv, dt: number): boolean {
+	private tickMove(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		const poses = frame.poses;
 		if (poses.length === 0) return true;
 		const pose = poses[frame.poseIndex];
@@ -239,6 +257,8 @@ export class ActionRunner {
 		if (frame.action.borderType === "Wall" || frame.action.borderType === "Ceiling") {
 			physics.grounded = false;
 			physics.currentFloor = undefined;
+		} else {
+			this.stickToFloorIfBordered(frame, env, dt, ledges);
 		}
 
 		const targetX = numOrUndefined(frame.locals.TargetX);
