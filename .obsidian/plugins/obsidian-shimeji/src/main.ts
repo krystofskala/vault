@@ -1,4 +1,4 @@
-import { Menu, Notice, Plugin } from "obsidian";
+import { Menu, Notice, Platform, Plugin } from "obsidian";
 import { Mascot } from "./engine/Mascot";
 import { Random } from "./engine/Random";
 import { Stage } from "./engine/Stage";
@@ -48,7 +48,7 @@ export default class ShimejiPlugin extends Plugin {
 
 		if (needsSave) await this.saveSettings();
 
-		this.engineConfig.chaseMouseEnabled = this.settings.chaseMouseEnabled;
+		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
 
 		this.stage = new Stage({
 			config: this.engineConfig,
@@ -168,7 +168,15 @@ export default class ShimejiPlugin extends Plugin {
 	}
 
 	applyChaseMouseEnabled(): void {
-		this.engineConfig.chaseMouseEnabled = this.settings.chaseMouseEnabled;
+		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
+	}
+
+	/** No ambient pointer exists on a touch-only device between touches, so ChaseMouse would
+	 * just be dashing toward a stale, meaningless position — skip it there regardless of the
+	 * setting, which still governs desktop and still round-trips correctly if the same vault is
+	 * later opened there. */
+	private effectiveChaseMouseEnabled(): boolean {
+		return this.settings.chaseMouseEnabled && !Platform.isMobile;
 	}
 
 	private onMascotCreated(mascot: Mascot, bornBehaviorName: string | undefined, parent: Mascot | undefined): void {

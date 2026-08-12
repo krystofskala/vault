@@ -90,9 +90,13 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   mobile UI already uses touch-and-hold elsewhere, while an actual drag (the pointer moving
   before the hold fires) is unaffected and still starts immediately, matching desktop.
   `touch-action: none` and `-webkit-touch-callout: none` stop the browser's own scroll/pan
-  gesture recognition and iOS's image-callout from competing with either gesture. Untested on
-  a real device so far — the timer/event-lifecycle wiring here specifically couldn't be
-  covered by the test suite (this repo's jsdom has no `PointerEvent`/`setPointerCapture` at
+  gesture recognition and iOS's image-callout from competing with either gesture. ChaseMouse
+  is force-disabled on `Platform.isMobile` regardless of its own setting — there's no ambient
+  pointer between touches for it to dash toward, so it would just be heading for a stale,
+  meaningless position; the setting itself is untouched and still applies normally if the same
+  vault is later opened on desktop. Untested on a real device so far — the timer/event-lifecycle
+  wiring here specifically couldn't be covered by the test suite (this repo's jsdom has no
+  `PointerEvent`/`setPointerCapture` at
   all), unlike the drag lean-pose fix above, which does have regression tests.
 - **Not visually tested in a live Obsidian window** — this was built in a headless
   container with no GUI; every fix so far has been verified via `tsc`/`vitest`/`esbuild` plus

@@ -204,7 +204,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Chase the mouse")
-			.setDesc("Let mascots occasionally dash toward the cursor while idle on the floor.")
+			.setDesc("Let mascots occasionally dash toward the cursor while idle on the floor. Always off on mobile (no ambient cursor to chase between touches), regardless of this toggle.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.chaseMouseEnabled).onChange(async (value) => {
 					this.plugin.settings.chaseMouseEnabled = value;
