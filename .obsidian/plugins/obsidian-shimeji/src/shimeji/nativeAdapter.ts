@@ -58,6 +58,12 @@ export function applyNativeEmbedded(
 			return tickChaseMouse({ physics: mascot.physics, ledges, dt, config }, ambient);
 		case "Dragged":
 			return true;
+		// Jump only sets an initial arc velocity (see applyEmbeddedStartEffects, run once when
+		// the action starts) and otherwise behaves exactly like Fall — the same "just apply
+		// gravity" fallback as the default case below, but without its "unrecognized" warning,
+		// since Jump is a real, known embedded class, not an unsupported one.
+		case "Jump":
+			return applyGravityAndLand({ physics: mascot.physics, ledges, dt, config });
 		default:
 			warnOnce(`unrecognized Embedded action "${name}", falling back to gravity`);
 			return applyGravityAndLand({ physics: mascot.physics, ledges, dt, config });

@@ -62,6 +62,18 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   settings now, alongside the original size/pane-ledges/debug-ledges controls. Right-clicking
   a mascot opens a menu to switch its character, jump it to a specific behavior, duplicate or
   remove it, remove everyone, or add another.
+- **Settings-based authoring, not just XML editing**: a "Custom animations & reactions" editor
+  (Settings → pick a character → **Edit...**) adds or overrides a character's own actions and
+  behaviors — poses, Sequence/Select steps, Embedded handlers (Fall/Breed/Regist/Look/Jump/
+  Offset/Dragged), and behavior transitions — without touching `actions.xml`/`behaviors.xml`
+  directly. A custom entry with the same name as a standard one replaces it, and it's built
+  into the exact same `ActionDef`/`BehaviorDef` shape the real XML parser produces (see
+  `CustomContentBuilder`), so it runs through the identical interpreter rather than a separate
+  code path. Auditing the real schema for this surfaced two small interpreter gaps, now fixed:
+  an unrecognized `Regist` embedded class (the real pack's struggle animation nested inside
+  `Dragged`) was falling back to gravity instead of just holding its pose in place, and `Jump`
+  was logging a spurious "unrecognized embedded action" warning despite already behaving
+  correctly (an initial arc velocity, then plain gravity, same as `Fall`).
 - **Not visually tested in a live Obsidian window** — this was built in a headless
   container with no GUI; every fix so far has been verified via `tsc`/`vitest`/`esbuild` plus
   tests that exercise the real conf files in `Shimeji/conf/` directly (not just synthetic
@@ -102,6 +114,27 @@ Every pack must define `ChaseMouse`, `Fall`, `Dragged`, and `Thrown` actions/beh
 mascot — `Fall`/`Dragged`/`Thrown` in particular have native physics fallbacks regardless of
 what's declared.
 
+## Custom animations & reactions
+
+You don't have to hand-edit XML to add a new animation or reaction: in **Settings → Shimeji
+Desktop Mascot → Custom animations & reactions**, click **Edit...** next to a character to open
+its editor.
+
+- **Actions** are the animations — pick a type (Stay/Move/Animate/Sequence/Select/Embedded),
+  a border (Floor/Wall/Ceiling, if it should stay glued to a real ledge), and either a list of
+  poses (image + anchor + velocity + duration — the same units as actions.xml: 25 ticks ≈ 1
+  second) or, for Sequence/Select, an ordered/conditional list of steps referencing other
+  actions by name (standard ones or your own).
+- **Behaviors** are the reactions — a name, a weighted frequency, an optional condition, and a
+  list of possible next behaviors once it finishes.
+- Conditions and param overrides use the same `#{...}`/`${...}` expression syntax as the real
+  files (e.g. `#{mascot.environment.floor.isOn(mascot.anchor)}`), validated as you type.
+- Saving takes effect immediately — every mascot currently wearing that character rebinds to
+  the updated pack without needing to respawn.
+
+A custom action/behavior with the same name as a standard one (or another custom one) replaces
+it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml` directly.
+
 ## Commands / UI
 
 - Ribbon icon (cat): removes every mascot if any are on screen, otherwise spawns the
@@ -111,11 +144,11 @@ what's declared.
 - Right-click a mascot for its own menu: switch its character, jump it straight to a named
   behavior, duplicate it, remove it, remove everyone, add another, or open plugin settings.
 - Settings: pack folder + rescan; per-character on/off toggles under **Characters** (a new
-  mascot picks randomly among the ones turned on); population controls (spawn/remove-all
-  buttons, max mascots on screen, auto-spawn on startup and how many); behavior toggles
-  (allow dragging, allow breeding, chase-the-mouse); size; whether panes/status bar count as
-  extra ledges; and a debug overlay that draws the ledges mascots currently think they can
-  stand on.
+  mascot picks randomly among the ones turned on); a **Custom animations & reactions** editor
+  per character (see above); population controls (spawn/remove-all buttons, max mascots on
+  screen, auto-spawn on startup and how many); behavior toggles (allow dragging, allow
+  breeding, chase-the-mouse); size; whether panes/status bar count as extra ledges; and a
+  debug overlay that draws the ledges mascots currently think they can stand on.
 
 ## Development
 

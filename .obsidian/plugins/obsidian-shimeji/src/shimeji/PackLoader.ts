@@ -23,7 +23,27 @@ async function tryLoadCharacter(app: App, name: string, imgDir: string, confDir:
 			const clean = rawPath.replace(/^[/\\]+/, "");
 			return app.vault.adapter.getResourcePath(`${imgDir}/${clean}`);
 		},
+		imgDir,
 	};
+}
+
+const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp)$/i;
+
+/** Lists a pack's own image files (pack-relative paths, e.g. "/shime1.png") for the
+ * custom-content editor's image picker. Sorted numeric-aware so shime1, shime2, ... shime10
+ * order sensibly instead of shime1, shime10, shime2. */
+export async function listPackImages(app: App, imgDir: string | undefined): Promise<string[]> {
+	if (!imgDir) return [];
+	try {
+		const listing = await app.vault.adapter.list(imgDir);
+		return listing.files
+			.map((f) => f.split("/").pop() ?? "")
+			.filter((name) => IMAGE_EXTENSION.test(name))
+			.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+			.map((name) => `/${name}`);
+	} catch {
+		return [];
+	}
 }
 
 /**

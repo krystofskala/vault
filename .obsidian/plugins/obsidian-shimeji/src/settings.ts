@@ -1,5 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type ShimejiPlugin from "./main";
+import { CustomContentModal } from "./customContentModal";
+import type { CustomPackContent } from "./shimeji/customContent";
 
 export interface ShimejiSettings {
 	packsFolder: string;
@@ -15,6 +17,9 @@ export interface ShimejiSettings {
 	allowDragging: boolean;
 	allowBreeding: boolean;
 	chaseMouseEnabled: boolean;
+	/** Hand-authored actions/behaviors, keyed by pack id, overlaid onto that pack's parsed
+	 * actions.xml/behaviors.xml — see CustomContentBuilder. */
+	customContent: Record<string, CustomPackContent>;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -32,6 +37,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowDragging: true,
 	allowBreeding: true,
 	chaseMouseEnabled: true,
+	customContent: {},
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
@@ -92,6 +98,35 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				text:
 					"No Shimeji-compatible pack found yet in that folder — using the built-in placeholder mascot. " +
 					"Add your img/ and conf/ files and rescan.",
+				cls: "setting-item-description",
+			});
+		}
+
+		containerEl.createEl("h3", { text: "Custom animations & reactions" });
+
+		if (this.plugin.availablePacks.length > 0) {
+			containerEl.createEl("p", {
+				text:
+					"Add your own actions and behaviors to a character, the same way hand-editing " +
+					"actions.xml/behaviors.xml would — a custom entry with the same name as a " +
+					"standard one replaces it.",
+				cls: "setting-item-description",
+			});
+			for (const pack of this.plugin.availablePacks) {
+				const content = this.plugin.settings.customContent[pack.id];
+				const count = (content?.actions.length ?? 0) + (content?.behaviors.length ?? 0);
+				new Setting(containerEl)
+					.setName(pack.name)
+					.setDesc(count > 0 ? `${count} custom entr${count === 1 ? "y" : "ies"}` : "No custom entries yet")
+					.addButton((btn) =>
+						btn.setButtonText("Edit...").onClick(() => {
+							new CustomContentModal(this.app, this.plugin, pack.id).open();
+						}),
+					);
+			}
+		} else {
+			containerEl.createEl("p", {
+				text: "Load a character above first — custom actions/behaviors are added on top of a character's own actions.xml/behaviors.xml.",
 				cls: "setting-item-description",
 			});
 		}

@@ -160,6 +160,37 @@ describe("real standard Shimeji-ee pack", () => {
 		expect(runner.isRunning).toBe(false);
 	});
 
+	it("Resisting (Class=...Regist, nested inside the real Dragged sequence) holds still instead of falling", () => {
+		// Every real Pose under Resisting is Velocity="0,0" — it's a struggle animation with no
+		// physics tie-in, unlike Fall/Thrown/ChaseMouse. Before recognizing "Regist" this fell
+		// through to applyNativeEmbedded's default case, which applies gravity — wrong for an
+		// action meant to hold in place.
+		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
+		const runner = new ActionRunner(pack);
+		const mascot = {
+			physics: { x: 400, y: 600, vx: 0, vy: 0, facing: 1 as const, grounded: true },
+			stateElapsedMs: 0,
+			setVisualImage: () => {},
+			getViewportSize: () => ({ width: 800, height: 900 }),
+			getTotalMascotCount: () => 1,
+		};
+		const env: PushEnv = {
+			mascot: mascot as unknown as Mascot,
+			ctx: createRuntimeContext(
+				mascot.physics,
+				{ viewportWidth: 800, viewportHeight: 900, pointer: { x: 0, y: 0, dx: 0, dy: 0 }, totalMascotCount: 1 },
+				0,
+				new Random(1),
+			),
+			ambient: { x: 0, y: 0 },
+			config: DEFAULT_ENGINE_CONFIG,
+		};
+		runner.start("Resisting", env);
+		for (let i = 0; i < 10; i++) runner.tick(env, 0.05, []);
+
+		expect(mascot.physics.y).toBe(600);
+	});
+
 	it("Divide1's sibling (Divided) is a required-but-orphaned behavior, like Fall/Dragged/Thrown/ChaseMouse", () => {
 		// PullUp/Divided are Frequency=0 and never appear as any other behavior's
 		// NextBehavior target — only reachable via a Breed action's own BornBehavior, the same

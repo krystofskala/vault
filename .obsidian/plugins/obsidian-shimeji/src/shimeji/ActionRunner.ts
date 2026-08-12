@@ -169,6 +169,12 @@ export class ActionRunner {
 			case "Embedded":
 				if (frame.action.embeddedName === "WalkWithIE") return this.tickMove(frame, env, dt, ledges);
 				if (frame.action.embeddedName === "Breed") return this.tickBreed(frame, env, dt, ledges);
+				// Regist (e.g. the real pack's "Resisting", a struggle animation nested inside
+				// Dragged): every real-pack Pose under it is Velocity="0,0" — it's a pure held
+				// pose-cycle with no physics tie-in at all, unlike Fall/Thrown/ChaseMouse. Without
+				// this it fell through to applyNativeEmbedded's "unrecognized" fallback, which
+				// applies gravity — actively wrong for an action that's supposed to hold in place.
+				if (frame.action.embeddedName === "Regist") return this.tickHold(frame, env, dt, ledges);
 				return this.tickEmbedded(frame, env, dt, ledges);
 			case "Stay":
 			case "Animate":

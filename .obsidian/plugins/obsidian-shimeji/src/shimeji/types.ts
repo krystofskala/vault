@@ -75,4 +75,8 @@ export interface MascotPack {
 	behaviors: Map<string, BehaviorDef>;
 	/** Resolves a Pose's raw `Image` path (e.g. "/shime1.png") to a src usable in an <img>. */
 	resolveImage: (path: string) => string;
+	/** Vault-relative folder this pack's images live in — set by PackLoader for real loaded
+	 * packs, used by the custom-content editor to offer an image picker. Optional so synthetic
+	 * packs (tests, mergeCustomContent's output) don't need to fabricate one. */
+	imgDir?: string;
 }

@@ -325,7 +325,7 @@ export function evaluate(node: Node, ctx: ExprContext): ExprValue {
 // Real packs use both wrappers: "#{...}" mostly on <Animation Condition>, "${...}" mostly on
 // nested <Action Condition> and on ActionReference parameter values (Duration, TargetX, ...).
 // Nothing in practice depends on the two meaning something different, so treat them the same.
-const EXPR_WRAPPER = /^[#$]\{([\s\S]*)\}$/;
+export const EXPR_WRAPPER = /^[#$]\{([\s\S]*)\}$/;
 const warnedConditions = new Set<string>();
 
 /** Parses a `Condition="#{...}"` / `Condition="${...}"` attribute value. Returns undefined

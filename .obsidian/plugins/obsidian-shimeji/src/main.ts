@@ -3,6 +3,7 @@ import { Mascot } from "./engine/Mascot";
 import { Random } from "./engine/Random";
 import { Stage } from "./engine/Stage";
 import { DEFAULT_ENGINE_CONFIG, type EngineConfig } from "./engine/types";
+import { mergeCustomContent } from "./shimeji/CustomContentBuilder";
 import { PackDriver } from "./shimeji/PackDriver";
 import { loadPacksFromFolder } from "./shimeji/PackLoader";
 import type { MascotPack } from "./shimeji/types";
@@ -11,7 +12,14 @@ import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./set
 export default class ShimejiPlugin extends Plugin {
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
 	stage?: Stage;
+	/** What everything (settings UI, spawning, the context menu) actually consumes: basePacks
+	 * with each pack's own customContent overlaid on top. Re-derived by refreshAvailablePacks()
+	 * whenever either basePacks or customContent changes, so nothing else has to remember to
+	 * re-merge. */
 	availablePacks: MascotPack[] = [];
+	/** Pure XML-parsed packs, straight from loadPacksFromFolder — the ground truth
+	 * refreshAvailablePacks() re-merges from, so editing custom content never needs a disk rescan. */
+	private basePacks: MascotPack[] = [];
 	private engineConfig: EngineConfig = { ...DEFAULT_ENGINE_CONFIG };
 	/** Which pack (or null for the placeholder) each live mascot is currently wearing. A
 	 * WeakMap so a removed mascot's entry is simply dropped once nothing else references it. */
@@ -80,33 +88,49 @@ export default class ShimejiPlugin extends Plugin {
 
 	async rescanPacks(): Promise<void> {
 		if (!this.settings.packsFolder) {
-			this.availablePacks = [];
+			this.basePacks = [];
+			this.refreshAvailablePacks();
 			this.respawnWithCurrentSettings();
 			return;
 		}
 		try {
-			this.availablePacks = await loadPacksFromFolder(this.app, this.settings.packsFolder);
-			if (this.availablePacks.length === 0) {
+			this.basePacks = await loadPacksFromFolder(this.app, this.settings.packsFolder);
+			if (this.basePacks.length === 0) {
 				new Notice("Shimeji: no actions.xml/behaviors.xml found in that folder yet — using the placeholder mascot.");
 			} else {
-				new Notice(`Shimeji: found ${this.availablePacks.length} pack(s): ${this.availablePacks.map((p) => p.name).join(", ")}`);
+				new Notice(`Shimeji: found ${this.basePacks.length} pack(s): ${this.basePacks.map((p) => p.name).join(", ")}`);
 			}
 		} catch (err) {
 			console.error("[obsidian-shimeji] failed to scan pack folder", err);
-			this.availablePacks = [];
+			this.basePacks = [];
 		}
 
 		// Drop any selected pack ids the scan no longer finds, and auto-select everything found
 		// on a completely fresh install (nothing chosen yet) rather than silently sticking with
 		// the placeholder until the user visits Settings.
-		const validIds = new Set(this.availablePacks.map((p) => p.id));
+		const validIds = new Set(this.basePacks.map((p) => p.id));
 		this.settings.activePackIds = this.settings.activePackIds.filter((id) => validIds.has(id));
-		if (this.settings.activePackIds.length === 0 && this.availablePacks.length > 0) {
-			this.settings.activePackIds = this.availablePacks.map((p) => p.id);
+		if (this.settings.activePackIds.length === 0 && this.basePacks.length > 0) {
+			this.settings.activePackIds = this.basePacks.map((p) => p.id);
 		}
 		await this.saveSettings();
 
+		this.refreshAvailablePacks();
 		this.respawnWithCurrentSettings();
+	}
+
+	private refreshAvailablePacks(): void {
+		this.availablePacks = this.basePacks.map((p) => mergeCustomContent(p, this.settings.customContent[p.id]));
+	}
+
+	/** Re-derives availablePacks from the current custom content and rebinds every live
+	 * mascot's driver, so an edit made in the custom-content editor takes effect immediately
+	 * instead of waiting for the next natural reassignment. */
+	applyCustomContent(): void {
+		this.refreshAvailablePacks();
+		for (const mascot of this.stage?.getMascots() ?? []) {
+			this.attachActivePack(mascot, this.mascotPackId.get(mascot) ?? null);
+		}
 	}
 
 	toggleMascot(): void {

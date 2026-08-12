@@ -42,3 +42,44 @@
 	gap: 4px;
 	margin: 8px 0;
 }
+
+.shimeji-cc-modal {
+	width: 640px;
+	max-width: 90vw;
+}
+
+.shimeji-cc-box {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 6px 12px;
+	margin: 8px 0 16px 0;
+}
+
+.shimeji-cc-pose {
+	padding-top: 10px;
+}
+
+.shimeji-cc-pose-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 4px;
+}
+
+.shimeji-cc-thumb {
+	max-width: 48px;
+	max-height: 48px;
+	object-fit: contain;
+	background: var(--background-secondary);
+	border-radius: 4px;
+}
+
+.shimeji-cc-error {
+	color: var(--text-error);
+	font-size: 0.85em;
+	margin-top: -8px;
+}
+
+.shimeji-cc-error:empty {
+	display: none;
+}
