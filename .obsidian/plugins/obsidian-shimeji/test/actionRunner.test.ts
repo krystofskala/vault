@@ -371,6 +371,160 @@ describe("ActionRunner", () => {
 		expect(mascot.physics.y).toBe(-50);
 		expect(mascot.physics.grounded).toBe(false);
 	});
+
+	// Real ActionBase.hasNext(): `time < Duration` (default effectively infinite), independent of
+	// how many poses the action has; real Animation always cycles its poses by `time %
+	// totalDuration`. A Stay with a Duration override that outlasts its own pose-cycle length
+	// (e.g. the real pack's SitAndDangleLegs: 4 poses summing to ~1.6s, referenced with
+	// Duration="500-600" i.e. 20-24s) must keep *cycling* those poses for the full override, not
+	// stop the instant it's played through them once.
+	it("a multi-Pose Stay cycles its poses for its full Duration override, not just one pass", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"DangleLegs",
+					action({
+						name: "DangleLegs",
+						type: "Stay",
+						animations: animOf([
+							{ image: "/a.png", durationMs: 40 },
+							{ image: "/b.png", durationMs: 40 },
+						]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		const env = envFor(pack, mascot);
+		// Duration="20" ticks * 40ms/tick = 800ms — 10x the pose cycle's own 80ms, so a correct
+		// port must visibly cycle back through both poses several times before finishing.
+		runner.start("DangleLegs", env, { Duration: "20" });
+
+		for (let i = 0; i < 10; i++) expect(runner.tick(env, 0.04, [])).toBe(false);
+		expect(mascot.shownImages.filter((s) => s === "resolved:/a.png").length).toBeGreaterThan(1);
+		expect(mascot.shownImages.filter((s) => s === "resolved:/b.png").length).toBeGreaterThan(1);
+
+		let done = false;
+		for (let i = 0; i < 15 && !done; i++) done = runner.tick(env, 0.04, []);
+		expect(done).toBe(true);
+	});
+
+	it("a multi-Pose Stay with no Duration override holds indefinitely (real Duration default is effectively infinite)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"DangleLegs",
+					action({
+						name: "DangleLegs",
+						type: "Stay",
+						animations: animOf([
+							{ image: "/a.png", durationMs: 40 },
+							{ image: "/b.png", durationMs: 40 },
+						]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		const env = envFor(pack, mascot);
+		runner.start("DangleLegs", env);
+
+		let done = false;
+		for (let i = 0; i < 500; i++) done = done || runner.tick(env, 0.04, []);
+		expect(done).toBe(false);
+	});
+
+	it("a multi-Pose Animate self-ends after exactly one pass through its poses, even with no Duration override (real Animate.hasNext()'s own time < animation.getDuration() cap)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"Reaction",
+					action({
+						name: "Reaction",
+						type: "Animate",
+						animations: animOf([
+							{ image: "/a.png", durationMs: 40 },
+							{ image: "/b.png", durationMs: 40 },
+						]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		const env = envFor(pack, mascot);
+		runner.start("Reaction", env);
+
+		expect(runner.tick(env, 0.04, [])).toBe(false);
+		expect(runner.tick(env, 0.04, [])).toBe(true);
+		expect(mascot.shownImages.filter((s) => s === "resolved:/a.png").length).toBe(1);
+	});
+
+	it("an explicit Duration override shorter than an Animate's own pose-cycle still wins (the stricter of the two caps)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"Reaction",
+					action({
+						name: "Reaction",
+						type: "Animate",
+						animations: animOf([
+							{ image: "/a.png", durationMs: 40 },
+							{ image: "/b.png", durationMs: 40 },
+						]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		const env = envFor(pack, mascot);
+		runner.start("Reaction", env, { Duration: "1" });
+		expect(runner.tick(env, 0.04, [])).toBe(true);
+	});
+
+	it("ThrowIE holds its single pose in place for its own Duration instead of running real Fall physics on the mascot (real ThrowIE.java extends Animate, not Fall — the window gets thrown, not the mascot)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"ThrowIe",
+					action({
+						name: "ThrowIe",
+						type: "Embedded",
+						embeddedName: "ThrowIE",
+						borderType: "Floor",
+						animations: animOf([{ image: "/shime37.png", durationMs: 40 * 40 }]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.y = 300;
+		mascot.physics.grounded = true;
+		const env = envFor(pack, mascot);
+		const ledges = [{ kind: "floor" as const, y: 300, x1: -1000, x2: 1000, source: "window" as const }];
+		runner.start("ThrowIe", env);
+
+		// Real Fall physics (the old, wrong mapping) would immediately re-detect the floor
+		// already underfoot and complete within a tick or two; the real ThrowIE just holds its
+		// one pose here for its full declared duration (40 ticks) without ever touching vy.
+		for (let i = 0; i < 30; i++) {
+			expect(runner.tick(env, 0.04, ledges)).toBe(false);
+			expect(mascot.physics.vy).toBe(0);
+			expect(mascot.physics.y).toBe(300);
+		}
+		let done = false;
+		for (let i = 0; i < 15 && !done; i++) done = runner.tick(env, 0.04, ledges);
+		expect(done).toBe(true);
+	});
 });
 
 describe("BehaviorAI", () => {

@@ -24,6 +24,10 @@ interface Frame {
 	poseIndex: number;
 	poseElapsedMs: number;
 	embeddedElapsedMs: number;
+	/** tickHold only (Stay/Animate/Regist/Breed): total time since this frame started, driving
+	 * both its real modulo-cycled pose (see pickLoopingPose) and its own completion — see
+	 * tickHold for why this replaced a poseIndex walk. */
+	holdElapsedMs: number;
 	instantComplete: boolean;
 	/** Breed only: guards requestSibling so a multi-Pose birth animation spawns exactly one
 	 * sibling on its first tick rather than once per pose frame. */
@@ -112,6 +116,7 @@ export class ActionRunner {
 			poseIndex: 0,
 			poseElapsedMs: 0,
 			embeddedElapsedMs: 0,
+			holdElapsedMs: 0,
 			instantComplete: false,
 			bredAlready: false,
 		};
@@ -194,6 +199,15 @@ export class ActionRunner {
 				// this it fell through to applyNativeEmbedded's "unrecognized" fallback, which
 				// applies gravity — actively wrong for an action that's supposed to hold in place.
 				if (frame.action.embeddedName === "Regist") return this.tickHold(frame, env, dt, ledges);
+				// ThrowIE: real ThrowIE.java extends Animate, not Fall — its own tick() never
+				// touches the mascot's position at all (BorderType="Floor", every real-pack Pose
+				// under it is Velocity="0,0"), it only throws the *tracked window* out from under
+				// a stationary mascot, which has no equivalent here (see WalkWithIE/FallWithIE
+				// for the same activeIE-dragging concept, also not ported). Previously mapped to
+				// plain "Fall" alongside FallWithIE, which wrongly ran real falling physics on
+				// the mascot itself and cut the held "threw it" pose short the instant gravity's
+				// own landing check re-detected the floor already underfoot.
+				if (frame.action.embeddedName === "ThrowIE") return this.tickHold(frame, env, dt, ledges);
 				return this.tickEmbedded(frame, env, dt, ledges);
 			case "Stay":
 			case "Animate":
@@ -263,6 +277,32 @@ export class ActionRunner {
 		return false;
 	}
 
+	/**
+	 * Stay/Animate/Regist/Breed (anything not Move/Sequence/Select/plain-Embedded): real
+	 * ActionBase.hasNext() is `Condition && time < Duration` (Duration defaulting to
+	 * effectively infinite) for *every* action, and real Animation.getPoseAt(time) always
+	 * cycles its poses by `time % totalDuration` regardless of how the outer action ends —
+	 * termination is entirely the outer action's job, pose selection doesn't stop it. Real
+	 * Animate layers one more cap on top: `time < animation.getDuration()`, i.e. it also
+	 * self-ends after exactly one pass through its own poses. Real Stay has no such cap and just
+	 * holds, cycling forever, until Duration/Condition end it externally. Two of our Embedded
+	 * classes are real Animate *subclasses* despite being declared `Type="Embedded"` in the XML
+	 * (the Java class hierarchy, not the XML Type attribute, is what actually decides this) and
+	 * so need the same self-cap even though `frame.action.type` reads "Embedded" for them: Breed
+	 * (breeds then plays out its birth animation once) and ThrowIE (holds one throw-pose once,
+	 * in place — see its own embeddedName check in tickFrame for why it lands here at all).
+	 *
+	 * A previous version of this method walked `poseIndex` forward pose-by-pose and stopped the
+	 * instant it ran off the end of the array (unless a `Loop="true"` XML attribute said
+	 * otherwise) — but real packs never put `Loop=` on a Stay/Animate action (only ever on
+	 * Sequence, a separate concept), so that always evaluated false, and every multi-Pose
+	 * Stay/Animate ended after one linear pass regardless of any Duration override. For a
+	 * single-Pose action that's harmless (nothing to cycle), but for a real multi-Pose one it's
+	 * a large, silent bug: e.g. the real pack's SitAndDangleLegs (4 poses, ~1.6s combined) is
+	 * referenced with `Duration="500-600"` (20-24s) expecting to *cycle* those 4 poses for the
+	 * full duration — the old code played them once (~1.6s) and moved on, cutting a 20+ second
+	 * hold down to under 2.
+	 */
 	private tickHold(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		const poses = frame.poses;
 		if (poses.length === 0) return true;
@@ -275,22 +315,19 @@ export class ActionRunner {
 		} else {
 			this.stickToFloorIfBordered(frame, env, dt, ledges);
 		}
-		const pose = poses[frame.poseIndex];
-		this.showPose(env.mascot, pose);
+		this.showPose(env.mascot, pickLoopingPose(poses, frame.holdElapsedMs));
 
+		const selfCapsAtOneCycle =
+			frame.action.type === "Animate" || frame.action.embeddedName === "Breed" || frame.action.embeddedName === "ThrowIE";
+		const totalPoseCycleMs = poses.reduce((sum, p) => sum + p.durationMs, 0);
 		const durationOverride = numOrUndefined(frame.locals.Duration);
-		const effectiveDuration = durationOverride !== undefined && poses.length === 1 ? durationOverride * SHIMEJI_TICK_MS : pose.durationMs;
+		const effectiveDurationMs = Math.min(
+			durationOverride !== undefined ? durationOverride * SHIMEJI_TICK_MS : Infinity,
+			selfCapsAtOneCycle ? totalPoseCycleMs : Infinity,
+		);
 
-		frame.poseElapsedMs += dt * 1000;
-		if (frame.poseElapsedMs < effectiveDuration) return false;
-		frame.poseElapsedMs = 0;
-		frame.poseIndex++;
-		if (frame.poseIndex < poses.length) return false;
-		if (frame.action.loop) {
-			frame.poseIndex = 0;
-			return false;
-		}
-		return true;
+		frame.holdElapsedMs += dt * 1000;
+		return frame.holdElapsedMs >= effectiveDurationMs;
 	}
 
 	private tickMove(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
@@ -364,25 +401,24 @@ export class ActionRunner {
 	 * Breed (e.g. PullUpShimeji1/Divide1 in the real pack): spawns exactly one independent
 	 * sibling mascot, offset from this one by BornX/BornY (plain numeric attributes on the
 	 * Action itself, like Falling's Gravity/RegistanceX — not ActionReference-overridable
-	 * locals in any real pack), optionally started directly on a BornBehavior. The action's
-	 * own multi-Pose birth animation (e.g. shime38->41) then just plays out like a held pose,
-	 * non-looping, exactly as tickHold would. Real Breed.tick(): `getTime() ==
-	 * getAnimation().getDuration() - 1` — breeds one tick before the whole birth animation
-	 * finishes (so the parent visibly plays through the birth pose first), not the instant it
-	 * starts. requestSibling itself applies BornX's real facing-dependent sign flip.
+	 * locals in any real pack), optionally started directly on a BornBehavior. The action's own
+	 * multi-Pose birth animation (e.g. shime38->41) then just plays out like a held pose,
+	 * self-ending after one cycle exactly as tickHold now does for any Animate (Breed extends
+	 * Animate in the real source, see its embeddedName special-case there). Real Breed.tick():
+	 * `getTime() == getAnimation().getDuration() - 1` — breeds one tick before the whole birth
+	 * animation finishes (so the parent visibly plays through the birth pose first), not the
+	 * instant it starts. requestSibling itself applies BornX's real facing-dependent sign flip.
 	 */
 	private tickBreed(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		const poses = frame.poses;
 		if (!frame.bredAlready && poses.length > 0) {
 			const totalDurationMs = poses.reduce((sum, p) => sum + p.durationMs, 0);
-			const elapsedBeforeCurrentPose = poses.slice(0, frame.poseIndex).reduce((sum, p) => sum + p.durationMs, 0);
-			const elapsedMs = elapsedBeforeCurrentPose + frame.poseElapsedMs;
 			// "About to finish" (this tick's own upcoming tickHold call would complete the whole
 			// animation), not a fixed narrow window before the end — a window sized to one fixed
 			// tick can get stepped clean over if dt doesn't divide it evenly, missing every
 			// sample either side of it. This can't: it's derived from the same dt as the
 			// tickHold call immediately below, so it always catches the true last tick.
-			if (elapsedMs + dt * 1000 >= totalDurationMs) {
+			if (frame.holdElapsedMs + dt * 1000 >= totalDurationMs) {
 				frame.bredAlready = true;
 				const params = frame.action.params;
 				const bornX = parseFloat(params.BornX ?? "0") || 0;
@@ -400,7 +436,7 @@ export class ActionRunner {
 			frame.embeddedElapsedMs += dt * 1000;
 		}
 		const raw = frame.action.embeddedName ?? frame.action.name;
-		const mapped = raw === "FallWithIE" || raw === "ThrowIE" ? "Fall" : raw;
+		const mapped = raw === "FallWithIE" ? "Fall" : raw;
 		// Jump needs TargetX/TargetY fresh every tick (real Jump.tick() recomputes its own
 		// direction vector from the current position each time, not a one-shot initial
 		// velocity) — everything else ignores these.

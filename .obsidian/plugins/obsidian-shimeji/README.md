@@ -9,7 +9,9 @@ Obsidian window and reads Obsidian's own panes instead of a tracked external win
 *physics and behavior algorithms* are, wherever that platform difference doesn't force a
 change, direct ports of the real engine's actual Java source (`com.group_finity.mascot.*`),
 not reinventions — see "Ported directly from the real engine's source" below for specifics
-and exactly where the two necessarily diverge.
+and exactly where the two necessarily diverge. See `SOURCE_AUDIT.md` for the working, per-file
+checklist that pass was tracked against — useful if you're picking this up to continue the audit
+rather than just reading about the outcome.
 
 ## Status
 
@@ -124,6 +126,34 @@ a separate live-preview path (`PackDriver.renderState`) that doesn't run the act
 during an actual drag at all, so neither mechanic has a tick loop to hook into without a
 structural change to how dragging is rendered. `Resisting` stays effectively unreachable, same
 as before this pass — a documented gap, not a new one.
+
+**A third pass, going systematically file-by-file through the entire real source tree** (not just
+the pieces already touched — see `SOURCE_AUDIT.md` for the full per-file checklist this was
+tracked against) turned up the single largest bug found so far:
+
+- **Every multi-Pose `Stay`/`Animate` action was silently self-ending after one pass through its
+  poses, ignoring any `Duration` override that was supposed to make it hold or cycle for
+  longer.** The previous `tickHold` walked a `poseIndex` forward and stopped the instant it ran
+  off the end of the array unless the action's XML had `Loop="true"` — but real packs *never* put
+  `Loop=` on a `Stay`/`Animate` action (it's exclusively a `Sequence` concept, confirmed via a
+  full-pack grep), so that check was always false and every multi-Pose hold ended after one
+  linear pass no matter what `Duration` said. The real engine's rule (`ActionBase.hasNext()`:
+  `time < Duration`, `Animate` adds `time < animation.getDuration()` on top; `Animation` itself
+  always cycles by `time % totalDuration`) ties *termination* to elapsed time, completely
+  decoupled from how many poses got shown. The real pack's own `SitAndDangleLegs` (4 poses,
+  ~1.6s combined) is referenced with `Duration="500-600"` (20-24 seconds) expecting to cycle
+  those 4 poses on a loop for the whole stretch — the old code played them once and moved on,
+  roughly a 12-15x undershoot. `tickHold` now tracks total elapsed time and reuses the same
+  `pickLoopingPose` modulo-cycling helper `tickEmbedded` already used, instead of a one-shot
+  `poseIndex` walk.
+- **`ThrowIE` was mapped to plain `Fall`, alongside `FallWithIE`, which was wrong**: unlike
+  `FallWithIE` (which really does extend `Fall`), `ThrowIE.java` extends `Animate` — its own
+  `tick()` never touches the mascot's position at all (`BorderType="Floor"`, a single
+  `Velocity="0,0"` pose); in the real engine it only throws the *tracked window* out from under a
+  mascot that stays put. Mapping it to `Fall` ran real falling physics on the mascot, which
+  immediately "landed" again since it was already standing on the floor, cutting the held "threw
+  it" pose short instead of holding it for its full duration. Now routed through `tickHold` like
+  `Regist`, holding in place like the real class hierarchy says it should.
 
 - **A real `actions.xml`/`behaviors.xml` interpreter**, verified directly against the actual
   standard shimeji-ee conf files (checked into `Shimeji/conf/`) — Sequence/Select/Animate/
