@@ -99,6 +99,10 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 			case "anchor":
 				if (tail[0] === "x") return physics.x;
 				if (tail[0] === "y") return physics.y;
+				// Bare "mascot.anchor" (no .x/.y) is only ever passed as an opaque point
+				// argument to isOn(...)-style calls, which read physics state directly and
+				// ignore the argument value — nothing to resolve here, silently.
+				if (tail.length === 0) return undefined;
 				break;
 			case "lookRight":
 				return physics.facing === 1;
