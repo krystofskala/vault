@@ -1,9 +1,9 @@
 import type { Mascot, MascotDriver } from "../engine/Mascot";
 import type { Random } from "../engine/Random";
-import type { EngineConfig, Ledge, NativeStateName } from "../engine/types";
+import type { AmbientPointer, EngineConfig, Ledge, NativeStateName } from "../engine/types";
 import { BehaviorAI } from "./BehaviorAI";
 import { pickLoopingPose } from "./poseUtil";
-import type { MascotPack } from "./types";
+import type { MascotPack, PoseDef } from "./types";
 
 const STATE_TO_ACTION: Partial<Record<NativeStateName, string>> = {
 	dragged: "Dragged",
@@ -22,20 +22,38 @@ export class PackDriver implements MascotDriver {
 		this.ai = new BehaviorAI(pack, rng);
 	}
 
-	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: { x: number; y: number }): void {
+	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer): void {
 		this.ai.tick(mascot, dt, ledges, ambientPointer, this.config);
 	}
 
 	renderState(mascot: Mascot, state: NativeStateName, elapsedMs: number): boolean {
 		const actionName = STATE_TO_ACTION[state];
-		const action = actionName ? this.pack.actions.get(actionName) : undefined;
-		if (!action || action.poses.length === 0) return false;
-		const pose = pickLoopingPose(action.poses, elapsedMs);
+		const poses = actionName ? this.resolveDisplayPoses(actionName) : [];
+		if (poses.length === 0) return false;
+		const pose = pickLoopingPose(poses, elapsedMs);
 		mascot.setVisualImage(this.pack.resolveImage(pose.image), pose.anchor);
 		return true;
 	}
 
-	notifyReleased(_mascot: Mascot, wasThrown: boolean): void {
-		this.ai.forceBehavior(wasThrown ? "Thrown" : "Fall");
+	notifyReleased(mascot: Mascot, wasThrown: boolean, ambientPointer: AmbientPointer): void {
+		this.ai.forceBehavior(wasThrown ? "Thrown" : "Fall", mascot, ambientPointer, this.config);
+	}
+
+	/** "Dragged"/"Thrown" etc. are Sequences composed of other named actions, not leaves with
+	 * their own poses; used only for a static drag/fall preview outside the normal per-frame
+	 * interpreter (which resolves this properly via conditions), so a plain first-match walk
+	 * down the reference chain is a reasonable stand-in. */
+	private resolveDisplayPoses(actionName: string, depth = 0): PoseDef[] {
+		if (depth > 4) return [];
+		const action = this.pack.actions.get(actionName);
+		if (!action) return [];
+		for (const variant of action.animations) {
+			if (variant.poses.length > 0) return variant.poses;
+		}
+		for (const child of action.children) {
+			const poses = this.resolveDisplayPoses(child.name, depth + 1);
+			if (poses.length > 0) return poses;
+		}
+		return [];
 	}
 }

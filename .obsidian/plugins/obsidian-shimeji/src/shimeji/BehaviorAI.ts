@@ -1,9 +1,9 @@
 import type { Mascot } from "../engine/Mascot";
 import type { Random } from "../engine/Random";
 import type { EngineConfig, Ledge } from "../engine/types";
-import { ActionRunner } from "./ActionRunner";
+import { ActionRunner, type PushEnv } from "./ActionRunner";
 import { evaluateCondition, type ExprContext } from "./Expression";
-import { createRuntimeContext } from "./RuntimeContext";
+import { createRuntimeContext, type AmbientPointer } from "./RuntimeContext";
 import type { BehaviorDef, MascotPack } from "./types";
 
 /** Shimeji-ee requires every pack to define these four; ChaseMouse/Fall have real declarative
@@ -28,42 +28,59 @@ export class BehaviorAI {
 		}
 	}
 
-	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambient: { x: number; y: number }, config: EngineConfig): void {
-		const ctx = createRuntimeContext(
-			mascot.physics,
-			{ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight },
-			mascot.stateElapsedMs,
-			this.rng,
-		);
+	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig): void {
+		const env = this.buildEnv(mascot, ambientPointer, config);
 
-		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(ctx));
+		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(env.ctx), env);
 
-		const done = this.runner.isRunning ? this.runner.tick(mascot, dt, ledges, ambient, ctx, config) : true;
-		if (done) this.startBehavior(this.pickNextBehavior(ctx));
+		const done = this.runner.isRunning ? this.runner.tick(env, dt, ledges) : true;
+		if (done) this.startBehavior(this.pickNextBehavior(env.ctx), env);
 	}
 
 	/** Used for a mouse-drag release: jump straight to the pack's own Fall/Thrown action. */
-	forceBehavior(name: string): void {
+	forceBehavior(name: string, mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig): void {
+		const env = this.buildEnv(mascot, ambientPointer, config);
 		const behavior = this.pack.behaviors.get(name);
 		this.currentBehavior = behavior;
-		if (!this.runner.start(name)) this.currentBehavior = undefined;
+		if (!this.runner.start(name, env)) this.currentBehavior = undefined;
 	}
 
-	private startBehavior(behavior: BehaviorDef | undefined): void {
+	private buildEnv(mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig): PushEnv {
+		const ctx = createRuntimeContext(
+			mascot.physics,
+			{ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, pointer: ambientPointer },
+			mascot.stateElapsedMs,
+			this.rng,
+		);
+		return { mascot, ctx, ambient: ambientPointer, config };
+	}
+
+	private startBehavior(behavior: BehaviorDef | undefined, env: PushEnv): void {
 		this.currentBehavior = behavior;
-		if (behavior && !this.runner.start(behavior.name)) this.currentBehavior = undefined;
+		if (behavior && !this.runner.start(behavior.name, env)) this.currentBehavior = undefined;
 	}
 
+	/** Combines any explicit NextBehavior transitions from the behavior that just finished
+	 * with the general top-level pool — additively (both count) when every transition edge is
+	 * Add="true", exclusively (only the transitions count) otherwise, matching real packs
+	 * where e.g. ChaseMouse always leads to SitAndFaceMouse but SitDown can *also* fall back
+	 * to the general pool. */
 	private pickNextBehavior(ctx: ExprContext): BehaviorDef | undefined {
 		const transitions = this.currentBehavior?.nextBehaviors ?? [];
-		if (transitions.length > 0) {
-			const candidates = transitions
-				.map((t) => this.pack.behaviors.get(t.name))
-				.filter((b): b is BehaviorDef => !!b && evaluateCondition(b.condition, ctx));
-			const picked = this.rng.weightedPick(candidates.map((b) => ({ item: b, weight: b.frequency || 1 })));
-			if (picked) return picked;
+		const additive = transitions.length === 0 || transitions.every((t) => t.add);
+
+		const candidates: Array<{ item: BehaviorDef; weight: number }> = [];
+		for (const t of transitions) {
+			const target = this.pack.behaviors.get(t.name);
+			if (target && evaluateCondition(t.condition, ctx) && evaluateCondition(target.condition, ctx)) {
+				candidates.push({ item: target, weight: t.frequency });
+			}
 		}
-		const pool = Array.from(this.pack.behaviors.values()).filter((b) => !b.hidden && evaluateCondition(b.condition, ctx));
-		return this.rng.weightedPick(pool.map((b) => ({ item: b, weight: b.frequency })));
+		if (additive) {
+			for (const behavior of this.pack.behaviors.values()) {
+				if (evaluateCondition(behavior.condition, ctx)) candidates.push({ item: behavior, weight: behavior.frequency });
+			}
+		}
+		return this.rng.weightedPick(candidates);
 	}
 }

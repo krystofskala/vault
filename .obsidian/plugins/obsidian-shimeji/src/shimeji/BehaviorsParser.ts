@@ -1,15 +1,43 @@
-import { parseCondition } from "./Expression";
+import { parseCondition, type Node as ExprNode } from "./Expression";
 import type { BehaviorDef, BehaviorNextDef } from "./types";
+
+function andNodes(nodes: ExprNode[]): ExprNode | undefined {
+	if (nodes.length === 0) return undefined;
+	return nodes.reduce((acc, node) => (acc ? { kind: "binary", op: "&&", left: acc, right: node } : node));
+}
+
+/** Real behaviors.xml groups many <Behavior> elements under a wrapping <Condition Condition="...">
+ * element rather than repeating the same condition on every behavior; combine every enclosing
+ * wrapper's condition (there can be more than one nested) with the Behavior's own attribute. */
+function collectAncestorConditions(el: Element): ExprNode[] {
+	const conditions: ExprNode[] = [];
+	let parent = el.parentElement;
+	while (parent && parent.tagName !== "BehaviorList") {
+		if (parent.tagName === "Condition") {
+			const raw = parent.getAttribute("Condition");
+			const parsed = raw ? parseCondition(raw) : undefined;
+			if (parsed) conditions.push(parsed);
+		}
+		parent = parent.parentElement;
+	}
+	return conditions;
+}
 
 function parseNextBehaviors(el: Element): BehaviorNextDef[] {
 	const next: BehaviorNextDef[] = [];
-
-	// Prefer explicit child elements when present (either tag name seen in the wild).
-	for (const tag of ["BehaviorReference", "NextBehavior"]) {
-		for (const refEl of Array.from(el.getElementsByTagName(tag))) {
+	// Add lives on the <NextBehavior> wrapper, not the individual <BehaviorReference> children.
+	for (const wrapper of Array.from(el.getElementsByTagName("NextBehavior"))) {
+		const add = wrapper.getAttribute("Add") === "true";
+		for (const refEl of Array.from(wrapper.getElementsByTagName("BehaviorReference"))) {
 			const refName = refEl.getAttribute("Name");
 			if (!refName) continue;
-			next.push({ name: refName, add: refEl.getAttribute("Add") === "true" });
+			const conditionRaw = refEl.getAttribute("Condition");
+			next.push({
+				name: refName,
+				frequency: Number(refEl.getAttribute("Frequency") ?? "1") || 1,
+				condition: conditionRaw ? parseCondition(conditionRaw) : undefined,
+				add,
+			});
 		}
 	}
 	if (next.length > 0) return next;
@@ -19,7 +47,7 @@ function parseNextBehaviors(el: Element): BehaviorNextDef[] {
 	if (flat) {
 		for (const part of flat.split(",")) {
 			const trimmed = part.trim();
-			if (trimmed) next.push({ name: trimmed, add: false });
+			if (trimmed) next.push({ name: trimmed, frequency: 1, add: false });
 		}
 	}
 	return next;
@@ -28,12 +56,13 @@ function parseNextBehaviors(el: Element): BehaviorNextDef[] {
 function parseBehaviorElement(el: Element): BehaviorDef | null {
 	const name = el.getAttribute("Name");
 	if (!name) return null;
-	const conditionRaw = el.getAttribute("Condition");
+	const ownConditionRaw = el.getAttribute("Condition");
+	const ownCondition = ownConditionRaw ? parseCondition(ownConditionRaw) : undefined;
+	const allConditions = [...collectAncestorConditions(el), ...(ownCondition ? [ownCondition] : [])];
 	return {
 		name,
 		frequency: Number(el.getAttribute("Frequency") ?? "0") || 0,
-		hidden: el.getAttribute("Hidden") === "true",
-		condition: conditionRaw ? parseCondition(conditionRaw) : undefined,
+		condition: andNodes(allConditions),
 		nextBehaviors: parseNextBehaviors(el),
 	};
 }

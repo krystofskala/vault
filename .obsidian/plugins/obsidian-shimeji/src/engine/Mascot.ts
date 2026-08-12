@@ -11,23 +11,23 @@ import {
 	tickWalk,
 	type WalkState,
 } from "./nativeBehaviors";
-import type { EngineConfig, Ledge, MascotPhysics, NativeStateName, PointerState, Vec2 } from "./types";
+import type { AmbientPointer, EngineConfig, Ledge, MascotPhysics, NativeStateName, PointerState, Vec2 } from "./types";
 import type { Random } from "./Random";
 
 export interface MascotDriver {
 	/** Advances one frame. Implementations mutate `mascot.physics` and call
 	 * `mascot.setVisualState`/`setVisualImage` themselves. */
-	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: { x: number; y: number }): void;
+	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer): void;
 	/** Dragging is handled by Mascot itself (uniform physics regardless of pack); this lets
 	 * a pack-backed driver still supply its own Dragged/Thrown artwork during/after a drag. */
 	renderState?(mascot: Mascot, state: NativeStateName, elapsedMs: number): boolean;
-	notifyReleased?(mascot: Mascot, wasThrown: boolean): void;
+	notifyReleased?(mascot: Mascot, wasThrown: boolean, ambientPointer: AmbientPointer): void;
 	onDetach?(mascot: Mascot): void;
 }
 
 export interface MascotDeps {
 	config: EngineConfig;
-	getAmbientPointer: () => { x: number; y: number };
+	getAmbientPointer: () => AmbientPointer;
 	rng: Random;
 }
 
@@ -124,7 +124,7 @@ export class Mascot {
 			this.physics.vy = release.vy;
 			const wasThrown = Math.hypot(release.vx, release.vy) > this.deps.config.minThrowSpeed;
 			this.enterState(wasThrown ? "thrown" : "fall");
-			this.driver?.notifyReleased?.(this, wasThrown);
+			this.driver?.notifyReleased?.(this, wasThrown, this.deps.getAmbientPointer());
 		};
 		this.el.addEventListener("pointerup", endDrag);
 		this.el.addEventListener("pointercancel", endDrag);
@@ -262,7 +262,10 @@ export class Mascot {
 		const top = this.physics.y - anchor.y * this.scale;
 		this.el.style.transform = `translate3d(${left}px, ${top}px, 0) scale(${this.scale})`;
 		this.inner.style.transformOrigin = `${anchor.x}px ${anchor.y}px`;
-		this.inner.style.transform = this.physics.facing === -1 ? "scaleX(-1)" : "none";
+		// facing=1 means "facing/moving right" by convention; real Shimeji-ee artwork is
+		// authored facing left (confirmed by its Walk poses using negative x velocity), so a
+		// rightward-facing mascot is the *mirrored* rendering, not the base one.
+		this.inner.style.transform = this.physics.facing === 1 ? "scaleX(-1)" : "none";
 	}
 
 	destroy(): void {

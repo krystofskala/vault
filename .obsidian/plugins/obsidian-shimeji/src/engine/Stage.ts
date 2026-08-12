@@ -1,7 +1,7 @@
 import { collectPlatformRects, computeLedgesFromRects } from "./Ledges";
 import { Mascot, type MascotDeps } from "./Mascot";
 import { Random } from "./Random";
-import type { EngineConfig, Ledge } from "./types";
+import type { AmbientPointer, EngineConfig, Ledge } from "./types";
 
 export interface StageOptions {
 	config: EngineConfig;
@@ -10,12 +10,15 @@ export interface StageOptions {
 	seed?: number;
 }
 
+const POINTER_HISTORY_MS = 150;
+
 /** Owns the full-window overlay, the animation loop, and the (single) mascot instance. */
 export class Stage {
 	readonly container: HTMLDivElement;
 	private mascot?: Mascot;
 	private ledges: Ledge[] = [];
-	private ambientPointer = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+	private ambientPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+	private pointerHistory: Array<{ x: number; y: number; t: number }> = [];
 	private readonly rng: Random;
 	private rafHandle = 0;
 	private lastTime = 0;
@@ -33,7 +36,26 @@ export class Stage {
 	}
 
 	private onMouseMove = (ev: MouseEvent): void => {
-		this.ambientPointer = { x: ev.clientX, y: ev.clientY };
+		const now = performance.now();
+		this.ambientPos = { x: ev.clientX, y: ev.clientY };
+		this.pointerHistory.push({ x: ev.clientX, y: ev.clientY, t: now });
+		this.pointerHistory = this.pointerHistory.filter((s) => now - s.t <= POINTER_HISTORY_MS);
+	};
+
+	/** Recent mouse velocity (px/s), used for cursor.dx/dy and to launch a pack's own Thrown
+	 * action with a realistic release velocity. */
+	private getAmbientPointer = (): AmbientPointer => {
+		const samples = this.pointerHistory;
+		if (samples.length < 2) return { ...this.ambientPos, dx: 0, dy: 0 };
+		const first = samples[0];
+		const last = samples[samples.length - 1];
+		const dtMs = last.t - first.t;
+		if (dtMs <= 0) return { ...this.ambientPos, dx: 0, dy: 0 };
+		return {
+			...this.ambientPos,
+			dx: ((last.x - first.x) / dtMs) * 1000,
+			dy: ((last.y - first.y) / dtMs) * 1000,
+		};
 	};
 
 	private onResize = (): void => {
@@ -92,7 +114,7 @@ export class Stage {
 		if (this.mascot) return this.mascot;
 		const deps: MascotDeps = {
 			config: this.opts.config,
-			getAmbientPointer: () => this.ambientPointer,
+			getAmbientPointer: this.getAmbientPointer,
 			rng: this.rng,
 		};
 		this.mascot = new Mascot(deps, window.innerWidth / 2, 0);

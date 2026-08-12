@@ -322,14 +322,17 @@ export function evaluate(node: Node, ctx: ExprContext): ExprValue {
 	}
 }
 
-const CONDITION_WRAPPER = /^#\{([\s\S]*)\}$/;
+// Real packs use both wrappers: "#{...}" mostly on <Animation Condition>, "${...}" mostly on
+// nested <Action Condition> and on ActionReference parameter values (Duration, TargetX, ...).
+// Nothing in practice depends on the two meaning something different, so treat them the same.
+const EXPR_WRAPPER = /^[#$]\{([\s\S]*)\}$/;
 const warnedConditions = new Set<string>();
 
-/** Parses a `Condition="#{...}"` attribute value. Returns undefined (and logs once) on
- * anything unrecognized, so an unsupported construct degrades to "always true" rather
- * than breaking the whole imported pack. */
+/** Parses a `Condition="#{...}"` / `Condition="${...}"` attribute value. Returns undefined
+ * (and logs once) on anything unrecognized, so an unsupported construct degrades to
+ * "always true" rather than breaking the whole imported pack. */
 export function parseCondition(raw: string): Node | undefined {
-	const match = CONDITION_WRAPPER.exec(raw.trim());
+	const match = EXPR_WRAPPER.exec(raw.trim());
 	if (!match) {
 		warnOnce(`Unrecognized condition syntax, treating as always-true: ${raw}`);
 		return undefined;
@@ -350,6 +353,40 @@ export function evaluateCondition(node: Node | undefined, ctx: ExprContext): boo
 		warnOnce(`Error evaluating condition at runtime, treating as false: ${(err as Error).message}`);
 		return false;
 	}
+}
+
+/** Parses an ActionReference parameter value (e.g. Duration="${100+Math.random()*100}" or a
+ * plain literal like Duration="100" / LookRight="true"). Unlike parseCondition this always
+ * returns a usable Node: unwrapped literals become constant nodes. */
+export function parseParamValue(raw: string): Node {
+	const match = EXPR_WRAPPER.exec(raw.trim());
+	if (match) {
+		try {
+			return parseExpression(match[1]);
+		} catch (err) {
+			warnOnce(`Failed to parse parameter expression, treating as a literal string: ${raw} (${(err as Error).message})`);
+			return { kind: "str", value: raw };
+		}
+	}
+	if (raw === "true" || raw === "false") return { kind: "bool", value: raw === "true" };
+	const n = Number(raw);
+	if (raw.trim() !== "" && !Number.isNaN(n)) return { kind: "num", value: n };
+	return { kind: "str", value: raw };
+}
+
+/** Wraps a base context so single-name identifiers (e.g. bare "TargetX") resolve against a
+ * per-invocation locals map before falling through to the base context's mascot/environment
+ * paths. Used for ActionReference parameters, which real packs reference as bare names. */
+export function withLocals(base: ExprContext, locals: Record<string, ExprValue>): ExprContext {
+	return {
+		resolve(path) {
+			if (path.length === 1 && Object.prototype.hasOwnProperty.call(locals, path[0])) return locals[path[0]];
+			return base.resolve(path);
+		},
+		call(name, args) {
+			return base.call(name, args);
+		},
+	};
 }
 
 function warnOnce(message: string): void {

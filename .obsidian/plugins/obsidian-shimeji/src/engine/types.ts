@@ -29,6 +29,15 @@ export interface PointerState {
 	history: Array<{ x: number; y: number; t: number }>;
 }
 
+/** Ambient (non-drag) mouse position + recent velocity, tracked window-wide by Stage. Used
+ * for ChaseMouse-style behaviors and fed into a pack's cursor.x/y/dx/dy environment lookups. */
+export interface AmbientPointer {
+	x: number;
+	y: number;
+	dx: number;
+	dy: number;
+}
+
 export type Facing = 1 | -1;
 
 export type NativeStateName =
