@@ -1,7 +1,6 @@
 import { applyPlaceholderPose, createPlaceholderElement, PLACEHOLDER_HEIGHT, PLACEHOLDER_WIDTH } from "../placeholder/placeholderSprite";
 import {
 	applyGravityAndLand,
-	computeReleaseVelocity,
 	findClingableWall,
 	pickWalk,
 	tickChaseMouse,
@@ -12,7 +11,7 @@ import {
 	tickWalk,
 	type WalkState,
 } from "./nativeBehaviors";
-import type { AmbientPointer, EngineConfig, Ledge, MascotPhysics, NativeStateName, PointerState, Vec2 } from "./types";
+import { TICKS_PER_SEC, type AmbientPointer, type EngineConfig, type Ledge, type MascotPhysics, type NativeStateName, type PointerState, type Vec2 } from "./types";
 import type { Random } from "./Random";
 
 /** The real engine's own constant (Dragged.java: `cursor.getY() + 120`) — the anchor sits this
@@ -81,7 +80,7 @@ export class Mascot {
 	private climbDirection: "up" | "down" = "up";
 	private isDragging = false;
 	private activePointerId: number | null = null;
-	private dragTrack: PointerState = { x: 0, y: 0, down: false, history: [] };
+	private dragTrack: PointerState = { x: 0, y: 0, down: false };
 	/** Faithful port of Dragged.java's own footX/footDx fields — see tickDragFootX. Public
 	 * (read-only in spirit) so PackDriver can read it the same way the real engine's Pinched
 	 * poses read the `FootX` variable, without a dedicated interface just for this one value. */
@@ -170,7 +169,7 @@ export class Mascot {
 			this.activePointerId = ev.pointerId;
 			this.isDragging = true;
 			this.el.classList.add("is-dragging");
-			this.dragTrack = { x: ev.clientX, y: ev.clientY, down: true, history: [{ x: ev.clientX, y: ev.clientY, t: performance.now() }] };
+			this.dragTrack = { x: ev.clientX, y: ev.clientY, down: true };
 			// Dragged.java's own init(): `footX = cursor.getX()`, so the lag simulation starts
 			// with zero gap (no lean pose) rather than snapping in from wherever it last was.
 			this.dragFootX = ev.clientX;
@@ -199,12 +198,6 @@ export class Mascot {
 			if (!this.isDragging) return;
 			this.dragTrack.x = ev.clientX;
 			this.dragTrack.y = ev.clientY;
-			const now = performance.now();
-			this.dragTrack.history.push({ x: ev.clientX, y: ev.clientY, t: now });
-			// A time window, not a sample count: a fast pointer can fire far more samples per
-			// second than a slow one, and a too-short window on a fast mouse reads pure noise
-			// (hand tremor) as rapid direction changes — see the facing hysteresis in simulate().
-			this.dragTrack.history = this.dragTrack.history.filter((s) => now - s.t <= 120);
 		});
 		this.el.addEventListener("pointerup", () => {
 			this.clearLongPress();
@@ -260,12 +253,21 @@ export class Mascot {
 			}
 			this.activePointerId = null;
 		}
-		const release = computeReleaseVelocity(this.dragTrack, this.deps.config);
-		this.physics.vx = release.vx;
-		this.physics.vy = release.vy;
-		const wasThrown = Math.hypot(release.vx, release.vy) > this.deps.config.minThrowSpeed;
+		// Real Thrown: `<ActionReference Name="Falling" InitialVX="${mascot.environment.cursor.dx}"
+		// InitialVY="${mascot.environment.cursor.dy}"/>` — release velocity *is* the same smoothed
+		// cursor.dx/dy exposed everywhere else, not a separately-computed "throw feel" value.
+		// ambient.dx/dy are raw per-tick pixels (see Stage.getAmbientPointer) — a pack-backed
+		// driver converts that itself at its own InitialVX consumption point, same as any other
+		// pack-authored per-tick constant, but this native-fallback physics needs px/second
+		// directly, so it converts here instead.
+		const ambient = this.deps.getAmbientPointer();
+		const releaseVx = ambient.dx * TICKS_PER_SEC;
+		const releaseVy = ambient.dy * TICKS_PER_SEC;
+		this.physics.vx = releaseVx;
+		this.physics.vy = releaseVy;
+		const wasThrown = Math.hypot(releaseVx, releaseVy) > this.deps.config.minThrowSpeed;
 		this.enterState(wasThrown ? "thrown" : "fall");
-		this.driver?.notifyReleased?.(this, wasThrown, this.deps.getAmbientPointer());
+		this.driver?.notifyReleased?.(this, wasThrown, ambient);
 	}
 
 	/** Advances physics/behavior by one fixed simulation step. Does not touch the DOM — call
@@ -288,10 +290,10 @@ export class Mascot {
 			this.dragFootDx = nextFoot.footDx;
 			// The real engine's `mascot.environment.cursor` is one live reading used everywhere
 			// (never a second, independently-sampled one) — this drag's own pointer-capture
-			// tracking *is* that reading here, matching Stage's ambient tracker only in dx/dy
-			// convenience, not in x/y (which come straight from dragTrack, unlagged).
-			const swing = computeReleaseVelocity(this.dragTrack, this.deps.config);
-			const cursorPointer = { x: this.dragTrack.x, y: this.dragTrack.y, dx: swing.vx, dy: swing.vy };
+			// tracking *is* that reading here for x/y (unlagged, straight from dragTrack), and
+			// reuses Stage's own smoothed dx/dy (the same value release velocity reads) rather
+			// than sampling it separately.
+			const cursorPointer = { x: this.dragTrack.x, y: this.dragTrack.y, dx: ambient.dx, dy: ambient.dy };
 			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, cursorPointer)) this.setVisualState("dragged");
 		} else if (this.driver) {
 			this.driver.tick(this, dtSeconds, ledges, ambient);

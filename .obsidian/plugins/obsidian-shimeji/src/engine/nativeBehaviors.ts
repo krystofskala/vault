@@ -1,6 +1,6 @@
 import { debugLog } from "./debugLog";
 import { findCeilingAt, findFloorBelow, findNearestFloorAt, findWallAt } from "./Ledges";
-import type { EngineConfig, Ledge, MascotPhysics, PointerState, Vec2, WallLedge } from "./types";
+import type { EngineConfig, Ledge, MascotPhysics, Vec2, WallLedge } from "./types";
 import type { Random } from "./Random";
 
 export interface TickArgs {
@@ -243,17 +243,22 @@ export function tickDragFootX(footX: number, footDx: number, cursorX: number): {
 	return { footX: footX + nextFootDx, footDx: nextFootDx };
 }
 
-/** Average velocity over the pointer's recent history, used to launch a Thrown action on release. */
-export function computeReleaseVelocity(pointer: PointerState, config: EngineConfig): { vx: number; vy: number } {
-	const samples = pointer.history;
-	if (samples.length < 2) return { vx: 0, vy: 0 };
-	const first = samples[0];
-	const last = samples[samples.length - 1];
-	const dtMs = last.t - first.t;
-	if (dtMs <= 0) return { vx: 0, vy: 0 };
-	const vx = ((last.x - first.x) / dtMs) * 1000 * config.dragThrowScale;
-	const vy = ((last.y - first.y) / dtMs) * 1000 * config.dragThrowScale;
-	return { vx, vy };
+/**
+ * Faithful port of Location.set() (environment/Location.java), the real engine's own
+ * `mascot.environment.cursor.dx/dy`: `dx = (dx + (newX - x)) / 2` — an exponential smoothing of
+ * the raw per-tick pixel delta, with no explicit time base (it's implicitly per-Environment.tick,
+ * i.e. per fixed 40ms simulation step, matching how this is meant to be called: once per fixed
+ * tick with that tick's start/end ambient positions, not once per real mousemove event or render
+ * frame). This same value is what the real pack's Thrown action reads directly as its release
+ * velocity (`InitialVX="${mascot.environment.cursor.dx}"` in actions.xml) — not a separately
+ * tuned "throw feel" heuristic, so getting this smoothing shape right matters beyond just
+ * cursor.dx/dy expression lookups.
+ */
+export function smoothCursorVelocity(prevDelta: Vec2, prevPos: Vec2, newPos: Vec2): Vec2 {
+	return {
+		x: (prevDelta.x + (newPos.x - prevPos.x)) / 2,
+		y: (prevDelta.y + (newPos.y - prevPos.y)) / 2,
+	};
 }
 
 export function tickThrown(args: TickArgs): { landed: boolean } {

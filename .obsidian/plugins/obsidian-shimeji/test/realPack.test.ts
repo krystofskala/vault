@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parseActionsXml } from "../src/shimeji/ActionsParser";
 import { parseBehaviorsXml } from "../src/shimeji/BehaviorsParser";
 import { BehaviorAI } from "../src/shimeji/BehaviorAI";
+import { PackDriver } from "../src/shimeji/PackDriver";
 import { ActionRunner, type PushEnv } from "../src/shimeji/ActionRunner";
 import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
 import { evaluateCondition, withLocals } from "../src/shimeji/Expression";
@@ -186,7 +187,7 @@ describe("real standard Shimeji-ee pack", () => {
 		}
 	});
 
-	it("ChaseMouse is still reachable the real way: forced directly, like a mouse-drag release forces Fall/Thrown", () => {
+	it("ChaseMouse is still reachable the real way: forced directly, like Dragged/Thrown are on mouse events", () => {
 		// Mirrors Mascot.startNamedBehavior -> PackDriver.startNamedBehavior -> here, the same
 		// path main.ts's "Make all Shimejis follow the mouse" command drives for every mascot at
 		// once, matching the real "Follow Mouse!" tray item.
@@ -201,6 +202,36 @@ describe("real standard Shimeji-ee pack", () => {
 		};
 		ai.forceBehavior("ChaseMouse", mascot as unknown as Mascot, { x: 700, y: 300, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
 		expect(ai.currentBehaviorName).toBe("ChaseMouse");
+	});
+
+	it("a drag release always forces Thrown, never a separate Fall, regardless of release speed (real UserBehavior.mouseReleased: unconditional buildBehavior(THROWN))", () => {
+		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
+		const makeMascot = () => ({
+			physics: { x: 400, y: 600, vx: 0, vy: 0, facing: 1 as const, grounded: true },
+			stateElapsedMs: 0,
+			setVisualImage: () => {},
+			getViewportSize: () => ({ width: 800, height: 900 }),
+			getTotalMascotCount: () => 1,
+		});
+
+		// ambient dx/dy are raw per-tick pixels (real Location.dx/dy's own units); Falling's
+		// InitialVX="${mascot.environment.cursor.dx}" reads that through the *same*
+		// applyEmbeddedStartEffects conversion any pack-authored per-tick constant gets
+		// (SHIMEJI_TICKS_PER_SEC = 25), so a raw dx of 1 becomes 25px/s — this is also what
+		// distinguishes "Thrown genuinely ran" from Falling's own InitialVX default of 0.
+		const driver = new PackDriver(pack, DEFAULT_ENGINE_CONFIG, new Random(1));
+		const barelyMoving = makeMascot();
+		driver.notifyReleased(barelyMoving as unknown as Mascot, false, { x: 700, y: 300, dx: 1, dy: 0 });
+		// notifyReleased only starts the Thrown Sequence; its first child (Falling, which reads
+		// InitialVX/VY) isn't actually pushed and applied until the Sequence itself ticks.
+		driver.tick(barelyMoving as unknown as Mascot, 0.02, [], { x: 700, y: 300, dx: 1, dy: 0 });
+		expect(barelyMoving.physics.vx).toBe(25);
+
+		const flungHard = makeMascot();
+		driver.notifyReleased(flungHard as unknown as Mascot, true, { x: 700, y: 300, dx: 16, dy: -8 });
+		driver.tick(flungHard as unknown as Mascot, 0.02, [], { x: 700, y: 300, dx: 16, dy: -8 });
+		expect(flungHard.physics.vx).toBe(400);
+		expect(flungHard.physics.vy).toBe(-200);
 	});
 
 	it("PullUpShimeji1 (a real Breed action) requests exactly one sibling at its BornX/BornY/BornBehavior, then completes", () => {

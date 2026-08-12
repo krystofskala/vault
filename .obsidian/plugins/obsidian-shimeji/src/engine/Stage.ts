@@ -1,6 +1,7 @@
 import { ObsidianDomEnvironment, type Environment } from "./Environment";
 import { computeLedgesFromRects } from "./Ledges";
 import { Mascot, type MascotDeps } from "./Mascot";
+import { smoothCursorVelocity } from "./nativeBehaviors";
 import { Random } from "./Random";
 import { ENGINE_FIXED_TICK_MS, type AmbientPointer, type EngineConfig, type Ledge } from "./types";
 
@@ -24,7 +25,6 @@ export interface StageOptions {
 	onContextMenu?: (mascot: Mascot, ev: MouseEvent) => void;
 }
 
-const POINTER_HISTORY_MS = 150;
 const FIXED_DT = ENGINE_FIXED_TICK_MS / 1000;
 const MAX_FRAME_TIME = 0.25;
 /** Default drop point for a manually-spawned mascot: clear of both the ceiling ledge's own
@@ -39,7 +39,13 @@ export class Stage {
 	private ledges: Ledge[] = [];
 	private readonly environment: Environment;
 	private ambientPos: { x: number; y: number };
-	private pointerHistory: Array<{ x: number; y: number; t: number }> = [];
+	/** The position ambientPos held as of the *previous* fixed tick, and the smoothed per-tick
+	 * delta computed from it — see updateAmbientVelocity(). Deliberately separate from ambientPos
+	 * itself, which onMouseMove updates immediately on every real mouse event regardless of the
+	 * simulation's own tick boundary. */
+	private lastTickAmbientPos: { x: number; y: number };
+	private ambientDx = 0;
+	private ambientDy = 0;
 	private readonly rng: Random;
 	private rafHandle = 0;
 	private lastTime = 0;
@@ -52,6 +58,7 @@ export class Stage {
 		this.environment = opts.environment ?? new ObsidianDomEnvironment();
 		const viewport = this.environment.getViewportSize();
 		this.ambientPos = { x: viewport.width / 2, y: viewport.height / 2 };
+		this.lastTickAmbientPos = { ...this.ambientPos };
 
 		this.container = document.createElement("div");
 		this.container.className = "shimeji-stage";
@@ -66,27 +73,33 @@ export class Stage {
 	}
 
 	private onMouseMove = (ev: MouseEvent): void => {
-		const now = performance.now();
 		this.ambientPos = { x: ev.clientX, y: ev.clientY };
-		this.pointerHistory.push({ x: ev.clientX, y: ev.clientY, t: now });
-		this.pointerHistory = this.pointerHistory.filter((s) => now - s.t <= POINTER_HISTORY_MS);
 	};
 
-	/** Recent mouse velocity (px/s), used for cursor.dx/dy and to launch a pack's own Thrown
-	 * action with a realistic release velocity. */
-	private getAmbientPointer = (): AmbientPointer => {
-		const samples = this.pointerHistory;
-		if (samples.length < 2) return { ...this.ambientPos, dx: 0, dy: 0 };
-		const first = samples[0];
-		const last = samples[samples.length - 1];
-		const dtMs = last.t - first.t;
-		if (dtMs <= 0) return { ...this.ambientPos, dx: 0, dy: 0 };
-		return {
-			...this.ambientPos,
-			dx: ((last.x - first.x) / dtMs) * 1000,
-			dy: ((last.y - first.y) / dtMs) * 1000,
-		};
-	};
+	/** See smoothCursorVelocity — this just supplies "once per fixed 40ms simulation tick" as
+	 * the calling cadence, matching the real Environment.tick()/Manager.tick() rate. Called from
+	 * stepSimulation, before any mascot ticks this step. */
+	private updateAmbientVelocity(): void {
+		const delta = smoothCursorVelocity({ x: this.ambientDx, y: this.ambientDy }, this.lastTickAmbientPos, this.ambientPos);
+		this.ambientDx = delta.x;
+		this.ambientDy = delta.y;
+		this.lastTickAmbientPos = { ...this.ambientPos };
+	}
+
+	/** dx/dy are deliberately raw per-tick pixels, *not* px/second — exactly matching real
+	 * Location.dx/dy's own units (see smoothCursorVelocity). Pack-authored per-tick constants
+	 * (Velocity, Gravity, InitialVX/VY, ...) flow through the expression system unconverted too,
+	 * only becoming px/second at their one specific consumption point — e.g. InitialVX in
+	 * shimeji/ActionRunner.ts's applyEmbeddedStartEffects, which is what actually applies
+	 * SHIMEJI_TICKS_PER_SEC to `${mascot.environment.cursor.dx}` when Thrown reads it as a
+	 * release velocity. Converting *here* too would double-convert that path. A consumer that
+	 * needs px/second directly (bypassing the expression system entirely) must convert itself —
+	 * see Mascot.finishDrag(). */
+	private getAmbientPointer = (): AmbientPointer => ({
+		...this.ambientPos,
+		dx: this.ambientDx,
+		dy: this.ambientDy,
+	});
 
 	private onResize = (): void => {
 		this.recomputeLedges();
@@ -209,6 +222,9 @@ export class Stage {
 	}
 
 	private stepSimulation(dt: number): void {
+		// Matches Manager.tick()'s own ordering: the environment (including cursor.dx/dy) is
+		// refreshed before any mascot ticks, every fixed step, so nothing this step reads it stale.
+		this.updateAmbientVelocity();
 		this.ledgeRecomputeTimer += dt;
 		if (this.ledgeRecomputeTimer > 0.5) {
 			this.ledgeRecomputeTimer = 0;

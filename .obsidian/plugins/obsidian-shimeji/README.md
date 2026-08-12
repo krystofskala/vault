@@ -190,6 +190,30 @@ entirely; a "Make all Shimejis follow the mouse" command and context-menu item n
 thing, forcing every mascot straight onto its pack's ChaseMouse behavior — the same primitive the
 existing per-mascot "Set behavior" menu already used for one mascot at a time.
 
+**A sixth pass finished reading the handful of files this tracker still had marked "not yet
+audited"** (`environment/{Area,ComplexArea,Location,Environment}.java`, `config/Entry.java`) and
+turned up the second-largest bug of the whole audit. `Location.java`'s `set()` — `dx = (dx +
+(newX-x)) / 2`, an exponential smoothing of the raw per-tick cursor delta — **is**
+`mascot.environment.cursor.dx/dy`, and the real pack's `Thrown` action reads it *directly* as its
+release velocity (`InitialVX="${mascot.environment.cursor.dx}"`). Drag release here computed a
+completely unrelated windowed average of the *drag's own* recent pointer samples, with a
+`dragThrowScale` tuning constant the real engine has no equivalent of at all — replaced with a
+faithful port of the real smoothing formula, computed once per fixed simulation tick against the
+same ambient cursor tracker `cursor.x/y` and ChaseMouse already use, rather than a second,
+independently-sampled one. The same file also settled something adjacent: real
+`UserBehavior.mouseReleased()` unconditionally forces the `Thrown` behavior — there's no speed
+threshold in the original at all — while this plugin branched between forcing "Fall" or "Thrown"
+by comparing release speed against a tunable minimum. Releasing a drag now always forces `Thrown`,
+matching the real engine exactly; the *native fallback* placeholder (which has no real engine
+counterpart to be faithful to in the first place) keeps its own simpler two-state distinction for
+its own visual variety. Getting this right surfaced one more thing worth calling out: applying the
+fix correctly required *not* pre-converting the cursor velocity to pixels-per-second the way
+everything else in the engine's own physics is expressed — pack-authored per-tick quantities
+(Velocity, Gravity, a Fall's InitialVX/VY, ...) flow through the condition/expression system in
+their original tick units and only become pixels-per-second at each one's own point of
+consumption, so the runtime-computed cursor velocity has to follow the identical convention or it
+gets converted twice.
+
 - **A real `actions.xml`/`behaviors.xml` interpreter**, verified directly against the actual
   standard shimeji-ee conf files (checked into `Shimeji/conf/`) — Sequence/Select/Animate/
   Move/Embedded actions, condition-gated Animation variants (e.g. ClimbWall's up-vs-down

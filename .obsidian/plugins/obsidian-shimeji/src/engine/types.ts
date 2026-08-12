@@ -30,12 +30,13 @@ export interface PointerState {
 	x: number;
 	y: number;
 	down: boolean;
-	/** Recent (x,y,t) samples used to compute a release velocity when a drag ends. */
-	history: Array<{ x: number; y: number; t: number }>;
 }
 
-/** Ambient (non-drag) mouse position + recent velocity, tracked window-wide by Stage. Used
- * for ChaseMouse-style behaviors and fed into a pack's cursor.x/y/dx/dy environment lookups. */
+/** Ambient (non-drag) mouse position + smoothed per-tick velocity, tracked window-wide by
+ * Stage. Used for ChaseMouse-style behaviors, fed into a pack's cursor.x/y/dx/dy environment
+ * lookups, and — critically — this dx/dy *is* a thrown mascot's release velocity too (real
+ * Thrown: `<ActionReference Name="Falling" InitialVX="${mascot.environment.cursor.dx}" .../>`,
+ * the same live reading used everywhere else, not a separately-tuned "throw feel" heuristic). */
 export interface AmbientPointer {
 	x: number;
 	y: number;
@@ -74,7 +75,6 @@ export interface EngineConfig {
 	gravity: number;
 	walkSpeed: number;
 	climbSpeed: number;
-	dragThrowScale: number;
 	minThrowSpeed: number;
 	/** Settings-level behavior toggle (not a physics tunable, but threaded through the same
 	 * shared config object so both the native fallback state machine and real-pack BehaviorAI
@@ -86,7 +86,6 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
 	gravity: 1400,
 	walkSpeed: 90,
 	climbSpeed: 70,
-	dragThrowScale: 1,
 	minThrowSpeed: 60,
 	chaseMouseEnabled: true,
 };
@@ -95,3 +94,11 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
  * uses the same step so behavior timing lines up with Duration/Velocity values, which are
  * themselves ticks of this same clock (see shimeji/constants.ts). */
 export const ENGINE_FIXED_TICK_MS = 40;
+
+/** Same conversion factor as shimeji/constants.ts's SHIMEJI_TICKS_PER_SEC (that one can't be
+ * imported here — engine/ stays independent of the shimeji-pack-format layer — but both are
+ * defined from the same ENGINE_FIXED_TICK_MS and are numerically identical). Used to convert a
+ * raw "per fixed tick" quantity computed in engine/ (currently just the smoothed ambient
+ * cursor.dx/dy — see Stage.updateAmbientVelocity) into px/second for consumers that need it,
+ * mirroring how shimeji/ActionRunner.ts converts pack-authored per-tick constants the same way. */
+export const TICKS_PER_SEC = 1000 / ENGINE_FIXED_TICK_MS;

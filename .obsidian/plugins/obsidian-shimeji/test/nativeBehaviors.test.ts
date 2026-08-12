@@ -3,6 +3,7 @@ import {
 	applyGravityAndLand,
 	clampToCeiling,
 	clampToWalls,
+	smoothCursorVelocity,
 	tickDragFootX,
 	tickJump,
 	updateWallCeilingAdherence,
@@ -121,6 +122,51 @@ describe("tickDragFootX", () => {
 		const movingLeft = tickDragFootX(0, 0, -500);
 		expect(movingLeft.footX).toBeLessThan(0);
 		expect(movingLeft.footX).toBeGreaterThan(-500);
+	});
+});
+
+describe("smoothCursorVelocity", () => {
+	// Faithful port of the real engine's Location.set(): dx = (dx + (newX-x))/2. Values below are
+	// hand-computed from that exact recurrence so a transcription slip would actually fail the
+	// test, not just "look plausible" — same approach as tickDragFootX above.
+	it("matches the real recurrence tick-for-tick for a step change then a held position", () => {
+		let delta = { x: 0, y: 0 };
+		let pos = { x: 0, y: 0 };
+
+		delta = smoothCursorVelocity(delta, pos, { x: 100, y: 0 });
+		pos = { x: 100, y: 0 };
+		expect(delta.x).toBeCloseTo(50, 10);
+
+		delta = smoothCursorVelocity(delta, pos, { x: 100, y: 0 });
+		expect(delta.x).toBeCloseTo(25, 10);
+
+		delta = smoothCursorVelocity(delta, pos, { x: 100, y: 0 });
+		expect(delta.x).toBeCloseTo(12.5, 10);
+	});
+
+	it("converges toward the actual per-tick delta under sustained constant motion, never overshooting it", () => {
+		let delta = { x: 0, y: 0 };
+		let pos = { x: 0, y: 0 };
+		for (let i = 0; i < 40; i++) {
+			const next = { x: pos.x + 100, y: pos.y };
+			delta = smoothCursorVelocity(delta, pos, next);
+			pos = next;
+			expect(delta.x).toBeLessThanOrEqual(100);
+		}
+		expect(delta.x).toBeCloseTo(100, 5);
+	});
+
+	it("decays toward zero once the cursor stops moving, halving the gap each tick", () => {
+		let delta = { x: 80, y: 0 };
+		const pos = { x: 500, y: 500 };
+		for (let i = 0; i < 20; i++) delta = smoothCursorVelocity(delta, pos, pos);
+		expect(delta.x).toBeCloseTo(0, 3);
+	});
+
+	it("x and y are computed independently", () => {
+		const delta = smoothCursorVelocity({ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 100, y: -40 });
+		expect(delta.x).toBeCloseTo(50, 10);
+		expect(delta.y).toBeCloseTo(-20, 10);
 	});
 });
 

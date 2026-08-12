@@ -82,7 +82,7 @@ cross-checked against `gil/shimeji-ee`).
 | File | Status | Notes |
 |---|---|---|
 | `Behavior.java` | 📖 | Bare interface, also declares `mousePressed`/`mouseReleased` (real engine routes mouse events through the active Behavior, not Mascot directly — we wire pointer events at the Mascot/PackDriver level instead, a reasonable adaptation). |
-| `UserBehavior.java` | ✅ | `next()`'s off-screen recovery (respawn + forced Fall), `catch (LostGroundException)` → forced Fall. Both ported. |
+| `UserBehavior.java` | 🐛 | `next()`'s off-screen recovery (respawn + forced Fall), `catch (LostGroundException)` → forced Fall. Both ported. Also: `mouseReleased()` is `buildBehavior(BEHAVIORNAME_THROWN)`, unconditionally — no speed threshold, ever. Ours branched between forcing "Fall" or "Thrown" by a `minThrowSpeed` comparison; fixed in Pass 6 — `PackDriver.notifyReleased` now always forces "Thrown" (the *native-fallback* placeholder state machine, which has no real equivalent to be faithful to, keeps its own simpler two-state distinction). |
 
 ## `config/`
 
@@ -93,17 +93,19 @@ cross-checked against `gil/shimeji-ee`).
 | `AnimationBuilder.java` | ✅ | Confirmed schema match (Velocity/ImageAnchor parsing) — this is what resolved the early `NextBehaviorList` vs `NextBehavior` naming worry. |
 | `BehaviorBuilder.java` | ✅ | `Add` attribute default (false if the wrapper element exists, true if it doesn't) — confirmed our `BehaviorsParser.ts` already modeled this correctly. |
 | `Configuration.java` | ✅ | `buildBehavior()`: NextBehavior gated only by its own condition (not the target's top-level condition — this was the pickNextBehavior bug, fixed), `totalFrequency==0` respawn recovery (fixed). |
-| `Entry.java` | ❓ | Generic XML-node wrapper (`getAttribute`/`getChildren`/`selectChildren`). Almost certainly a thin DOM wrapper with no behavioral logic of its own — not yet directly read, but every consumer of it (`ActionBuilder`, `ActionRef`, `AnimationBuilder`, `BehaviorBuilder`) has been, and their usage patterns are already reflected in our parsers. Low priority to close. |
+| `Entry.java` | ✅ | Confirmed: a thin, lazily-memoized DOM wrapper (`getAttribute` via `getAttributeNode` specifically, so a genuinely-missing attribute reads as `null` — a workaround for the old W3C Java DOM binding's own `getAttribute` returning `""` instead; the browser DOM's native `Element.getAttribute` already returns `null` for a missing attribute, so we get the same correct result for free, no workaround needed on our side). No behavioral logic beyond what its callers already assumed. |
 | `IActionBuilder.java` | 📖 | Bare interface (`validate`/`buildAction`). |
 
 ## `environment/`
 
 | File | Status | Notes |
 |---|---|---|
-| `Area.java` / `ComplexArea.java` / `Location.java` | ❓ | Supporting geometry types behind `MascotEnvironment`. Not read directly this session — reviewed only via `MascotEnvironment.java`'s own audit (below) and `Border`/`Wall`/`FloorCeiling`'s. Believed fully subsumed by that decision but not line-by-line confirmed. Low priority: this whole subtree was already judged too architecturally different to chase further (single tracked-window + OS multi-monitor model vs our N-Obsidian-panes model). |
+| `Area.java` | ✅ | Confirmed: `left/top/right/bottom` plus `dleft/dtop/dright/dbottom` (how much each edge moved since the last `.set()`) — exactly what `Wall`/`FloorCeiling.move()`'s already-declined-to-port proportional-rescale math consumes. Confirms that earlier decision was based on accurate understanding, nothing new. |
 | `Border.java` | ✅ | Two-method interface (`isOn`/`move`) — matches our `Ledge` predicate + (deliberately unported) `move` proportional-rescale concept. |
-| `Environment.java` | ❓ | The non-Mascot-specific half of environment (screen/work-area geometry, presumably). Not read directly — believed subsumed by the `MascotEnvironment`/activeIE decision but not confirmed. |
+| `ComplexArea.java` | ✅ | Confirmed: purely multi-monitor plumbing (a named collection of `Area`s keyed by OS display device ID, with a genuinely clever cross-monitor continuity trick in `getLeftBorder`/`getRightBorder` — walking off one screen's edge onto an adjacent screen's matching edge treats them as one continuous surface). Zero analog in a single-viewport Obsidian plugin; confirms `MascotEnvironment`'s multi-monitor concepts are correctly out of scope, not an oversight. |
+| `Environment.java` | ✅ | Confirmed load-bearing, not just geometry plumbing: `this.cursor = new Location(); ... tick() { ...; this.cursor.set(getCursorPos()); }` — this is the real source of `mascot.environment.cursor.dx/dy`, and it's genuinely used by the standard pack (`Thrown`'s `InitialVX="${mascot.environment.cursor.dx}"`), not dead. See `Location.java` below — this is where Pass 6 came from. |
 | `FloorCeiling.java` / `Wall.java` | ✅ | `move()`'s proportional-rescale-relative-to-a-moving-border math, deliberately not ported (our `findNearestFloorAt` re-snap approximates the same intent for a fundamentally different multi-pane model). |
+| `Location.java` | 🐛 | `set(Point)`: `dx = (dx + (newX-x)) / 2` — an exponential smoothing of the raw per-tick pixel delta, called once per `Environment.tick()` (40ms). This **is** `mascot.environment.cursor.dx/dy`, and real `Thrown` reads it directly as release velocity (see `action/Thrown`'s `ActionReference` in actions.xml). Our old `computeReleaseVelocity` used an unrelated windowed-average of the *drag's own* pointer history, with a `dragThrowScale` tuning knob the real engine has no equivalent of. Fixed — see Pass 6. |
 | `MascotEnvironment.java` | ✅ | Facing-dependent activeIE-vs-workArea border selection with `ignoreSeparator`/multi-monitor concepts. Judged too architecturally different from our N-pane model to port further — accepted, documented simplification (see README "Approximated, not literal"). |
 | `NotOnBorder.java` | ✅ | Null-object "no border" (`isOn` always false). Matches our `undefined`-returning conventions. |
 
@@ -166,24 +168,47 @@ port target), `image/*.java` (AWT/Swing image loading — we use `<img>`/CSS),
    splicing mid-gait-cycle has no obviously-correct answer). Locals (Duration/TargetX/BornX/...)
    were already correct by construction, since `resolveLocals` already only runs once per
    `pushAction` regardless of which wrapper the XML used.
-5. **Pass 5** (2026-08-12, not yet committed as of writing) — prompted by a direct challenge
-   ("if we've still got synthesized code instead of a real port, go rewrite it"): re-examined
-   every remaining *invented* (not source-verified) piece of behavior, which turned up exactly
-   one, clearly self-flagged in this file's own `script/` table row before this pass: ChaseMouse's
-   "no ground truth for its trigger cadence, so this is a periodic-cooldown guess" comment in
-   `BehaviorAI.ts`. Went back to `Main.java` — previously written off wholesale as
-   "Java-desktop-only, out of scope," which was itself a mistake (see its own row above) — and
-   found the real mechanism: `getManager().setBehaviorAll("ChaseMouse")`, bound to a "Follow
-   Mouse!" system-tray item. **ChaseMouse has no autonomous trigger in the real engine at all** —
-   it's exclusively a manual, all-mascots-at-once command, structurally identical to "Another
-   One!"/"Reduce to One!" (both of which we'd already ported faithfully as menu items, which is
-   what made this inconsistency worth chasing down). Removed the invented periodic/cooldown
-   eligibility from `BehaviorAI.pickNextBehavior` entirely; added the real equivalent — a
-   `followMouseAllMascots()` command and context-menu item in `main.ts` that forces every mascot
-   onto ChaseMouse directly, the same primitive the existing per-mascot "Set behavior" menu
-   already used. The `realPack.test.ts` test that used to assert the invented cooldown fired was
-   inverted (now asserts ChaseMouse is *never* autonomously reached) and a new test added for the
-   real forced-trigger path.
+5. **Pass 5** (commit `1c82883`) — prompted by a direct challenge ("if we've still got
+   synthesized code instead of a real port, go rewrite it"): re-examined every remaining
+   *invented* (not source-verified) piece of behavior, which turned up exactly one, clearly
+   self-flagged in this file's own `script/` table row before this pass: ChaseMouse's "no ground
+   truth for its trigger cadence, so this is a periodic-cooldown guess" comment in `BehaviorAI.ts`.
+   Went back to `Main.java` — previously written off wholesale as "Java-desktop-only, out of
+   scope," which was itself a mistake (see its own row above) — and found the real mechanism:
+   `getManager().setBehaviorAll("ChaseMouse")`, bound to a "Follow Mouse!" system-tray item.
+   **ChaseMouse has no autonomous trigger in the real engine at all** — it's exclusively a manual,
+   all-mascots-at-once command, structurally identical to "Another One!"/"Reduce to One!" (both of
+   which we'd already ported faithfully as menu items, which is what made this inconsistency
+   worth chasing down). Removed the invented periodic/cooldown eligibility from
+   `BehaviorAI.pickNextBehavior` entirely; added the real equivalent — a `followMouseAllMascots()`
+   command and context-menu item in `main.ts` that forces every mascot onto ChaseMouse directly,
+   the same primitive the existing per-mascot "Set behavior" menu already used. The
+   `realPack.test.ts` test that used to assert the invented cooldown fired was inverted (now
+   asserts ChaseMouse is *never* autonomously reached) and a new test added for the real
+   forced-trigger path.
+6. **Pass 6** (2026-08-12, not yet committed as of writing) — closed out the last four `❓` rows
+   in this tracker (`config/Entry.java`, `environment/{Area,ComplexArea,Location,Environment}`),
+   which turned up the second-largest bug of the whole audit. `Location.java`'s `set()` —
+   `dx = (dx + (newX-x)) / 2`, an exponential smoothing of the raw per-tick cursor delta — **is**
+   `mascot.environment.cursor.dx/dy`, and the real pack's `Thrown` reads it *directly* as its
+   release velocity (`InitialVX="${mascot.environment.cursor.dx}"`). Our `computeReleaseVelocity`
+   was an unrelated windowed-average of the *drag's own* recent pointer samples, with a
+   `dragThrowScale` tuning constant the real engine has no equivalent of — replaced with a
+   faithful `smoothCursorVelocity` port, computed once per fixed simulation tick in
+   `Stage.updateAmbientVelocity` (previously this lived only inside `Mascot`'s per-drag pointer
+   tracking, sampled independently of the general ambient tracker). Also found, from the same
+   file: real `UserBehavior.mouseReleased()` unconditionally forces Thrown — no speed threshold
+   at all — while ours branched between "Fall" and "Thrown" by a `minThrowSpeed` comparison;
+   `PackDriver.notifyReleased` now always forces "Thrown" (the *native-fallback* placeholder,
+   which has no real equivalent to be faithful to, keeps its own simpler two-state distinction).
+   Getting this fully correct also required tracking down a **unit-conversion bug this fix would
+   otherwise have introduced**: pack-authored per-tick constants (Velocity, Gravity, InitialVX/VY,
+   ...) flow through the expression system *unconverted*, only becoming px/second at their one
+   specific consumption point (`ActionRunner.applyEmbeddedStartEffects`, pre-existing code) — so
+   `cursor.dx/dy` has to stay in the same raw per-tick units for that existing conversion to only
+   apply once. `AmbientPointer.dx/dy` now deliberately expose the raw value; `Mascot.finishDrag()`
+   (which sets `physics.vx/vy` directly, bypassing the expression system for the native-fallback
+   physics) does its own conversion at that point of use instead.
 
 ## Open live-bug reports (need user diagnostics, not more audit)
 
@@ -191,18 +216,17 @@ Both have `window.shimejiDebug` tooling ready (see README) but no repro data gat
 
 - Window title-bar can't be reliably dragged while the plugin is enabled (confirmed the plugin is
   the cause; not yet which part).
-- A mascot dropped from a height was reported to visually skip most of the fall. Nothing in
-  Passes 3-5 obviously explains this (Fall doesn't go through tickHold, and this isn't a
-  ChaseMouse-adjacent path either), so still needs a live repro with `setVerbose(true)` rather
-  than more speculation from the audit alone.
+- A mascot dropped from a height was reported to visually skip most of the fall. Nothing in any
+  pass so far obviously explains this (Fall doesn't go through tickHold, and this isn't a
+  ChaseMouse- or Thrown-adjacent path either), so still needs a live repro with `setVerbose(true)`
+  rather than more speculation from the audit alone.
 
 ## Next steps, in priority order
 
-1. Test/verify/commit/push Pass 5 (this file + the ChaseMouse trigger fix).
-2. Re-test the two open live-bug reports now that Passes 3-5 have landed.
-3. `config/Entry.java`, `environment/{Area,ComplexArea,Location,Environment}.java` — lower
-   priority, believed subsumed, would close out 100% file coverage if desired. Nothing else is
-   a known-synthesized/unverified gap as of this pass — everything left in the tracker is
-   believed-fine plumbing, not a live suspect. Worth a periodic skeptical re-read anyway (Pass 5
-   itself came from doubting an earlier "no ground truth available" claim rather than trusting
-   it), but there's no *specific* next target the way there was going into Passes 4-5.
+1. Test/verify/commit/push Pass 6 (this file + the Location.java/release-velocity/Thrown fixes).
+2. Re-test the two open live-bug reports now that Passes 3-6 have landed.
+3. **Every file in this tracker is now ✅/🐛/📖/⛔ — no `❓` rows remain.** The systematic,
+   file-by-file part of the audit is done. What's left is: re-auditing anything a *future* real
+   source update changes, and staying skeptical of any comment (ours) that says "no ground truth
+   found" or "approximated" — Passes 5 and 6 both came from doubting exactly that kind of claim
+   rather than trusting it, and both turned up real, previously-unverified bugs.

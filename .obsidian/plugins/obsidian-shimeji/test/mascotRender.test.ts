@@ -137,6 +137,25 @@ describe("Mascot renderer", () => {
 		mascot.el.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
 		expect(mascot.isBeingDragged).toBe(false);
 	});
+
+	// Real Thrown: `<ActionReference Name="Falling" InitialVX="${mascot.environment.cursor.dx}"
+	// InitialVY="${mascot.environment.cursor.dy}"/>` — release velocity *is* the same smoothed
+	// cursor.dx/dy exposed everywhere else (see Stage.updateAmbientVelocity/smoothCursorVelocity),
+	// not a value separately computed from how the drag itself moved (there's no longer any
+	// per-drag movement history at all for such a computation to even read — see PointerState).
+	// ambient.dx/dy are raw per-tick pixels (matching real Location.dx/dy's own units), so this
+	// native-fallback path — which sets physics.vx/vy directly, bypassing the expression system
+	// entirely — converts to px/second itself: 6px/tick * 25 ticks/s = 150px/s.
+	it("release velocity comes directly from the ambient pointer's dx/dy, converted from per-tick to px/second", () => {
+		const mascot = new Mascot(makeDeps({ getAmbientPointer: () => ({ x: 0, y: 0, dx: 6, dy: -1.6 }) }), 100, 200);
+		mascot.el.setPointerCapture = () => {};
+		mascot.el.releasePointerCapture = () => {};
+		mascot.el.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+		mascot.el.dispatchEvent(new Event("pointerup", { bubbles: true, cancelable: true }));
+
+		expect(mascot.physics.vx).toBeCloseTo(150, 10);
+		expect(mascot.physics.vy).toBeCloseTo(-40, 10);
+	});
 });
 
 describe("Mascot.requestSibling (Breed)", () => {

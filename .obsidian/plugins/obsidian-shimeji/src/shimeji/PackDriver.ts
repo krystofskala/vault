@@ -51,8 +51,15 @@ export class PackDriver implements MascotDriver {
 		return true;
 	}
 
-	notifyReleased(mascot: Mascot, wasThrown: boolean, ambientPointer: AmbientPointer): void {
-		this.ai.forceBehavior(wasThrown ? "Thrown" : "Fall", mascot, ambientPointer, this.config);
+	/** Real UserBehavior.mouseReleased(): unconditionally `buildBehavior(BEHAVIORNAME_THROWN)` —
+	 * no speed threshold, ever. A gentle release just means Thrown's own Falling sub-step gets a
+	 * near-zero InitialVX/VY (cursor.dx/dy was barely moving), which looks like a drop, but it's
+	 * still genuinely the Thrown behavior/pose sequence, not a separate one picked by how hard
+	 * the mouse was moving. `wasThrown` only still matters to the *native fallback* state
+	 * machine (Mascot's own no-pack-loaded placeholder, which has no real equivalent to be
+	 * faithful to and is free to keep a simpler two-state visual distinction). */
+	notifyReleased(mascot: Mascot, _wasThrown: boolean, ambientPointer: AmbientPointer): void {
+		this.ai.forceBehavior("Thrown", mascot, ambientPointer, this.config);
 	}
 
 	startNamedBehavior(mascot: Mascot, name: string, ambientPointer: AmbientPointer): void {
