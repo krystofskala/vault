@@ -95,4 +95,26 @@ describe("real standard Shimeji-ee pack", () => {
 		// mascot stuck sliding around at its spawn height.
 		expect(mascot.physics.y).toBeGreaterThan(50);
 	});
+
+	it("eventually chases the mouse even though ChaseMouse's own Frequency is 0 and it's never a NextBehavior target", () => {
+		// ChaseMouse is orphaned from the weighted-selection graph in the real pack (like
+		// Fall/Dragged/Thrown, the original engine must trigger it directly); BehaviorAI
+		// approximates that with a periodic, cooldown-gated eligibility — this drives long
+		// enough simulated time to confirm it actually fires at least once.
+		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
+		const ai = new BehaviorAI(pack, new Random(7));
+		const mascot = {
+			physics: { x: 400, y: 600, vx: 0, vy: 0, facing: 1 as const, grounded: true },
+			stateElapsedMs: 0,
+			setVisualImage: () => {},
+		};
+		const ledges = [{ kind: "floor" as const, y: 600, x1: 0, x2: 800, source: "window" as const }];
+
+		let sawChaseMouse = false;
+		for (let i = 0; i < 2000 && !sawChaseMouse; i++) {
+			ai.tick(mascot as unknown as Mascot, 0.1, ledges, { x: 700, y: 300, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
+			if (ai.currentBehaviorName === "ChaseMouse") sawChaseMouse = true;
+		}
+		expect(sawChaseMouse).toBe(true);
+	});
 });

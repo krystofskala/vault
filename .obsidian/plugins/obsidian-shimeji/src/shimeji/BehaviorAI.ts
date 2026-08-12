@@ -14,10 +14,21 @@ const REQUIRED_BEHAVIOR_NAMES = ["ChaseMouse", "Fall", "Dragged", "Thrown"];
 export class BehaviorAI {
 	private runner: ActionRunner;
 	private currentBehavior?: BehaviorDef;
+	// ChaseMouse is never referenced by any other behavior's NextBehavior in the standard
+	// pack and is declared Frequency="0" like Fall/Dragged/Thrown — it's one of the behaviors
+	// the original engine triggers directly rather than through weighted selection (here,
+	// physics-driven Fall and input-driven Dragged/Thrown are already handled that way).
+	// There's no ground truth available for its exact real trigger cadence, so this is an
+	// approximation: eligible again periodically, with a random cooldown after each run.
+	private chaseMouseCooldownMs = 8000;
 
 	constructor(private pack: MascotPack, private rng: Random) {
 		this.runner = new ActionRunner(pack);
 		this.warnIfIncomplete();
+	}
+
+	get currentBehaviorName(): string | undefined {
+		return this.currentBehavior?.name;
 	}
 
 	private warnIfIncomplete(): void {
@@ -29,6 +40,7 @@ export class BehaviorAI {
 	}
 
 	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig): void {
+		this.chaseMouseCooldownMs -= dt * 1000;
 		const env = this.buildEnv(mascot, ambientPointer, config);
 
 		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(mascot, env.ctx), env);
@@ -80,6 +92,10 @@ export class BehaviorAI {
 			for (const behavior of this.pack.behaviors.values()) {
 				if (evaluateCondition(behavior.condition, ctx)) candidates.push({ item: behavior, weight: behavior.frequency });
 			}
+			if (mascot.physics.grounded && this.chaseMouseCooldownMs <= 0) {
+				const chaseMouse = this.pack.behaviors.get("ChaseMouse");
+				if (chaseMouse) candidates.push({ item: chaseMouse, weight: 30 });
+			}
 		}
 
 		// Real packs gate almost every positive-weight behavior behind "on the floor/wall/
@@ -93,6 +109,8 @@ export class BehaviorAI {
 			if (fallIndex > 0) candidates.unshift(candidates.splice(fallIndex, 1)[0]);
 		}
 
-		return this.rng.weightedPick(candidates);
+		const picked = this.rng.weightedPick(candidates);
+		if (picked?.name === "ChaseMouse") this.chaseMouseCooldownMs = this.rng.range(15000, 30000);
+		return picked;
 	}
 }
