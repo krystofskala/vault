@@ -20,7 +20,7 @@ export interface MascotDriver {
 	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer): void;
 	/** Dragging is handled by Mascot itself (uniform physics regardless of pack); this lets
 	 * a pack-backed driver still supply its own Dragged/Thrown artwork during/after a drag. */
-	renderState?(mascot: Mascot, state: NativeStateName, elapsedMs: number): boolean;
+	renderState?(mascot: Mascot, state: NativeStateName, elapsedMs: number, ambientPointer: AmbientPointer): boolean;
 	notifyReleased?(mascot: Mascot, wasThrown: boolean, ambientPointer: AmbientPointer): void;
 	onDetach?(mascot: Mascot): void;
 }
@@ -137,7 +137,9 @@ export class Mascot {
 
 		if (this.isDragging) {
 			tickDragged(this.physics, this.dragTrack, this.grabOffset);
-			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs)) this.setVisualState("dragged");
+			const swing = computeReleaseVelocity(this.dragTrack, this.deps.config);
+			if (Math.abs(swing.vx) > 20) this.physics.facing = swing.vx > 0 ? 1 : -1;
+			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, ambient)) this.setVisualState("dragged");
 		} else if (this.driver) {
 			this.driver.tick(this, dtSeconds, ledges, ambient);
 		} else {

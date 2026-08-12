@@ -9,15 +9,40 @@ export interface TickArgs {
 	config: EngineConfig;
 }
 
+/** Clamps horizontal position to whichever left/right wall ledges bound the current y, so a
+ * hard throw can't send the mascot drifting off past the window edge into permanent freefall
+ * (once x is outside every floor's x-range, nothing can ever land it again). */
+export function clampToWalls(physics: MascotPhysics, ledges: Ledge[]): void {
+	let minX = -Infinity;
+	let maxX = Infinity;
+	for (const ledge of ledges) {
+		if (ledge.kind !== "wall") continue;
+		if (physics.y < ledge.y1 || physics.y > ledge.y2) continue;
+		if (ledge.side === "left" && ledge.x > minX) minX = ledge.x;
+		if (ledge.side === "right" && ledge.x < maxX) maxX = ledge.x;
+	}
+	if (physics.x < minX) {
+		physics.x = minX;
+		physics.vx = 0;
+	} else if (physics.x > maxX) {
+		physics.x = maxX;
+		physics.vx = 0;
+	}
+}
+
 /** Integrates gravity and snaps to a floor if one is crossed. Shared safety net used by
  * every native behavior so a mascot never gets stuck floating if its platform disappears. */
 export function applyGravityAndLand(args: TickArgs): boolean {
 	const { physics, ledges, dt, config } = args;
 	if (physics.grounded) {
-		const stillThere = physics.currentFloor
-			? findFloorBelow(ledges, physics.x, physics.y - 0.5) === physics.currentFloor
-			: false;
-		if (stillThere) return true;
+		// Compare by value, not by reference: ledges are recomputed into fresh objects
+		// periodically, so a stale currentFloor reference would never match again even while
+		// legitimately still standing on the (unchanged) same floor.
+		const stillThere = findFloorBelow(ledges, physics.x, physics.y - 0.5);
+		if (stillThere) {
+			physics.currentFloor = stillThere;
+			return true;
+		}
 		physics.grounded = false;
 	}
 
@@ -29,6 +54,7 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 	physics.vy += config.gravity * dt;
 	physics.x += physics.vx * dt;
 	physics.y += physics.vy * dt;
+	clampToWalls(physics, ledges);
 
 	if (floor && physics.y >= floor.y) {
 		physics.y = floor.y;
