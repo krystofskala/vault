@@ -1,0 +1,44 @@
+.shimeji-stage {
+	position: fixed;
+	inset: 0;
+	overflow: hidden;
+	pointer-events: none;
+	z-index: 60;
+}
+
+.shimeji-mascot {
+	position: absolute;
+	left: 0;
+	top: 0;
+	pointer-events: auto;
+	cursor: grab;
+	will-change: transform;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.shimeji-mascot.is-dragging {
+	cursor: grabbing;
+}
+
+.shimeji-mascot svg {
+	display: block;
+	overflow: visible;
+}
+
+.shimeji-mascot.face-left {
+	transform: scaleX(-1);
+}
+
+.shimeji-debug-ledge {
+	position: absolute;
+	background: rgba(255, 64, 64, 0.55);
+	pointer-events: none;
+}
+
+.shimeji-settings-pack-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 8px 0;
+}
