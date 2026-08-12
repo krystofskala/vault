@@ -322,9 +322,15 @@ export function evaluate(node: Node, ctx: ExprContext): ExprValue {
 	}
 }
 
-// Real packs use both wrappers: "#{...}" mostly on <Animation Condition>, "${...}" mostly on
-// nested <Action Condition> and on ActionReference parameter values (Duration, TargetX, ...).
-// Nothing in practice depends on the two meaning something different, so treat them the same.
+// Real packs use both wrappers, and they're not actually interchangeable: the real engine
+// (Script.java) compiles/runs both as JS, but "#{...}" re-evaluates fresh every tick while
+// "${...}" evaluates once and caches for the rest of the action's lifetime. We treat both
+// wrappers as the same syntax here (parsing doesn't need to know which), but callers that
+// evaluate the result MUST NOT assume it's safe to cache across ticks unless they know the
+// call site only ever runs once per action instance anyway — see ActionRunner's
+// currentPoses()/chooseAnimation() (re-evaluated every tick, matching "#{...}"'s usual home:
+// <Animation Condition>) vs resolveLocals() (evaluated once per pushAction, matching
+// "${...}"'s usual home: Duration/TargetX/BornX/... on an ActionReference).
 export const EXPR_WRAPPER = /^[#$]\{([\s\S]*)\}$/;
 const warnedConditions = new Set<string>();
 

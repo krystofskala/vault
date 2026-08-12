@@ -52,7 +52,7 @@ cross-checked against `gil/shimeji-ee`).
 | File | Status | Notes |
 |---|---|---|
 | `Action.java` | 📖 | Bare interface (`init`/`hasNext`/`next`). Nothing to port. |
-| `ActionBase.java` | ✅ | `hasNext()` = `Condition && time < Duration` (Duration default ≈ ∞) for *every* action. This is where the tickHold rewrite (2026-08-12) came from. |
+| `ActionBase.java` | ✅ | `hasNext()` = `Condition && time < Duration` (Duration default ≈ ∞) for *every* action. This is where the tickHold rewrite (2026-08-12) came from. Also: `getAnimation()` re-walks the variant list fresh *every single call* (called from inside `tick()`, i.e. every tick) rather than once — combined with `#{...}`'s per-tick cache-clear (see `script/Script.java`), this means condition-gated Animation variants can switch mid-action. Missed on the first read, caught on a second pass — see Pass 4. |
 | `Animate.java` | ✅ | Adds `time < animation.getDuration()` on top of ActionBase — self-caps at one pose cycle. Now correctly modeled in `tickHold` (`selfCapsAtOneCycle`). |
 | `BorderedAction.java` | ✅ | `LostGroundException` thrown identically by Move/Stay/Animate when their border vanishes mid-action. Ported as `isBorderLost`, shared by `tickMove` and `tickHold`. |
 | `Breed.java` | ✅ | Extends `Animate` (self-caps). `breed()` at `time == animation.duration-1`, BornX sign-flips by facing, sibling inherits parent's facing. All ported. |
@@ -111,7 +111,12 @@ cross-checked against `gil/shimeji-ee`).
 
 | File | Status | Notes |
 |---|---|---|
-| `Constant.java` / `Script.java` / `Variable.java` / `VariableMap.java` | ❓ | Our `Expression.ts` was built from *observed usage patterns* in actions.xml/behaviors.xml (task #6, early this session) rather than a direct read of the real evaluator source. It's well-tested against real-pack expressions (`test/expression.test.ts`, `realPack.test.ts`), but never source-verified the way the physics/behavior layer now has been. **Best remaining candidate for a future audit pass** — a semantic gap here (operator precedence, type coercion, a builtin method we don't support) would be a quiet, hard-to-notice correctness gap rather than an obvious crash. |
+| `Constant.java` | ✅ | Trivial literal wrapper (`get()` always returns the same stored value). Matches `parseParamValue`'s literal branch (number/bool/string). |
+| `Script.java` | 🐛 | **`#{...}` and `${...}` are not the same thing** — real conditions/values are compiled and run as actual JavaScript (`ScriptEngineManager`/`"text/javascript"`, i.e. Nashorn), not a custom mini-language. `#{...}` (`clearAtInitFrame=true`) re-evaluates fresh every tick (`initFrame()` clears its cached value); `${...}` (`clearAtInitFrame=false`) evaluates once and stays cached for the rest of the action's lifetime. Our `Expression.ts` treated the two wrappers as pure syntax sugar (see the now-corrected comment that used to sit above `EXPR_WRAPPER`) — for **locals** (Duration/TargetX/BornX/...) this was accidentally fine, since `resolveLocals` already only runs once per `pushAction` regardless of syntax, matching `${...}`'s semantics by construction. For **Animation-variant selection** it wasn't: real `ActionBase.getAnimation()` re-walks the condition list fresh every tick (see the `action/ActionBase.java` row), which is precisely what `#{...}`'s per-tick cache-clear is *for*. Fixed 2026-08-12 — see Pass 4 below. |
+| `Variable.java` | ✅ | `Variable.parse()`: `${...}` → `Script(clearAtInitFrame=false)`, `#{...}` → `Script(clearAtInitFrame=true)`, anything else → `Constant`. This is the dispatch the Pass 4 fix is based on. |
+| `VariableMap.java` | ✅ | Implements `javax.script.Bindings` — this *is* the scope object the compiled JS runs against, which is how `mascot.anchor.x` in a condition ends up calling the real `Mascot`/`MascotEnvironment` Java getters via Nashorn's JS↔JavaBean property bridging. Confirms our custom recursive-descent parser (`Expression.ts`) is a deliberate, security-motivated divergence, not just a stylistic one: literally `eval()`/`new Function()`-ing pack-supplied script text would be an arbitrary-code-execution surface here in a way it isn't for the original desktop app (a Java process already has full OS access; an Obsidian plugin evaluating untrusted third-party pack content does not currently, and shouldn't gain it just to save writing a parser). Our restricted grammar (literals/paths/calls/unary/binary/ternary — no statements, no assignment, no arbitrary global access) is the correct adaptation, not a corner cut. |
+
+Cross-checked every function call actually used across `actions.xml`/`behaviors.xml`'s real conditions (`Math.abs`, `Math.min`, `Math.random`, and every `...isOn(...)` predicate on `floor`/`ceiling`/`workArea.*Border`/`activeIE.*Border`) against `RuntimeContext.ts`'s `call()` — all present. `Math.random` deliberately routes through the engine's own seeded `Random` instead of the real `Math.random()`, for reproducible tests — consistent with the rest of the engine.
 
 ## `Manager.java` / `Mascot.java` (root)
 
@@ -138,13 +143,28 @@ the analog), `exception/*.java` (plain exception classes, no logic to port).
 2. **Pass 2** (commit `c7195ed`): Look's wrong default (face-cursor → toggle), Jump's wrong
    physics model (ballistic arc → constant-speed vector), Breed's missing BornX sign-flip /
    facing-inheritance / near-end timing, missing LostGround-equivalent for Stay/Animate.
-3. **Pass 3** (2026-08-12, this file's creation — not yet committed as of writing): `tickHold`
-   rewritten from a linear poseIndex walk to a duration-driven, modulo-cycling model — fixes
-   every multi-Pose Stay/Animate action that was self-ending after one pass instead of
-   holding/cycling for its real Duration (e.g. SitAndDangleLegs: 4 poses ~1.6s combined, held
-   open by a `Duration="500-600"` i.e. 20-24s override that was being silently ignored — a
-   ~12-15x undershoot). `ThrowIE` was found mapped to plain Fall (wrong — it extends Animate and
-   never touches the mascot's position at all); now holds its pose like Regist.
+3. **Pass 3** (commit `b73d80e`): `tickHold` rewritten from a linear poseIndex walk to a
+   duration-driven, modulo-cycling model — fixes every multi-Pose Stay/Animate action that was
+   self-ending after one pass instead of holding/cycling for its real Duration (e.g.
+   SitAndDangleLegs: 4 poses ~1.6s combined, held open by a `Duration="500-600"` i.e. 20-24s
+   override that was being silently ignored — a ~12-15x undershoot). `ThrowIE` was found mapped
+   to plain Fall (wrong — it extends Animate and never touches the mascot's position at all); now
+   holds its pose like Regist. This file (`SOURCE_AUDIT.md`) was created in this pass too.
+4. **Pass 4** (2026-08-12, going through `script/` next as this file's own "next steps" said to —
+   not yet committed as of writing): reading `Script.java`/`Variable.java` turned up the real
+   `#{...}` (live, re-evaluated every tick) vs `${...}` (evaluated once, cached for the action's
+   lifetime) distinction our `Expression.ts` had explicitly (and wrongly) documented as
+   "nothing depends on the difference." It matters for Animation-variant selection: real
+   `ActionBase.getAnimation()` re-picks the effective (condition-true) variant fresh every tick,
+   so a condition depending on live state (e.g. SitAndLookAtMouse's `cursor.y < screen.height/2`,
+   held for several hundred ms — long enough for the mouse to cross the threshold mid-hold) can
+   swap poses mid-action without restarting it. `chooseAnimation` was only ever called once, at
+   push time. Added a `currentPoses()` helper that re-runs it every tick, wired into
+   `tickHold`/`tickBreed`/`tickEmbedded`; `tickMove` deliberately keeps its one-time selection
+   (see its own comment — no real pack's multi-variant Move needs live re-selection, and
+   splicing mid-gait-cycle has no obviously-correct answer). Locals (Duration/TargetX/BornX/...)
+   were already correct by construction, since `resolveLocals` already only runs once per
+   `pushAction` regardless of which wrapper the XML used.
 
 ## Open live-bug reports (need user diagnostics, not more audit)
 
@@ -152,16 +172,15 @@ Both have `window.shimejiDebug` tooling ready (see README) but no repro data gat
 
 - Window title-bar can't be reliably dragged while the plugin is enabled (confirmed the plugin is
   the cause; not yet which part).
-- A mascot dropped from a height was reported to visually skip most of the fall. The Pass 3
-  `tickHold` fix *might* be related if the report was actually about a Stay/Animate action ending
-  early rather than the fall itself — worth re-testing before assuming it's still open.
+- A mascot dropped from a height was reported to visually skip most of the fall. Neither Pass 3
+  nor Pass 4 obviously explains this (Fall doesn't go through tickHold at all), so still needs a
+  live repro with `setVerbose(true)` rather than more speculation from the audit alone.
 
 ## Next steps, in priority order
 
-1. Test/verify/commit/push Pass 3 (this file + the tickHold/ThrowIE fix).
-2. Re-test the two open live-bug reports now that Pass 3 has landed — the "skips most of the
-   fall" report in particular might already be fixed as a side effect.
-3. `script/` (the expression evaluator) is the biggest remaining unverified surface — see notes
-   above.
-4. `config/Entry.java`, `environment/{Area,ComplexArea,Location,Environment}.java` — lower
-   priority, believed subsumed, would close out 100% file coverage if desired.
+1. Test/verify/commit/push Pass 4 (this file + the live-Animation-reselection fix).
+2. Re-test the two open live-bug reports now that Passes 3-4 have landed.
+3. `config/Entry.java`, `environment/{Area,ComplexArea,Location,Environment}.java` — lower
+   priority, believed subsumed, would close out 100% file coverage if desired. This was the last
+   major *unverified* subsystem (`script/`) — everything left is believed-fine plumbing, not a
+   live suspect.

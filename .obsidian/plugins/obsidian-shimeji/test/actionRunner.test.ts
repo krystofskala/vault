@@ -525,6 +525,49 @@ describe("ActionRunner", () => {
 		for (let i = 0; i < 15 && !done; i++) done = runner.tick(env, 0.04, ledges);
 		expect(done).toBe(true);
 	});
+
+	// Real ActionBase.getAnimation() re-walks the Animation list fresh from every single tick
+	// call (it's not cached across the action's lifetime) — so a condition-gated variant can
+	// switch mid-hold if whatever it depends on changes while the action keeps running. The real
+	// pack's SitAndLookAtMouse does exactly this: it picks a "look up" vs "look down" pose by
+	// live cursor.y, held for several hundred ms — long enough for the mouse to cross the
+	// threshold mid-hold. A previous version of chooseAnimation only ran once, at push time.
+	it("re-picks the effective Animation variant every tick, not just once when the action starts (real SitAndLookAtMouse scenario)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"SitAndLookAtMouse",
+					action({
+						name: "SitAndLookAtMouse",
+						type: "Stay",
+						animations: [
+							{ condition: parseCondition("#{mascot.anchor.x < 50}"), poses: [{ image: "/near.png", anchor: { x: 0, y: 0 }, durationMs: 250 }] },
+							{ condition: undefined, poses: [{ image: "/far.png", anchor: { x: 0, y: 0 }, durationMs: 250 }] },
+						],
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 0;
+		const env = envFor(pack, mascot);
+		runner.start("SitAndLookAtMouse", env, { Duration: "20" });
+
+		runner.tick(env, 0.04, []);
+		expect(mascot.shownImages.at(-1)).toBe("resolved:/near.png");
+
+		// Something the condition depends on changes *while the same Stay instance is still
+		// running* — no restart, no re-push, just the next tick.
+		mascot.physics.x = 100;
+		runner.tick(env, 0.04, []);
+		expect(mascot.shownImages.at(-1)).toBe("resolved:/far.png");
+
+		mascot.physics.x = 0;
+		runner.tick(env, 0.04, []);
+		expect(mascot.shownImages.at(-1)).toBe("resolved:/near.png");
+	});
 });
 
 describe("BehaviorAI", () => {

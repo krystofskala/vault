@@ -168,6 +168,21 @@ export class ActionRunner {
 		return def.animations[0]?.poses ?? [];
 	}
 
+	/** Real ActionBase.getAnimation() re-walks the Animation list fresh every single tick
+	 * (called from inside Stay/Animate/Breed's own tick()), not once when the action starts —
+	 * so a condition-gated variant (e.g. the real pack's SitAndLookAtMouse, which switches
+	 * between looking up/down based on live cursor.y, held for a Duration of several hundred ms
+	 * — long enough for the cursor to cross the threshold mid-hold) can change which Animation
+	 * is "effective" partway through, without restarting the action. Real Animation.getPoseAt
+	 * uses one shared `time` counter regardless of which Animation is currently picked, so
+	 * switching variants doesn't reset pose-cycle progress either — which is exactly what
+	 * feeding the same frame.holdElapsedMs into pickLoopingPose(freshly-chosen poses, ...) here
+	 * gives us for free. tickMove deliberately keeps its own frame.poses fixed from push time
+	 * instead of using this — see its own comment for why. */
+	private currentPoses(frame: Frame, env: PushEnv): PoseDef[] {
+		return this.chooseAnimation(frame.action, this.frameCtx(frame, env));
+	}
+
 	/** Advances one frame. Returns true once the whole action tree has completed. */
 	tick(env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		for (let guard = 0; guard < 64; guard++) {
@@ -304,7 +319,7 @@ export class ActionRunner {
 	 * hold down to under 2.
 	 */
 	private tickHold(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
-		const poses = frame.poses;
+		const poses = this.currentPoses(frame, env);
 		if (poses.length === 0) return true;
 		const physics = env.mascot.physics;
 		if (frame.action.borderType === "Wall" || frame.action.borderType === "Ceiling") {
@@ -330,6 +345,16 @@ export class ActionRunner {
 		return frame.holdElapsedMs >= effectiveDurationMs;
 	}
 
+	/** Unlike tickHold/tickEmbedded (see currentPoses), this deliberately keeps frame.poses fixed
+	 * from push time instead of re-choosing every tick. A Move's poses carry real per-tick
+	 * velocity, not just an image — switching mid-walk to a variant with a different velocity
+	 * (and potentially different pose count/durations) partway through `poseIndex`'s own gait
+	 * cycle has no obviously-correct splice point, unlike tickHold's pure image-cycling. The
+	 * real pack's one multi-variant Move (ClimbWall, up-vs-down via `TargetY < mascot.anchor.y`)
+	 * doesn't actually need live re-selection in practice: TargetY is fixed for the life of the
+	 * climb and anchor.y approaches it monotonically, so which side of the target the climb
+	 * started on can't flip mid-climb — choosing once at push time already gives the same
+	 * variant the real engine's live check would. */
 	private tickMove(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		const poses = frame.poses;
 		if (poses.length === 0) return true;
@@ -410,7 +435,7 @@ export class ActionRunner {
 	 * instant it starts. requestSibling itself applies BornX's real facing-dependent sign flip.
 	 */
 	private tickBreed(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
-		const poses = frame.poses;
+		const poses = this.currentPoses(frame, env);
 		if (!frame.bredAlready && poses.length > 0) {
 			const totalDurationMs = poses.reduce((sum, p) => sum + p.durationMs, 0);
 			// "About to finish" (this tick's own upcoming tickHold call would complete the whole
@@ -431,8 +456,9 @@ export class ActionRunner {
 
 	private tickEmbedded(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		if (frame.instantComplete) return true;
-		if (frame.poses.length > 0) {
-			this.showPose(env.mascot, pickLoopingPose(frame.poses, frame.embeddedElapsedMs));
+		const poses = this.currentPoses(frame, env);
+		if (poses.length > 0) {
+			this.showPose(env.mascot, pickLoopingPose(poses, frame.embeddedElapsedMs));
 			frame.embeddedElapsedMs += dt * 1000;
 		}
 		const raw = frame.action.embeddedName ?? frame.action.name;

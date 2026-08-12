@@ -155,6 +155,25 @@ tracked against) turned up the single largest bug found so far:
   it" pose short instead of holding it for its full duration. Now routed through `tickHold` like
   `Regist`, holding in place like the real class hierarchy says it should.
 
+**A fourth pass through `script/`** — the real `#{...}`/`${...}` expression evaluator, the one
+remaining subsystem that had never been checked against source (`Expression.ts` was originally
+built from *observed patterns* in the XML rather than a source read) — found that the two
+wrappers aren't just stylistic. Real conditions/values are compiled and run as actual JavaScript
+(`Script.java`, via the JVM's own script engine), and `#{...}` re-evaluates fresh every tick while
+`${...}` evaluates once and caches for the rest of the action's lifetime — a distinction our own
+code had explicitly (and wrongly) written off as not mattering in practice. It didn't matter for
+ActionReference parameters (Duration, TargetX, BornX, ...), which our engine already only
+resolves once per action-start regardless of wrapper syntax — but it did matter for **which
+Animation variant is showing**: the real `ActionBase.getAnimation()` re-picks the effective
+(condition-true) variant fresh every tick, so an Animation-selection condition tied to live state
+can swap poses mid-action without restarting it. The real pack's `SitAndLookAtMouse` does exactly
+this — it picks "looking up" vs "looking down" by live cursor position, held for several hundred
+milliseconds, long enough for the mouse to cross the threshold mid-hold. Our `chooseAnimation` was
+only ever called once, at push time. Fixed by re-running it every tick in `tickHold`/`tickBreed`/
+`tickEmbedded` (`tickMove` deliberately keeps its one-time selection — see its own comment for
+why: no real pack's multi-variant `Move` needs live re-selection, and splicing mid-gait-cycle has
+no obviously-correct answer).
+
 - **A real `actions.xml`/`behaviors.xml` interpreter**, verified directly against the actual
   standard shimeji-ee conf files (checked into `Shimeji/conf/`) — Sequence/Select/Animate/
   Move/Embedded actions, condition-gated Animation variants (e.g. ClimbWall's up-vs-down
