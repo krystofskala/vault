@@ -6,7 +6,9 @@ import { parseBehaviorsXml } from "../src/shimeji/BehaviorsParser";
 import { BehaviorAI } from "../src/shimeji/BehaviorAI";
 import { ActionRunner, type PushEnv } from "../src/shimeji/ActionRunner";
 import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
+import { evaluateCondition, withLocals } from "../src/shimeji/Expression";
 import { Random } from "../src/engine/Random";
+import { computeLeanPointer } from "../src/engine/nativeBehaviors";
 import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
 import type { Mascot } from "../src/engine/Mascot";
 import type { MascotPack } from "../src/shimeji/types";
@@ -66,6 +68,50 @@ describe("real standard Shimeji-ee pack", () => {
 
 	it("Pinched (used by Dragged) resolves to the Dragged native handler", () => {
 		expect(actions.get("Pinched")?.embeddedName).toBe("Dragged");
+	});
+
+	it("Pinched's lean poses never flip to the opposite extreme while a swing holds one direction (regression for the drag flip-flop bug)", () => {
+		const pinched = actions.get("Pinched");
+		expect(pinched).toBeDefined();
+
+		function winningImage(footX: number, cursor: { x: number; y: number; dx: number; dy: number }): string | undefined {
+			const ctx = withLocals(
+				createRuntimeContext(
+					{ x: footX, y: 0, vx: 0, vy: 0, facing: 1, grounded: false },
+					{ viewportWidth: 800, viewportHeight: 900, pointer: cursor, totalMascotCount: 1 },
+					0,
+					new Random(1),
+				),
+				{ FootX: footX },
+			);
+			for (const variant of pinched!.animations) {
+				if (evaluateCondition(variant.condition, ctx)) return variant.poses[0]?.image;
+			}
+			return undefined;
+		}
+
+		function classify(image: string | undefined): "extremeA" | "extremeB" | "neutral" {
+			if (image === "/shime9.png" || image === "/shime7.png") return "extremeA";
+			if (image === "/shime8.png" || image === "/shime10.png") return "extremeB";
+			return "neutral";
+		}
+
+		// A real hand's swing speed fluctuates tick to tick even while moving one consistent
+		// direction — this drives that fluctuation on purpose, at speeds that do cross Pinched's
+		// real ±30/±50px thresholds, to prove the *sign* never depends on the noise.
+		for (const speeds of [
+			[150, 500, 1200, 2000, 300, 1800, 700],
+			[-150, -500, -1200, -2000, -300, -1800, -700],
+		]) {
+			let footX = 400;
+			const seen = new Set<string>();
+			for (const vx of speeds) {
+				footX += vx * 0.04;
+				const lean = computeLeanPointer({ x: footX, y: 0 }, { vx, vy: 0 }, 0.05);
+				seen.add(classify(winningImage(footX, lean)));
+			}
+			expect(seen.has("extremeA") && seen.has("extremeB")).toBe(false);
+		}
 	});
 
 	it("SplitIntoTwo references the image set up to shime46", () => {

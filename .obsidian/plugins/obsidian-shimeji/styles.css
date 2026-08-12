@@ -15,6 +15,14 @@
 	will-change: transform;
 	user-select: none;
 	-webkit-user-select: none;
+	/* Without this, a touch-drag can get eaten by the browser's own scroll/pan gesture
+	 * recognition before our pointermove handlers see clean, continuous events — the standard
+	 * requirement for any custom Pointer Events drag implementation on touch. */
+	touch-action: none;
+	/* Suppresses iOS Safari/WebKit's own "save image"-style callout on a long-press over the
+	 * mascot's <img> (inherited by descendants), which would otherwise compete with our own
+	 * long-press-to-context-menu below. */
+	-webkit-touch-callout: none;
 }
 
 .shimeji-mascot.is-dragging {

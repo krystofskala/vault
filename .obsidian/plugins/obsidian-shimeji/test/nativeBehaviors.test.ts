@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyGravityAndLand, clampToCeiling, clampToWalls, type TickArgs } from "../src/engine/nativeBehaviors";
+import { applyGravityAndLand, clampToCeiling, clampToWalls, computeLeanPointer, type TickArgs } from "../src/engine/nativeBehaviors";
 import { computeLedgesFromRects } from "../src/engine/Ledges";
 import { DEFAULT_ENGINE_CONFIG, type MascotPhysics } from "../src/engine/types";
 
@@ -59,6 +59,38 @@ describe("clampToCeiling", () => {
 		expect(landed).toBe(true);
 		expect(physics.y).toBeGreaterThanOrEqual(0);
 		expect(physics.y).toBeLessThanOrEqual(600);
+	});
+});
+
+describe("computeLeanPointer", () => {
+	it("extrapolates ahead of the pointer in the swing's own direction, proportional to speed", () => {
+		const rightward = computeLeanPointer({ x: 100, y: 50 }, { vx: 1000, vy: 0 }, 0.05);
+		expect(rightward.x).toBe(100 + 1000 * 0.05);
+		expect(rightward.y).toBe(50);
+		expect(rightward.dx).toBe(1000);
+
+		const leftward = computeLeanPointer({ x: 100, y: 50 }, { vx: -1000, vy: 0 }, 0.05);
+		expect(leftward.x).toBe(100 - 1000 * 0.05);
+	});
+
+	it("collapses to the raw pointer position when not swinging at all", () => {
+		const still = computeLeanPointer({ x: 42, y: 7 }, { vx: 0, vy: 0 }, 0.05);
+		expect(still).toEqual({ x: 42, y: 7, dx: 0, dy: 0 });
+	});
+
+	it("never changes sign of the (pointer - result) gap while the swing direction is held constant", () => {
+		// This is the crux of the drag lean-pose bug: as long as vx keeps the same sign, the
+		// gap between "where the pointer is" and "the lean reading" must too, however much vx
+		// itself fluctuates in magnitude tick to tick (real hand movement is never perfectly
+		// smooth) — a real Pinched-style condition must never flip which side it reads as
+		// while the actual drag never reversed.
+		const speeds = [120, 400, 900, 1800, 260, 1500];
+		let pointerX = 0;
+		for (const vx of speeds) {
+			pointerX += vx * 0.04;
+			const lean = computeLeanPointer({ x: pointerX, y: 0 }, { vx, vy: 0 }, 0.05);
+			expect(lean.x).toBeGreaterThan(pointerX); // always ahead, never behind, while vx > 0
+		}
 	});
 });
 

@@ -1,6 +1,7 @@
 import { applyPlaceholderPose, createPlaceholderElement, PLACEHOLDER_HEIGHT, PLACEHOLDER_WIDTH } from "../placeholder/placeholderSprite";
 import {
 	applyGravityAndLand,
+	computeLeanPointer,
 	computeReleaseVelocity,
 	findClingableWall,
 	pickWalk,
@@ -13,6 +14,21 @@ import {
 } from "./nativeBehaviors";
 import type { AmbientPointer, EngineConfig, Ledge, MascotPhysics, NativeStateName, PointerState, Vec2 } from "./types";
 import type { Random } from "./Random";
+
+/** How far ahead (seconds) to extrapolate the drag's own swing velocity for a pack's lean-pose
+ * comparisons — see computeLeanPointer. Tuned so a real flick (roughly 800-2000px/s) crosses
+ * the real Pinched action's ±30/±50px thresholds; not meant to be precise, just "roughly one
+ * native mouse-delivery tick's worth of lag." */
+const DRAG_LEAN_LAG_SECONDS = 0.05;
+
+/** Touch/pen has no right-click, so holding still opens the context menu instead — the same
+ * long-press-for-options gesture Obsidian's own mobile UI already uses elsewhere (e.g. the
+ * file explorer). Gated to non-mouse pointers only; desktop's existing right-click is
+ * untouched. */
+const LONG_PRESS_MS = 500;
+/** Moving further than this before the timer fires means it's a drag/swipe, not a long
+ * press — cancels the pending menu so a touch-drag never also pops up a menu partway through. */
+const LONG_PRESS_MOVE_CANCEL_PX = 10;
 
 export interface MascotDriver {
 	/** Advances one frame. Implementations mutate `mascot.physics` and call
@@ -69,6 +85,11 @@ export class Mascot {
 	private dragTrack: PointerState = { x: 0, y: 0, down: false, history: [] };
 	private usingImage = false;
 	private imageAnchor: Vec2 = { x: PLACEHOLDER_WIDTH / 2, y: PLACEHOLDER_HEIGHT };
+	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+	private longPressStart: Vec2 | null = null;
+	/** Set right before the long-press timer opens the menu itself, so a native touch-and-hold
+	 * contextmenu event that also happens to fire around the same time doesn't open a second one. */
+	private suppressNextContextMenu = false;
 
 	constructor(private deps: MascotDeps, startX: number, startY: number) {
 		this.physics = { x: startX, y: startY, vx: 0, vy: 0, facing: 1, grounded: false };
@@ -153,8 +174,27 @@ export class Mascot {
 			const topMarginPx = 18;
 			this.grabOffset = { x: 0, y: topMarginPx - anchor.y * this.scale };
 			this.dragTrack = { x: ev.clientX, y: ev.clientY, down: true, history: [{ x: ev.clientX, y: ev.clientY, t: performance.now() }] };
+
+			// Touch/pen has no right mouse button, so a held-still touch opens the context menu
+			// instead — dragging still starts immediately either way (below); this timer just
+			// watches whether the pointer actually moves before it fires, and if not, treats it
+			// as "held for a menu" rather than "picked up and moved" (see clearLongPress()).
+			if (ev.pointerType !== "mouse") {
+				this.longPressStart = { x: ev.clientX, y: ev.clientY };
+				this.longPressTimer = setTimeout(() => {
+					this.longPressTimer = null;
+					this.longPressStart = null;
+					this.suppressNextContextMenu = true;
+					this.finishDrag();
+					this.deps.onContextMenu?.(this, ev);
+				}, LONG_PRESS_MS);
+			}
 		});
 		this.el.addEventListener("pointermove", (ev) => {
+			if (this.longPressStart) {
+				const moved = Math.hypot(ev.clientX - this.longPressStart.x, ev.clientY - this.longPressStart.y);
+				if (moved > LONG_PRESS_MOVE_CANCEL_PX) this.clearLongPress();
+			}
 			if (!this.isDragging) return;
 			this.dragTrack.x = ev.clientX;
 			this.dragTrack.y = ev.clientY;
@@ -165,10 +205,27 @@ export class Mascot {
 			// (hand tremor) as rapid direction changes — see the facing hysteresis in simulate().
 			this.dragTrack.history = this.dragTrack.history.filter((s) => now - s.t <= 120);
 		});
-		this.el.addEventListener("pointerup", () => this.finishDrag());
-		this.el.addEventListener("pointercancel", () => this.finishDrag());
+		this.el.addEventListener("pointerup", () => {
+			this.clearLongPress();
+			this.finishDrag();
+		});
+		this.el.addEventListener("pointercancel", () => {
+			this.clearLongPress();
+			this.finishDrag();
+		});
 		this.el.addEventListener("contextmenu", (ev) => {
 			ev.preventDefault();
+			if (this.suppressNextContextMenu) {
+				this.suppressNextContextMenu = false;
+				return;
+			}
+			// Either desktop's real right-click, or the platform's own touch-and-hold
+			// synthesizing this event on its own schedule (independent of, and possibly faster
+			// than, our own long-press timer above) — cancel that timer so it doesn't also fire
+			// and open a second menu, and cleanly end any in-progress drag the same way our own
+			// long-press path does before opening the menu.
+			this.clearLongPress();
+			this.finishDrag();
 			this.deps.onContextMenu?.(this, ev);
 		});
 		// Pointer capture is page-level, not real OS mouse capture: if the cursor leaves the
@@ -180,7 +237,14 @@ export class Mascot {
 
 	private onWindowBlur = (): void => {
 		if (this.isDragging) this.finishDrag();
+		this.clearLongPress();
 	};
+
+	private clearLongPress(): void {
+		if (this.longPressTimer !== null) clearTimeout(this.longPressTimer);
+		this.longPressTimer = null;
+		this.longPressStart = null;
+	}
 
 	private finishDrag(): void {
 		if (!this.isDragging) return;
@@ -218,7 +282,11 @@ export class Mascot {
 			const swing = computeReleaseVelocity(this.dragTrack, this.deps.config);
 			if (swing.vx > 90) this.physics.facing = 1;
 			else if (swing.vx < -90) this.physics.facing = -1;
-			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, ambient)) this.setVisualState("dragged");
+			// Deliberately NOT `ambient` here — see computeLeanPointer for why a pack's own
+			// lean-pose comparisons need a reading derived entirely from this same drag's own
+			// pointer, not Stage's independently-sampled one.
+			const leanPointer = computeLeanPointer(this.dragTrack, swing, DRAG_LEAN_LAG_SECONDS);
+			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, leanPointer)) this.setVisualState("dragged");
 		} else if (this.driver) {
 			this.driver.tick(this, dtSeconds, ledges, ambient);
 		} else {
@@ -362,6 +430,7 @@ export class Mascot {
 
 	destroy(): void {
 		window.removeEventListener("blur", this.onWindowBlur);
+		this.clearLongPress();
 		this.detachDriver();
 		this.el.remove();
 	}

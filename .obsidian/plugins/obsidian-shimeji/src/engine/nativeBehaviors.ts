@@ -1,5 +1,5 @@
 import { findFloorBelow, findWallAt } from "./Ledges";
-import type { EngineConfig, Ledge, MascotPhysics, PointerState, WallLedge } from "./types";
+import type { EngineConfig, Ledge, MascotPhysics, PointerState, Vec2, WallLedge } from "./types";
 import type { Random } from "./Random";
 
 export interface TickArgs {
@@ -135,11 +135,13 @@ export function tickChaseMouse(args: TickArgs, pointer: { x: number; y: number }
 }
 
 /**
- * Springs toward the grabbed point rather than snapping to it exactly, so the mascot lags
- * and "hangs" off the cursor the way the original app's held pose does instead of rigidly
- * teleporting to it every frame. Also clamps to the viewport: pointer capture can keep
- * delivering coordinates past the window edge (or even get stuck there if the OS cursor
- * leaves the window before releasing), and without a clamp here that reads back as the
+ * Follows the grabbed point every tick — at the current tick rate and springPerSecond, `t`
+ * clamps to 1, so this is an instant snap rather than a real lag/spring (bumped up from a
+ * genuinely springy feel per "drag was better before... stiff" — see computeLeanPointer for
+ * why a pack's own lean-pose logic needs a separately-computed, deliberately lagged reading
+ * instead of reusing this position directly). Also clamps to the viewport: pointer capture
+ * can keep delivering coordinates past the window edge (or even get stuck there if the OS
+ * cursor leaves the window before releasing), and without a clamp here that reads back as the
  * mascot vanishing off the side while "stuck" mid-drag.
  */
 export function tickDragged(
@@ -159,6 +161,30 @@ export function tickDragged(
 	physics.y = Math.max(0, Math.min(viewport.height, physics.y));
 	physics.grounded = false;
 	physics.currentFloor = undefined;
+}
+
+/**
+ * A pack's own held-pose logic during a drag (e.g. the real Pinched action's five lean poses)
+ * compares the mascot's own anchor against `mascot.environment.cursor.x/y`, expecting some
+ * real, swing-direction-consistent gap between the two — the same way native OS mouse
+ * delivery naturally lags a fast-moving cursor by a frame or so. But tickDragged's own
+ * position (physics.x/y) already tracks the pointer with near-zero lag by design, so handing
+ * that same reading back as "cursor" would make the comparison read as ~0 always, and mixing
+ * in a *different*, independently-sampled ambient pointer (e.g. one tracked window-wide by
+ * Stage) is worse: two separately-timed samples of "the same" cursor can disagree in either
+ * direction from one tick to the next, flipping which side a lean pose reads as even while the
+ * actual drag never changed direction. Extrapolating the drag's own recent swing velocity
+ * forward by a small fixed lag reproduces a real, sign-consistent gap — proportional to how
+ * hard the mascot is actually being swung, never flip-flopping — without touching how
+ * snappily tickDragged itself tracks the pointer.
+ */
+export function computeLeanPointer(pointer: Vec2, swing: { vx: number; vy: number }, lagSeconds: number): { x: number; y: number; dx: number; dy: number } {
+	return {
+		x: pointer.x + swing.vx * lagSeconds,
+		y: pointer.y + swing.vy * lagSeconds,
+		dx: swing.vx,
+		dy: swing.vy,
+	};
 }
 
 /** Average velocity over the pointer's recent history, used to launch a Thrown action on release. */

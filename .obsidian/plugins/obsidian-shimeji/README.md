@@ -74,6 +74,26 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   `Dragged`) was falling back to gravity instead of just holding its pose in place, and `Jump`
   was logging a spurious "unrecognized embedded action" warning despite already behaving
   correctly (an initial arc velocity, then plain gravity, same as `Fall`).
+- **Fixed a real drag bug**: while being dragged, a pack's own lean poses (e.g. Pinched's five
+  Dragged variants) compare the mascot's own anchor against `mascot.environment.cursor.x/y` —
+  but that was being fed from Stage's separately-sampled ambient mouse tracker while the
+  mascot's own position came from its own pointer-capture events, and those two independent
+  samples of "the same" cursor could disagree in either direction from tick to tick. During a
+  fast swing this flipped which side a lean pose read as even though the drag never actually
+  changed direction. Fixed by deriving everything from one source — the drag's own recent
+  swing velocity, extrapolated forward by a small fixed lag (`computeLeanPointer`) — instead
+  of mixing in a second, independently-timed reading.
+- **Mobile**: dragging is already built on Pointer Events, which cover touch, and pack loading
+  already goes through the cross-platform vault adapter API rather than Node's `fs`, so most
+  of this needed no changes. The one real gap — no right-click on a touchscreen — is closed
+  with a long-press: holding a mascot still opens its context menu the same way Obsidian's own
+  mobile UI already uses touch-and-hold elsewhere, while an actual drag (the pointer moving
+  before the hold fires) is unaffected and still starts immediately, matching desktop.
+  `touch-action: none` and `-webkit-touch-callout: none` stop the browser's own scroll/pan
+  gesture recognition and iOS's image-callout from competing with either gesture. Untested on
+  a real device so far — the timer/event-lifecycle wiring here specifically couldn't be
+  covered by the test suite (this repo's jsdom has no `PointerEvent`/`setPointerCapture` at
+  all), unlike the drag lean-pose fix above, which does have regression tests.
 - **Not visually tested in a live Obsidian window** — this was built in a headless
   container with no GUI; every fix so far has been verified via `tsc`/`vitest`/`esbuild` plus
   tests that exercise the real conf files in `Shimeji/conf/` directly (not just synthetic

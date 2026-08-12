@@ -197,7 +197,8 @@ export default class ShimejiPlugin extends Plugin {
 		}
 	}
 
-	/** Right-click menu on a mascot itself — Obsidian's Menu has no native submenu support, so
+	/** Right-click menu on a mascot itself (also reachable by a touch-and-hold on mobile — see
+	 * Mascot's own long-press handling). Obsidian's Menu has no native submenu support, so
 	 * related groups are separated with setIsLabel(true) headers instead of nested flyouts. */
 	private showMascotContextMenu(mascot: Mascot, ev: MouseEvent): void {
 		const menu = new Menu();
