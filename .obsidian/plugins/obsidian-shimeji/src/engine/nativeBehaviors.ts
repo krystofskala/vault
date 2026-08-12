@@ -1,4 +1,5 @@
-import { findCeilingAt, findFloorBelow, findWallAt } from "./Ledges";
+import { debugLog } from "./debugLog";
+import { findCeilingAt, findFloorBelow, findNearestFloorAt, findWallAt } from "./Ledges";
 import type { EngineConfig, Ledge, MascotPhysics, PointerState, Vec2, WallLedge } from "./types";
 import type { Random } from "./Random";
 
@@ -70,14 +71,21 @@ export function updateWallCeilingAdherence(physics: MascotPhysics, ledges: Ledge
 export function applyGravityAndLand(args: TickArgs): boolean {
 	const { physics, ledges, dt, config } = args;
 	if (physics.grounded) {
-		// Compare by value, not by reference: ledges are recomputed into fresh objects
-		// periodically, so a stale currentFloor reference would never match again even while
-		// legitimately still standing on the (unchanged) same floor.
-		const stillThere = findFloorBelow(ledges, physics.x, physics.y - 0.5);
+		// Direction-agnostic re-check, not findFloorBelow: ledges are recomputed into fresh
+		// objects on every window/pane resize, and if the window *shrinks*, the floor moves up
+		// past the mascot's still-stale y — findFloorBelow's "at or below" rule would then find
+		// nothing "below" that stale position and read as the floor having vanished, when it
+		// really just moved. findNearestFloorAt re-anchors to wherever it is now instead.
+		const stillThere = findNearestFloorAt(ledges, physics.x, physics.y);
 		if (stillThere) {
+			if (Math.abs(stillThere.y - physics.y) > 1) {
+				debugLog("re-grounded after a ledge change", { x: physics.x, fromY: physics.y, toY: stillThere.y, source: stillThere.source });
+			}
+			physics.y = stillThere.y;
 			physics.currentFloor = stillThere;
 			return true;
 		}
+		debugLog("floor gone out from under a grounded mascot, falling", { x: physics.x, y: physics.y });
 		physics.grounded = false;
 	}
 
@@ -93,6 +101,7 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 	clampToCeiling(physics, ledges);
 
 	if (floor && physics.y >= floor.y) {
+		debugLog("landed", { x: physics.x, y: floor.y, source: floor.source, vyAtLanding: physics.vy });
 		physics.y = floor.y;
 		physics.vy = 0;
 		physics.vx = 0;
@@ -204,6 +213,26 @@ export function computeLeanPointer(pointer: Vec2, swing: { vx: number; vy: numbe
 		dx: swing.vx,
 		dy: swing.vy,
 	};
+}
+
+/**
+ * Exponential smoothing for the swing velocity fed into computeLeanPointer. computeReleaseVelocity
+ * is a raw two-sample secant over whatever's in the last ~120ms of pointer history — precise
+ * enough for a one-shot release throw, but read fresh every 40ms tick during an active drag
+ * it's noisy enough (ordinary hand tremor, or just an uneven native mouse-event delivery rate)
+ * to swing past the real Pinched action's ±30/±50px thresholds and back within a couple of
+ * ticks even while the drag itself is moving smoothly in one steady direction — reading as the
+ * held pose flickering rather than tracking the swing. Smoothing damps that transient noise
+ * while still tracking a real, sustained swing within a few ticks.
+ */
+export function smoothSwing(
+	prev: { vx: number; vy: number },
+	raw: { vx: number; vy: number },
+	dt: number,
+	timeConstantSeconds = 0.15,
+): { vx: number; vy: number } {
+	const alpha = 1 - Math.exp(-dt / timeConstantSeconds);
+	return { vx: prev.vx + (raw.vx - prev.vx) * alpha, vy: prev.vy + (raw.vy - prev.vy) * alpha };
 }
 
 /** Average velocity over the pointer's recent history, used to launch a Thrown action on release. */

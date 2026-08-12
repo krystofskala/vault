@@ -115,6 +115,39 @@ other OS windows natively), this mascot is confined to the Obsidian window by de
   wiring here specifically couldn't be covered by the test suite (this repo's jsdom has no
   `PointerEvent`/`setPointerCapture` at
   all), unlike the drag lean-pose fix above, which does have regression tests.
+- **Fixed a real "fall through the floor" bug**: the check for "is the floor I'm standing on
+  still there" only accepted a floor at-or-below the mascot's current position
+  (`findFloorBelow`) — correct for catching an active fall, but wrong for re-validating an
+  already-grounded mascot after the ledges change. Shrinking the Obsidian window (dragging its
+  bottom edge up) moves the floor *up* past a mascot standing near the old bottom edge, so
+  nothing qualified as "below" its stale position anymore and it fell through and kept falling
+  forever, off-screen. `findNearestFloorAt` (direction-agnostic — closest floor at this x,
+  above or below) is now used specifically for that re-validation, so a grounded mascot
+  re-anchors to wherever its floor actually is now instead of falling through it.
+- **Fixed the drag lean-pose flicker introduced by the previous lean-pose fix**: extrapolating
+  the drag's own swing velocity forward (`computeLeanPointer`, see above) fixed the sign-flip
+  bug, but feeding it `computeReleaseVelocity`'s raw two-sample secant fresh every 40ms tick
+  turned out to be noisy enough (ordinary hand tremor, uneven native mouse-event delivery) to
+  swing past the real Pinched action's ±30/±50px thresholds and back within a couple of ticks
+  even during a smooth, steady drag — reading as the held pose flickering rather than tracking
+  the swing. `smoothSwing` exponentially smooths the velocity fed into the lean-pose comparison
+  specifically (release-throw velocity and the facing-flip hysteresis are untouched), damping
+  tick-to-tick noise while still tracking a real sustained swing within a few ticks.
+- **Live console diagnostics** (`window.shimejiDebug` in Obsidian's DevTools console) for
+  issues that are easy to trigger interactively but hard to reproduce blind:
+  `stageCount()` (catches a leaked `Stage` instance from a previous reload still running
+  alongside a fresh one), `hideOverlay()`/`showOverlay()` (toggles the full-window overlay live,
+  to test whether its mere DOM presence — not just its own CSS — interferes with the OS
+  title-bar drag), `elementsAtTop()` (what `document.elementFromPoint` actually finds along the
+  top edge, including computed `pointer-events`/`-webkit-app-region`), `mascotRects()` (every
+  live mascot's current bounding box, to catch one sitting over the title bar mid
+  ceiling-walk), and `setVerbose(true)` (a live trace of every landing and every behavior
+  transition, tagged `[obsidian-shimeji]`, for chasing a specific "drop from height did
+  something odd" repro). Two issues are still open and exactly what this tooling targets: the
+  window still can't reliably be dragged by its title bar while the plugin is enabled (confirmed
+  the plugin is the cause — disabling it fixes dragging immediately — but not yet which part
+  of it), and a mascot dropped from a height has been reported to visually skip most of the
+  fall. Both need real DevTools output from a live window to localize further.
 - **Not visually tested in a live Obsidian window** — this was built in a headless
   container with no GUI; every fix so far has been verified via `tsc`/`vitest`/`esbuild` plus
   tests that exercise the real conf files in `Shimeji/conf/` directly (not just synthetic

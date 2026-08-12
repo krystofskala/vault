@@ -5,6 +5,7 @@ import {
 	computeReleaseVelocity,
 	findClingableWall,
 	pickWalk,
+	smoothSwing,
 	tickChaseMouse,
 	tickClimbWall,
 	tickDragged,
@@ -83,6 +84,9 @@ export class Mascot {
 	private activePointerId: number | null = null;
 	private grabOffset: Vec2 = { x: 0, y: 0 };
 	private dragTrack: PointerState = { x: 0, y: 0, down: false, history: [] };
+	/** Smoothed separately from dragTrack's own raw history — see smoothSwing — so the lean-pose
+	 * comparison doesn't flicker on ordinary hand tremor. Reset at the start of each new drag. */
+	private smoothedSwing: { vx: number; vy: number } = { vx: 0, vy: 0 };
 	private usingImage = false;
 	private imageAnchor: Vec2 = { x: PLACEHOLDER_WIDTH / 2, y: PLACEHOLDER_HEIGHT };
 	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -174,6 +178,7 @@ export class Mascot {
 			const topMarginPx = 18;
 			this.grabOffset = { x: 0, y: topMarginPx - anchor.y * this.scale };
 			this.dragTrack = { x: ev.clientX, y: ev.clientY, down: true, history: [{ x: ev.clientX, y: ev.clientY, t: performance.now() }] };
+			this.smoothedSwing = { vx: 0, vy: 0 };
 
 			// Touch/pen has no right mouse button, so a held-still touch opens the context menu
 			// instead — dragging still starts immediately either way (below); this timer just
@@ -284,8 +289,10 @@ export class Mascot {
 			else if (swing.vx < -90) this.physics.facing = -1;
 			// Deliberately NOT `ambient` here — see computeLeanPointer for why a pack's own
 			// lean-pose comparisons need a reading derived entirely from this same drag's own
-			// pointer, not Stage's independently-sampled one.
-			const leanPointer = computeLeanPointer(this.dragTrack, swing, DRAG_LEAN_LAG_SECONDS);
+			// pointer, not Stage's independently-sampled one. Smoothed (not the raw swing) so the
+			// held pose doesn't flicker on ordinary hand tremor — see smoothSwing.
+			this.smoothedSwing = smoothSwing(this.smoothedSwing, swing, dtSeconds);
+			const leanPointer = computeLeanPointer(this.dragTrack, this.smoothedSwing, DRAG_LEAN_LAG_SECONDS);
 			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, leanPointer)) this.setVisualState("dragged");
 		} else if (this.driver) {
 			this.driver.tick(this, dtSeconds, ledges, ambient);

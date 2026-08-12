@@ -1,4 +1,5 @@
 import { Menu, Notice, Platform, Plugin } from "obsidian";
+import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { Mascot } from "./engine/Mascot";
 import { Random } from "./engine/Random";
 import { Stage } from "./engine/Stage";
@@ -60,6 +61,7 @@ export default class ShimejiPlugin extends Plugin {
 			onContextMenu: (mascot, ev) => this.showMascotContextMenu(mascot, ev),
 		});
 		this.stage.start();
+		installDebugApi(() => this.stage);
 
 		this.addSettingTab(new ShimejiSettingTab(this.app, this));
 
@@ -79,6 +81,7 @@ export default class ShimejiPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		uninstallDebugApi();
 		this.stage?.destroy();
 	}
 

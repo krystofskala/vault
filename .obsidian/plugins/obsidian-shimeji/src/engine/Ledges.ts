@@ -56,6 +56,31 @@ export function findFloorBelow(ledges: Ledge[], x: number, y: number): FloorLedg
 	return best;
 }
 
+/**
+ * Direction-agnostic: the closest floor spanning this x, whether it's above or below y.
+ * findFloorBelow's "at or below" rule is right for catching an active fall, but wrong for
+ * "is the floor I'm standing on still there" — ledges are recomputed (fresh objects, possibly
+ * moved) on every window/pane resize, and if the window shrinks, the floor a mascot is
+ * standing on moves *up*, ending up above the mascot's still-stale y. findFloorBelow would
+ * then find nothing "below" that stale position and the mascot would fall through forever,
+ * even though its floor never actually vanished — it just moved. Used only for re-anchoring an
+ * already-grounded mascot, never for detecting a fresh landing while actively falling.
+ */
+export function findNearestFloorAt(ledges: Ledge[], x: number, y: number): FloorLedge | undefined {
+	let best: FloorLedge | undefined;
+	let bestDist = Infinity;
+	for (const ledge of ledges) {
+		if (ledge.kind !== "floor") continue;
+		if (x < ledge.x1 || x > ledge.x2) continue;
+		const dist = Math.abs(ledge.y - y);
+		if (dist < bestDist) {
+			best = ledge;
+			bestDist = dist;
+		}
+	}
+	return best;
+}
+
 export function findWallAt(ledges: Ledge[], x: number, y: number, side: "left" | "right", reach: number): WallLedge | undefined {
 	for (const ledge of ledges) {
 		if (ledge.kind !== "wall" || ledge.side !== side) continue;

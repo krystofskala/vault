@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { applyGravityAndLand, clampToCeiling, clampToWalls, computeLeanPointer, updateWallCeilingAdherence, type TickArgs } from "../src/engine/nativeBehaviors";
+import {
+	applyGravityAndLand,
+	clampToCeiling,
+	clampToWalls,
+	computeLeanPointer,
+	smoothSwing,
+	updateWallCeilingAdherence,
+	type TickArgs,
+} from "../src/engine/nativeBehaviors";
 import { computeLedgesFromRects } from "../src/engine/Ledges";
 import { DEFAULT_ENGINE_CONFIG, type MascotPhysics } from "../src/engine/types";
 
@@ -147,5 +155,61 @@ describe("applyGravityAndLand grounded check", () => {
 		expect(stillGrounded).toBe(true);
 		expect(physics.y).toBe(600);
 		expect(physics.vy).toBe(0);
+	});
+
+	it("re-anchors to the new floor position instead of falling through when the window shrinks under a grounded mascot", () => {
+		// Mascot standing at the window's old floor (y=600). The window's bottom edge gets
+		// dragged up to 400 — a real "resize the bottom edge, mascots near the bottom fall
+		// through" scenario reported against the old findFloorBelow-based check.
+		const physics = physicsAt(100, 600);
+		physics.grounded = true;
+		physics.currentFloor = computeLedgesFromRects({ width: 800, height: 600 }, [])[0];
+
+		const shrunkLedges = computeLedgesFromRects({ width: 800, height: 400 }, []);
+		const args: TickArgs = { physics, ledges: shrunkLedges, dt: 0.016, config: DEFAULT_ENGINE_CONFIG };
+		const stillGrounded = applyGravityAndLand(args);
+
+		expect(stillGrounded).toBe(true);
+		expect(physics.grounded).toBe(true);
+		expect(physics.y).toBe(400);
+	});
+
+	it("still falls (not stuck) once genuinely nothing spans its x — grounded is cleared, not force-kept", () => {
+		const physics = physicsAt(100, 600);
+		physics.grounded = true;
+		const noFloors: TickArgs["ledges"] = [];
+		const args: TickArgs = { physics, ledges: noFloors, dt: 0.016, config: DEFAULT_ENGINE_CONFIG };
+		const landed = applyGravityAndLand(args);
+		expect(landed).toBe(false);
+		expect(physics.grounded).toBe(false);
+	});
+});
+
+describe("smoothSwing", () => {
+	it("moves toward the raw value rather than snapping to it instantly", () => {
+		const smoothed = smoothSwing({ vx: 0, vy: 0 }, { vx: 1000, vy: 0 }, 0.04);
+		expect(smoothed.vx).toBeGreaterThan(0);
+		expect(smoothed.vx).toBeLessThan(1000);
+	});
+
+	it("converges to a sustained raw value over repeated ticks", () => {
+		let smoothed = { vx: 0, vy: 0 };
+		for (let i = 0; i < 60; i++) smoothed = smoothSwing(smoothed, { vx: 1000, vy: -500 }, 0.04);
+		expect(smoothed.vx).toBeCloseTo(1000, 0);
+		expect(smoothed.vy).toBeCloseTo(-500, 0);
+	});
+
+	it("damps a single noisy outlier tick far more than a real sustained swing", () => {
+		// One jittery tick reading 2000 in the middle of an otherwise steady ~200 swing should
+		// barely nudge the smoothed value, unlike feeding the raw per-tick value straight into
+		// computeLeanPointer, which would jump the full amount immediately.
+		let smoothed = { vx: 0, vy: 0 };
+		for (let i = 0; i < 20; i++) smoothed = smoothSwing(smoothed, { vx: 200, vy: 0 }, 0.04);
+		const beforeOutlier = smoothed.vx;
+		smoothed = smoothSwing(smoothed, { vx: 2000, vy: 0 }, 0.04);
+		// One tick only closes part of the gap toward the outlier, unlike feeding the raw
+		// per-tick value straight into computeLeanPointer, which would jump the full 1800px/s
+		// in a single 40ms tick.
+		expect(smoothed.vx - beforeOutlier).toBeLessThan((2000 - beforeOutlier) * 0.5);
 	});
 });

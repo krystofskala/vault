@@ -1,3 +1,4 @@
+import { debugLog } from "../engine/debugLog";
 import type { Mascot } from "../engine/Mascot";
 import { updateWallCeilingAdherence } from "../engine/nativeBehaviors";
 import type { Random } from "../engine/Random";
@@ -80,6 +81,13 @@ export class BehaviorAI {
 
 	private startBehavior(behavior: BehaviorDef | undefined, env: PushEnv): void {
 		this.currentBehavior = behavior;
+		debugLog("behavior ->", behavior?.name, {
+			x: Math.round(env.mascot.physics.x),
+			y: Math.round(env.mascot.physics.y),
+			grounded: env.mascot.physics.grounded,
+			vx: Math.round(env.mascot.physics.vx),
+			vy: Math.round(env.mascot.physics.vy),
+		});
 		if (behavior && !this.runner.start(behavior.name, env)) this.currentBehavior = undefined;
 	}
 

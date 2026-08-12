@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeLedgesFromRects, findCeilingAt, findFloorBelow, findWallAt } from "../src/engine/Ledges";
+import { computeLedgesFromRects, findCeilingAt, findFloorBelow, findNearestFloorAt, findWallAt } from "../src/engine/Ledges";
 
 const PANE_RECT = { left: 100, top: 300, right: 400, bottom: 580 };
 
@@ -90,6 +90,31 @@ describe("findFloorBelow", () => {
 	it("does not match a floor outside the x range", () => {
 		const floor = findFloorBelow(ledges, 700, 250);
 		expect(floor?.y).toBe(600);
+	});
+});
+
+describe("findNearestFloorAt", () => {
+	it("finds the window floor even when it's above the query y (e.g. a stale position after the window shrank)", () => {
+		// Window shrunk from 600 to 400: the mascot's stale y=600 is now *below* the only floor
+		// there is, which findFloorBelow (an "at or below" search) would treat as "no floor
+		// here" and let it fall through forever. findNearestFloorAt has to find it anyway.
+		const shrunkLedges = computeLedgesFromRects({ width: 800, height: 400 }, []);
+		const floor = findNearestFloorAt(shrunkLedges, 100, 600);
+		expect(floor?.y).toBe(400);
+	});
+
+	it("picks the closer of two floors spanning the same x, whether above or below", () => {
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [
+			{ rect: { left: 0, top: 200, right: 800, bottom: 600 }, source: "pane" },
+		]);
+		// Pane floor at y=200, window floor at y=600; querying from y=250 the pane floor (50px
+		// away) is closer than the window floor (350px away), even though it's *above* the query.
+		expect(findNearestFloorAt(ledges, 400, 250)?.y).toBe(200);
+	});
+
+	it("returns undefined when no floor at all spans this x", () => {
+		const onlyPaneFloor = [{ kind: "floor" as const, y: 300, x1: 100, x2: 400, source: "pane" as const }];
+		expect(findNearestFloorAt(onlyPaneFloor, 700, 250)).toBeUndefined();
 	});
 });
 
