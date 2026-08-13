@@ -42,4 +42,37 @@ describe("Stage.spawnMascot", () => {
 		expect(mascot.physics.facing).toBe(1);
 		stage.destroy();
 	});
+
+	// Real Main.createMascot() always creates off-screen at a fixed anchor (-1000,-1000); the
+	// very next UserBehavior.next() tick then finds it out of screen bounds and relocates it to
+	// a random x above the top edge (screen.top - 256) before forcing Fall — the same recovery
+	// BehaviorAI.respawnAndFall already ports for the identical reason. Every real mascot's
+	// first visible moment is falling in from off the top of the screen, never already standing
+	// in view.
+	it("a spawn with no explicit position falls in from above the screen at a random x", () => {
+		const stage = makeStage({ seed: 42 });
+		const mascot = stage.spawnMascot()!;
+		expect(mascot.physics.y).toBe(-256);
+		expect(mascot.physics.x).toBeGreaterThanOrEqual(0);
+		expect(mascot.physics.x).toBeLessThan(800);
+		stage.destroy();
+	});
+
+	it("a spawn with no explicit position is born straight into Fall", () => {
+		let bornBehaviorName: string | undefined;
+		const stage = makeStage({ onMascotCreated: (_mascot, name) => (bornBehaviorName = name) });
+		stage.spawnMascot();
+		expect(bornBehaviorName).toBe("Fall");
+		stage.destroy();
+	});
+
+	it("an explicit position (Breed, duplicate) is left exactly as given, not redirected to a random fall-in spot", () => {
+		let bornBehaviorName: string | undefined;
+		const stage = makeStage({ onMascotCreated: (_mascot, name) => (bornBehaviorName = name) });
+		const mascot = stage.spawnMascot(321, 111, "SomeBornBehavior")!;
+		expect(mascot.physics.x).toBe(321);
+		expect(mascot.physics.y).toBe(111);
+		expect(bornBehaviorName).toBe("SomeBornBehavior");
+		stage.destroy();
+	});
 });

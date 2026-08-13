@@ -126,30 +126,51 @@ Cross-checked every function call actually used across `actions.xml`/`behaviors.
 |---|---|---|
 | `Manager.java` | ✅ | Fixed 40ms tick (matches `ENGINE_FIXED_TICK_MS`), pending-add/remove buffering (Java concurrent-collection safety, irrelevant to single-threaded JS), two-phase tick-then-apply over all mascots. One confirmed-harmless divergence: a Breed-spawned sibling pushed onto `Stage.mascots` mid-iteration gets its own `simulate()` call in the *same* tick it's born (JS `for...of` observes live array growth; real Manager defers new mascots to the next tick via its `added` set). Fully-initialized by the time this happens, so not a crash risk — just one 40ms-early tick for a newborn. Not worth chasing. |
 | `Mascot.java` | ✅ | `tick()`/`catch (LostGroundException)`, breed/facing plumbing all previously audited and ported. |
-| `Main.java` | 🐛 | **Wrongly written off wholesale as "Java-desktop-only" on the first pass — it isn't.** Its AWT/Swing tray-icon *construction* is out of scope (no Obsidian analog needed), but the menu-item wiring inside it is the real ground truth for how several behaviors actually get triggered, and was never read before this pass. `getManager().setBehaviorAll("ChaseMouse")`, bound to a "Follow Mouse!" tray item, is the *only* way ChaseMouse ever runs in the real engine — no autonomous/spontaneous trigger exists at all. See Pass 5. (`remainOne()`/`createMascot()`, bound to "Reduce to One!"/"Another One!", already have faithful analogs in our own "Remove all Shimejis"/"Add another Shimeji" menu items — confirms those were right, not just convenient.) |
+| `Main.java` | 🐛 | **Wrongly written off wholesale as "Java-desktop-only" on the first pass — it isn't.** Its AWT/Swing tray-icon *construction* is out of scope (no Obsidian analog needed), but the menu-item wiring inside it is the real ground truth for how several behaviors actually get triggered. `getManager().setBehaviorAll("ChaseMouse")`, bound to a "Follow Mouse!" tray item, is the *only* way ChaseMouse ever runs in the real engine — no autonomous/spontaneous trigger exists at all. See Pass 5. (`remainOne()`/`createMascot()`, bound to "Reduce to One!"/"Another One!", already have faithful analogs in our own "Remove all Shimejis"/"Add another Shimeji" menu items — confirms those were right, not just convenient.) Read in full in Pass 7 (previously only the tray-menu slice had been read): `createMascot(String)` sets the fresh mascot's anchor to a fixed off-screen point `(-1000,-1000)`, never anything on-screen — it's `UserBehavior.next()`'s off-screen recovery (already ported, see `behavior/UserBehavior.java` row) that actually relocates it, on the mascot's very next tick, to a random x above the screen top and forces Fall. Every real mascot's first visible moment is falling in from off the top of the screen at a random x; there is no separate "appears already standing in view" spawn behavior at all. Our `Stage.spawnMascot` invented one anyway (fixed centered x, fixed y=160) before this file was read in full — fixed, see Pass 7. Also confirmed: the no-arg `createMascot()` random-pack-selection (`(int)(length*Math.random())`) already matches our pre-existing `pickPackId()` exactly — no change needed there. |
 
 ## Out of scope (⛔ — Java-desktop-only, no Obsidian analog)
 
-Two different confidence levels live in this list, worth being honest about rather than blurring
-together as one undifferentiated "out of scope":
+Every file below has now actually been opened and read (Pass 7 closed out the last batch that had
+only been categorized by name/role — see the changelog). All confirmed harmless: pure Swing/AWT
+GUI construction, JNA/OS-native bridging, or logging setup, with no mascot-behavior logic hiding
+inside any of them the way `Main.java` turned out to have.
 
-- **Actually opened and confirmed harmless**: `exception/*.java` (all 7 read in full — plain
-  `Exception` subclasses, message/cause constructors only, no fields, no logic; `LostGroundException`
-  doesn't even have a message constructor, just a bare signal type, matching our own
-  `lostGroundFlag` boolean).
-- **Categorized by directory/file name and by what referenced them, never actually opened**:
-  `NativeFactory.java`, `LogFormatter.java` (JNA-OS-native bridge / logging setup — no menu-wiring
-  logic like `Main.java` turned out to have, so presumed safe to skip, but not verified the way
-  `Main.java` itself now has been), `editor/action/ActionEditorFrame.java` (a *separate* Swing GUI
-  tool for authoring packs — our `CustomContentModal` is the analog, not a port target),
-  `image/*.java` (6 files, AWT/Swing image loading — we use `<img>`/CSS), `imagesetchooser/*.java`
-  (3 files, Swing character picker — our settings UI is the analog), `menu/*.java` (2 files, Swing
-  right-click/scrollable-menu widgetry — our Obsidian-native context menu is the analog). This is
-  inference from strong contextual signal (these packages exist for AWT/Swing/JNA concerns that
-  don't exist in a browser context at all, and nothing in any file actually read this session
-  imports from them for anything behavioral), not verification — the honest caveat on this whole
-  audit is that it covers the *core simulation logic* file-by-file, not literally every file in
-  the repository.
+- `exception/*.java` (7 files) — plain `Exception` subclasses, message/cause constructors only, no
+  fields, no logic; `LostGroundException` doesn't even have a message constructor, just a bare
+  signal type, matching our own `lostGroundFlag` boolean.
+- `NativeFactory.java` — reflection-based platform dispatch (`Class.forName(...".win."/".generic."
+  + "NativeFactoryImpl")`) to the actual OS-specific `Environment`/native-window implementation.
+  That implementation class **is not present anywhere in this source mirror** (sparse-checkout
+  only pulls `com/group_finity/mascot/`, and the win/generic subpackages it dispatches to aren't
+  under it) — there is genuinely nothing further to read here; this *strengthens* rather than
+  weakens the already-documented decision that activeIE/tracked-window tracking is architecturally
+  out of scope (`environment/MascotEnvironment.java` row), since the real mechanism isn't just
+  "too different to port," it's unavailable to audit against at all in this mirror.
+- `LogFormatter.java` — pure `java.util.logging.Formatter` subclass, string formatting only.
+- `editor/action/ActionEditorFrame.java` — an empty `JFrame` stub for a *separate* Swing GUI tool
+  for authoring packs; our `CustomContentModal` is the analog, not a port target.
+- `image/NativeImage.java`, `image/TranslucentWindow.java` — bare marker/rendering interfaces, no
+  logic.
+- `image/ImagePair.java`, `image/ImagePairs.java`, `image/MascotImage.java` — plain data holders
+  plus a static load-cache hashtable.
+- `image/ImagePairLoader.java` — genuinely worth a note, not just "confirmed harmless": mirroring
+  is a **one-time, load-time, per-pixel bitmap flip** (`flip(BufferedImage)`), cached alongside the
+  original, with the anchor point recomputed for the flipped image as `width - center.x` (y
+  unchanged). Cross-checked this is mathematically equivalent to our own approach in
+  `Mascot.ts`'s `render()` (CSS `transform-origin` set to the anchor itself, then `scaleX(-1)`
+  around that origin) — both keep the anchor pinned at `(physics.x, physics.y)` regardless of
+  facing, just via a baked bitmap vs. a live CSS transform. No code change; a real confirmation,
+  not an assumption.
+- `imagesetchooser/ImageSetChooser.java`, `imagesetchooser/ImageSetChooserPanel.java`,
+  `imagesetchooser/ShimejiList.java` — the startup "which packs to load" Swing dialog (two-column
+  `JList` picker + a flat `./ActiveShimeji` config file for persisting the selection) and its
+  supporting cell-renderer/panel classes. Our settings UI (`activePackIds`, persisted via
+  Obsidian's own settings storage) is the direct functional analog — already existed, already
+  correct, nothing to port.
+- `menu/JLongMenu.java`, `menu/MenuScroller.java` — Swing popup-positioning and a well-known
+  public-domain `JPopupMenu`/`JMenu` scroll utility. Our Obsidian-native context menu is the
+  analog; zero mascot-behavior relevance in either (588-line `MenuScroller.java` read in full to
+  be sure).
 
 ## Bugs found & fixed, by pass
 
@@ -222,6 +243,32 @@ together as one undifferentiated "out of scope":
    apply once. `AmbientPointer.dx/dy` now deliberately expose the raw value; `Mascot.finishDrag()`
    (which sets `physics.vx/vy` directly, bypassing the expression system for the native-fallback
    physics) does its own conversion at that point of use instead.
+7. **Pass 7** (2026-08-13) — prompted by another direct challenge ("is every file *actually*
+   checked, file by file?"): read every remaining file that had only ever been categorized by
+   name/role and never opened (`NativeFactory.java`, `LogFormatter.java`,
+   `editor/action/ActionEditorFrame.java`, all six `image/*.java` files, all three
+   `imagesetchooser/*.java` files, both `menu/*.java` files, and the rest of `Main.java` beyond
+   the tray-menu slice Pass 5 had already read). Every one of them confirmed harmless as expected
+   *except* the rest of `Main.java`, which turned up this pass's one real bug: `createMascot()`
+   creates every new mascot off-screen at a fixed anchor `(-1000,-1000)`; the *actual* on-screen
+   spawn position — a random x, dropped in from `screen.top - 256` — comes entirely from
+   `UserBehavior.next()`'s off-screen-bounds recovery firing on the mascot's very next tick
+   (already ported as `BehaviorAI.respawnAndFall`, from Pass 1/Pass 6-era work — we'd already
+   faithfully ported this exact mechanism for the *recovery* case without recognizing it was also
+   the *only* real spawn mechanism). There is no real "appears already standing in view" spawn
+   behavior at all — every mascot's first visible moment is always falling in from off the top of
+   the screen. `Stage.spawnMascot`'s default position (fixed centered x, fixed y=160, "so it's
+   fully visible immediately") was an invented UX choice made before this file had been read in
+   full. Fixed: a spawn with no explicit position (the command, the "Add another Shimeji" menu
+   item, auto-spawn-on-load — every case except Breed/duplicate, which always pass an exact
+   parent-relative position) now spawns at a random x across the viewport, `y=-256`, and is born
+   directly into "Fall" — exactly mirroring `respawnAndFall`. Also confirmed (no change needed):
+   `ImagePairLoader.java`'s load-time bitmap-flip mirroring is mathematically equivalent to our
+   CSS-transform-origin approach, and `NativeFactory.java`'s actual platform implementation isn't
+   present anywhere in this source mirror, which strengthens rather than weakens the existing
+   activeIE-out-of-scope decision. See the "Out of scope" section below for the full per-file
+   rundown — every file in the real source tree has now actually been opened and read, not just
+   the core simulation subset.
 
 ## Open live-bug reports (need user diagnostics, not more audit)
 
@@ -236,10 +283,14 @@ Both have `window.shimejiDebug` tooling ready (see README) but no repro data gat
 
 ## Next steps, in priority order
 
-1. Test/verify/commit/push Pass 6 (this file + the Location.java/release-velocity/Thrown fixes).
-2. Re-test the two open live-bug reports now that Passes 3-6 have landed.
-3. **Every file in this tracker is now ✅/🐛/📖/⛔ — no `❓` rows remain.** The systematic,
-   file-by-file part of the audit is done. What's left is: re-auditing anything a *future* real
-   source update changes, and staying skeptical of any comment (ours) that says "no ground truth
-   found" or "approximated" — Passes 5 and 6 both came from doubting exactly that kind of claim
-   rather than trusting it, and both turned up real, previously-unverified bugs.
+1. Test/verify/commit/push Pass 7 (this file + the Stage.spawnMascot fall-in-from-above fix).
+2. Re-test the two open live-bug reports now that Passes 3-7 have landed.
+3. **Every file in the real source tree has now actually been opened and read — not just the
+   core simulation subset, the Swing/AWT/JNA GUI files too.** No `❓` rows remain anywhere, and
+   the "out of scope" list is no longer split into "opened" vs. "inferred" tiers — it's just
+   "opened." What's left is: re-auditing anything a *future* real source update changes, and
+   staying skeptical of any comment (ours) that says "no ground truth found" or "approximated" —
+   Passes 5, 6, and 7 all came from doubting exactly that kind of claim rather than trusting it,
+   and all three turned up real, previously-unverified bugs. If another one ever turns up the
+   same way, it's a sign to re-read this whole file's own status column with fresh suspicion
+   rather than assume Pass 7 was really the last one.

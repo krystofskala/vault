@@ -27,9 +27,11 @@ export interface StageOptions {
 
 const FIXED_DT = ENGINE_FIXED_TICK_MS / 1000;
 const MAX_FRAME_TIME = 0.25;
-/** Default drop point for a manually-spawned mascot: clear of both the ceiling ledge's own
- * y-coordinate (see the spawn-position note in spawnMascot) and typical sprite heights, so it's
- * fully visible immediately rather than mostly clipped above the top of the window. */
+/** Matches UserBehavior.next()'s own off-screen recovery constant (`screen.top - 256`) — see
+ * the spawn-position note on spawnMascot. */
+const FALL_SPAWN_Y = -256;
+/** Fallback drop point on the defensive path where a caller supplies only one of x/y; no call
+ * site in this codebase actually does that today (every real spawn passes both or neither). */
 const DEFAULT_SPAWN_Y = 160;
 
 /** Owns the full-window overlay, the fixed-timestep simulation loop, and every mascot instance. */
@@ -179,24 +181,33 @@ export class Stage {
 	}
 
 	/**
-	 * Spawns a new mascot. `x`/`y` default to a fixed drop point when omitted (used for manual
-	 * spawns, which then fall under gravity); Breed passes an exact offset position instead.
-	 * Not y=0: that coincides with the ceiling ledge's own y-coordinate, so a pack's
-	 * ceiling.isOn(anchor) geometric check couldn't tell a freshly-spawned mascot apart from one
-	 * legitimately attached to the ceiling. Not a too-small offset either: real sprites anchor
-	 * near the bottom of a ~130-170px image, so a shallow offset leaves most of the sprite
-	 * clipped above the top of the window until it falls far enough to be fully visible.
+	 * Spawns a new mascot. With no `x`/`y` (every manual spawn: the command, the "Add another
+	 * Shimeji" menu item, auto-spawn-on-load), this mirrors the real engine's own spawn path
+	 * instead of dropping the mascot in already standing in view: Main.createMascot() always
+	 * creates off-screen at a fixed anchor (-1000,-1000), and the very next UserBehavior.next()
+	 * tick finds it "out of screen bounds" and relocates it to a random x above the top edge
+	 * before forcing Fall — see BehaviorAI.respawnAndFall, which ports that identical recovery
+	 * for the identical reason. Every real mascot's first visible moment is falling in from off
+	 * the top of the screen at a uniformly random x; the intermediate weighted-random behavior
+	 * buildBehavior(null, mascot) picks first is skipped here since it's just as invisible in
+	 * the original — it starts running while still off-screen and is overridden before the next
+	 * real frame. Breed passes an exact parent-relative x/y instead (BornX/BornY) and must not
+	 * be redirected to a random position.
 	 */
 	spawnMascot(x?: number, y?: number, bornBehaviorName?: string, parent?: Mascot): Mascot | undefined {
 		if (this.mascots.length >= this.opts.maxMascots) return undefined;
 		const viewport = this.environment.getViewportSize();
-		const mascot = this.createMascot(x ?? viewport.width / 2, y ?? DEFAULT_SPAWN_Y);
+		const spawningFresh = x === undefined && y === undefined;
+		const mascot = this.createMascot(
+			spawningFresh ? this.rng.range(0, viewport.width) : x ?? viewport.width / 2,
+			spawningFresh ? FALL_SPAWN_Y : y ?? DEFAULT_SPAWN_Y,
+		);
 		// Real Breed.breed(): `mascot.setLookRight(getMascot().isLookRight())` — a new sibling
 		// always starts facing the same way its parent was, not the engine's usual default.
 		if (parent) mascot.physics.facing = parent.physics.facing;
 		this.mascots.push(mascot);
 		this.container.appendChild(mascot.el);
-		this.opts.onMascotCreated?.(mascot, bornBehaviorName, parent);
+		this.opts.onMascotCreated?.(mascot, spawningFresh ? "Fall" : bornBehaviorName, parent);
 		return mascot;
 	}
 

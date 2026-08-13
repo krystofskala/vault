@@ -214,6 +214,30 @@ their original tick units and only become pixels-per-second at each one's own po
 consumption, so the runtime-computed cursor velocity has to follow the identical convention or it
 gets converted twice.
 
+**A seventh pass, prompted by another direct challenge — "is every file actually checked, file by
+file?"** — read every remaining file that had only ever been categorized by name and role and
+never actually opened: the Swing character-picker dialog, the AWT image-loading/mirroring
+classes, the JNA/OS-native dispatch factory, logging setup, and the rest of `Main.java` beyond the
+tray-menu section an earlier pass had already read. Nearly all of it confirmed exactly as
+expected — pure GUI/logging plumbing with no mascot-behavior logic hiding inside, the same shape
+as everything the fifth pass's `Main.java` scare had already trained suspicion on. But the rest of
+`Main.java` turned up one more real bug: `createMascot()` creates every new mascot off-screen at a
+fixed anchor, `(-1000,-1000)` — nowhere near any real on-screen position. What actually puts a
+freshly spawned mascot somewhere visible is `UserBehavior.next()`'s off-screen-bounds recovery,
+firing on the very next tick: relocate to a random x, drop it in from just above the top of the
+screen, force `Fall`. This plugin had already ported that exact mechanism faithfully — but only
+for its role as a *recovery* path (a mascot that drifts entirely off-screen mid-behavior), without
+recognizing it doubles as the *only* real spawn mechanism there is. There is no such thing, in the
+real engine, as a mascot that simply appears already standing in view — every one of them is
+falling in from off the top of the screen at a random x, every time. Spawning here instead dropped
+a new mascot in already inside the window, horizontally centered, at a fixed height chosen purely
+so it wouldn't look clipped — a reasonable-sounding invented default, picked before this file had
+ever been read in full. A manual spawn (the command, the "Add another Shimeji" menu item,
+auto-spawn-on-load) now falls in from off-screen exactly like the original; Breed/duplicate, which
+always specify their own exact parent-relative position, are unaffected. With this file-by-file
+sweep done, every file in the real engine's source tree has now actually been opened and read —
+Swing/AWT/JNA GUI plumbing included, not just the core simulation subset.
+
 - **A real `actions.xml`/`behaviors.xml` interpreter**, verified directly against the actual
   standard shimeji-ee conf files (checked into `Shimeji/conf/`) — Sequence/Select/Animate/
   Move/Embedded actions, condition-gated Animation variants (e.g. ClimbWall's up-vs-down

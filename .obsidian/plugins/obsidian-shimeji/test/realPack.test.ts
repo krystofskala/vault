@@ -133,8 +133,8 @@ describe("real standard Shimeji-ee pack", () => {
 		const pack: MascotPack = { id: "real", name: "Real Shimeji", actions, behaviors, resolveImage: (p) => `resolved:${p}` };
 		const ai = new BehaviorAI(pack, new Random(1));
 		const mascot = {
-			// y=160, matching Stage's actual spawn point — not y=0, which coincides with the
-			// ceiling ledge's own y-coordinate and would make ceiling.isOn(anchor) look true.
+			// y=160: comfortably above the floor below but off the exact ceiling-ledge
+			// y-coordinate (not y=0), which would make ceiling.isOn(anchor) spuriously true.
 			physics: { x: 400, y: 160, vx: 0, vy: 0, facing: 1 as const, grounded: false },
 			stateElapsedMs: 0,
 			setVisualImage: () => {},
