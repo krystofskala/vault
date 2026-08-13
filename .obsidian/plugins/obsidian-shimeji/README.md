@@ -493,14 +493,30 @@ autosaved, one click of "back" away).
 
 ## Commands / UI
 
+Real shimeji-ee actually has *two* separate menus, not one — the desktop tray icon (global,
+every character) and each mascot's own right-click menu (`Mascot.java`'s own popup, scoped to
+just that mascot's character for "Reduce to One!"/"Follow Mouse!" specifically — genuinely
+different real methods, `Manager.remainOne()`/`setBehaviorAll(...)` vs. their `imageSet`-scoped
+overloads, not the same feature duplicated). This plugin mirrors that split: commands are the
+global/tray equivalent, the per-mascot context menu is character-scoped where the original is.
+
 - Ribbon icon (cat): removes every mascot if any are on screen, otherwise spawns the
   auto-spawn count.
-- Commands: "Spawn mascot", "Remove mascot" (the most recently spawned one), "Remove all
-  mascots", "Make all mascots follow the mouse", "Restore thrown windows" (see "Window
-  mischief" above), "Rescan pack folder" (re-reads the pack folder after you add/change files).
-- Right-click a mascot for its own menu: switch its character, jump it straight to a named
-  behavior, duplicate it, remove it, remove everyone, add another, make everyone follow the
-  mouse, restore thrown windows, or open plugin settings.
+- Commands (global, matching the tray icon): "Spawn mascot" (random character), "Remove mascot"
+  (the most recently spawned one), "Remove all mascots", "Reduce to one mascot" (keeps the
+  *oldest* one, every character), "Make all mascots follow the mouse", "Restore thrown windows"
+  (see "Window mischief" above), "Rescan pack folder" (re-reads the pack folder after you
+  add/change files).
+- Right-click a mascot for its own menu (matching the real per-mascot popup, plus "Switch
+  character" — a plugin-only convenience with no real analog, since a real mascot's character is
+  fixed for its lifetime): duplicate it (spawns another of the *same* character next to it —
+  real shimeji-ee's own per-mascot "Another One!" instead drops a random-position/random-facing
+  one in from off-screen like a fresh spawn; this plugin's version is a deliberate small UX
+  improvement, not a missing feature), remove it, remove everyone, reduce *this character* to
+  one (keeps the *newest* mascot of that character — the real per-character overload keeps the
+  opposite end from the global command above, confirmed by reading both, not assumed
+  symmetric), make *this character* follow the mouse, switch its character, jump it straight to
+  a named behavior, restore thrown windows, or open plugin settings.
 - Settings: pack folder + rescan; per-character on/off toggles under **Characters** (a new
   mascot picks randomly among the ones turned on); a **Custom animations & reactions** editor
   per character (see above); population controls (spawn/remove-all buttons, max mascots on

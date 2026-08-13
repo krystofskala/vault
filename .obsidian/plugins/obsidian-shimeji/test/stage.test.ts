@@ -76,3 +76,46 @@ describe("Stage.spawnMascot", () => {
 		stage.destroy();
 	});
 });
+
+describe("Stage.removeAllButOne", () => {
+	// Real Manager.remainOne(): disposes every mascot except the *first* (oldest) one — a
+	// distinct primitive from removeAllMascots (real "Bye Everyone!", zero left), previously
+	// missing entirely (the two had been conflated).
+	it("keeps the oldest mascot and removes the rest", () => {
+		const stage = makeStage();
+		const first = stage.spawnMascot(100, 100)!;
+		stage.spawnMascot(200, 100)!;
+		stage.spawnMascot(300, 100)!;
+		expect(stage.getMascots()).toHaveLength(3);
+
+		stage.removeAllButOne();
+
+		expect(stage.getMascots()).toEqual([first]);
+		stage.destroy();
+	});
+
+	it("is a no-op on an empty stage", () => {
+		const stage = makeStage();
+		stage.removeAllButOne();
+		expect(stage.getMascots()).toHaveLength(0);
+		stage.destroy();
+	});
+
+	// Real remainOne(imageSet) (the per-mascot right-click menu's own "Reduce to One!", scoped
+	// to that mascot's character) genuinely keeps the *opposite* end from the no-filter overload:
+	// the newest matching mascot, not the oldest — confirmed by reading both literally, not
+	// assumed symmetric. Non-matching mascots (other characters) are untouched either way.
+	it("with a filter, keeps the newest matching mascot and leaves non-matching ones alone", () => {
+		const stage = makeStage();
+		const catA1 = stage.spawnMascot(10, 10)!;
+		const dogA = stage.spawnMascot(20, 10)!; // a different "character" — untouched throughout
+		const catA2 = stage.spawnMascot(30, 10)!;
+		const catA3 = stage.spawnMascot(40, 10)!; // newest of the "cat" group — should be kept
+		const cats = new Set([catA1, catA2, catA3]);
+
+		stage.removeAllButOne((m) => cats.has(m));
+
+		expect(stage.getMascots()).toEqual([dogA, catA3]);
+		stage.destroy();
+	});
+});

@@ -124,9 +124,9 @@ Cross-checked every function call actually used across `actions.xml`/`behaviors.
 
 | File | Status | Notes |
 |---|---|---|
-| `Manager.java` | ✅ | Fixed 40ms tick (matches `ENGINE_FIXED_TICK_MS`), pending-add/remove buffering (Java concurrent-collection safety, irrelevant to single-threaded JS), two-phase tick-then-apply over all mascots. One confirmed-harmless divergence: a Breed-spawned sibling pushed onto `Stage.mascots` mid-iteration gets its own `simulate()` call in the *same* tick it's born (JS `for...of` observes live array growth; real Manager defers new mascots to the next tick via its `added` set). Fully-initialized by the time this happens, so not a crash risk — just one 40ms-early tick for a newborn. Not worth chasing. |
-| `Mascot.java` | ✅ | `tick()`/`catch (LostGroundException)`, breed/facing plumbing all previously audited and ported. |
-| `Main.java` | 🐛 | **Wrongly written off wholesale as "Java-desktop-only" on the first pass — it isn't.** Its AWT/Swing tray-icon *construction* is out of scope (no Obsidian analog needed), but the menu-item wiring inside it is the real ground truth for how several behaviors actually get triggered. `getManager().setBehaviorAll("ChaseMouse")`, bound to a "Follow Mouse!" tray item, is the *only* way ChaseMouse ever runs in the real engine — no autonomous/spontaneous trigger exists at all. See Pass 5. (`remainOne()`/`createMascot()`, bound to "Reduce to One!"/"Another One!", already have faithful analogs in our own "Remove all Shimejis"/"Add another Shimeji" menu items — confirms those were right, not just convenient.) Read in full in Pass 7 (previously only the tray-menu slice had been read): `createMascot(String)` sets the fresh mascot's anchor to a fixed off-screen point `(-1000,-1000)`, never anything on-screen — it's `UserBehavior.next()`'s off-screen recovery (already ported, see `behavior/UserBehavior.java` row) that actually relocates it, on the mascot's very next tick, to a random x above the screen top and forces Fall. Every real mascot's first visible moment is falling in from off the top of the screen at a random x; there is no separate "appears already standing in view" spawn behavior at all. Our `Stage.spawnMascot` invented one anyway (fixed centered x, fixed y=160) before this file was read in full — fixed, see Pass 7. Also confirmed: the no-arg `createMascot()` random-pack-selection (`(int)(length*Math.random())`) already matches our pre-existing `pickPackId()` exactly — no change needed there. |
+| `Manager.java` | 🐛 | Fixed 40ms tick (matches `ENGINE_FIXED_TICK_MS`), pending-add/remove buffering (Java concurrent-collection safety, irrelevant to single-threaded JS), two-phase tick-then-apply over all mascots. One confirmed-harmless divergence: a Breed-spawned sibling pushed onto `Stage.mascots` mid-iteration gets its own `simulate()` call in the *same* tick it's born (JS `for...of` observes live array growth; real Manager defers new mascots to the next tick via its `added` set). Fully-initialized by the time this happens, so not a crash risk — just one 40ms-early tick for a newborn. Not worth chasing. **`remainOne()`/`remainOne(imageSet)` — found genuinely missing in Pass 9, not just "already covered" as Pass 5 had incorrectly claimed.** `remainOne()` (no filter, tray's "Reduce to One!") keeps the mascot at index 0 (oldest) and disposes every other mascot regardless of character — a *third*, distinct population primitive from `disposeAll()` ("Bye Everyone!", zero left) that had been conflated with it. `remainOne(imageSet)` (the per-mascot menu's own "Reduce to One!", see `Mascot.java` row) is scoped to that mascot's character *and keeps the opposite end* — it scans backward from the newest mascot and keeps the first (i.e. newest) one matching `imageSet`, disposing only older matches; non-matching mascots are untouched. Confirmed by reading both loop bodies literally — the asymmetry is real, not a misreading. Both now ported: `Stage.removeAllButOne(matches?)`. |
+| `Mascot.java` | 🐛 | `tick()`/`catch (LostGroundException)`, breed/facing plumbing all previously audited and ported. **Missed until Pass 9: `showPopup()` builds a second, complete right-click menu**, separate from the tray's — "Another One!" (this character specifically, not random), "Bye Bye!", "Follow Mouse!", "Reduce to One!", "Restore IE!", a Behaviors submenu, "Bye Everyone!". The last four are shared verbatim with the tray menu *by name*, but "Follow Mouse!" and "Reduce to One!" here call character-scoped overloads (`setBehaviorAll(config, name, imageSet)`, `remainOne(imageSet)`) — genuinely different from the tray's own global ones, not the same feature shown twice. See `Manager.java` row and Pass 9. |
+| `Main.java` | 🐛 | **Wrongly written off wholesale as "Java-desktop-only" on the first pass — it isn't.** Its AWT/Swing tray-icon *construction* is out of scope (no Obsidian analog needed), but the menu-item wiring inside it is the real ground truth for how several behaviors actually get triggered. `getManager().setBehaviorAll("ChaseMouse")`, bound to a "Follow Mouse!" tray item, is the *only* way ChaseMouse ever runs in the real engine — no autonomous/spontaneous trigger exists at all. See Pass 5. Read in full in Pass 7 (previously only the tray-menu slice had been read): `createMascot(String)` sets the fresh mascot's anchor to a fixed off-screen point `(-1000,-1000)`, never anything on-screen — it's `UserBehavior.next()`'s off-screen recovery (already ported, see `behavior/UserBehavior.java` row) that actually relocates it, on the mascot's very next tick, to a random x above the screen top and forces Fall. Every real mascot's first visible moment is falling in from off the top of the screen at a random x; there is no separate "appears already standing in view" spawn behavior at all. Our `Stage.spawnMascot` invented one anyway (fixed centered x, fixed y=160) before this file was read in full — fixed, see Pass 7. Also confirmed: the no-arg `createMascot()` random-pack-selection (`(int)(length*Math.random())`) already matches our pre-existing `pickPackId()` exactly — no change needed there. **Pass 5's claim that `remainOne()` "already has a faithful analog in our own 'Remove all Shimejis'" was wrong and went unchecked until Pass 9 — see `Manager.java` row.** |
 
 ## Out of scope (⛔ — Java-desktop-only, no Obsidian analog)
 
@@ -294,6 +294,34 @@ inside any of them the way `Main.java` turned out to have.
    added to "Open live-bug reports" — the resize/throw mechanisms are the first things in this
    whole audit that couldn't be fully verified by reading source alone and need a live Obsidian
    window to confirm.
+9. **Pass 9** (2026-08-13) — prompted directly by "are there other things like pane throwing we
+   don't have ported?", asked right after Pass 8 landed. Rather than answer from memory, re-swept
+   this file's own remaining hedge language (grepped for "no analog"/"approximated"/"out of
+   scope") — that turned up nothing new beyond the two already-accepted multi-monitor exclusions
+   — and then checked something the per-file table doesn't naturally cover at all: whether every
+   *tray-menu item* actually has a correct, distinct mapping, not just *a* mapping. It didn't:
+   `Manager.remainOne()` ("Reduce to One!") had been asserted in Pass 5's own commentary to
+   already have "a faithful analog in our own 'Remove all Shimejis'" — never actually checked,
+   and wrong. `remainOne()` keeps the *oldest* mascot and disposes the rest; "Remove all
+   Shimejis" keeps *none* — a real engine feature had no implementation at all, hiding behind an
+   unverified claim that it was already covered. Following that thread further turned up
+   something bigger: `Mascot.java` has an entire *second* right-click menu (`showPopup()`,
+   distinct from the tray's), previously never read as its own thing. Two of its five items
+   share a name with the tray's but call *character-scoped* overloads instead — `remainOne(
+   imageSet)` (keeps the *newest* mascot of that character, the opposite end from the no-filter
+   version — confirmed by reading both loop bodies, not assumed symmetric) and `setBehaviorAll(
+   config, "ChaseMouse", imageSet)` (only that character's mascots join ChaseMouse). This
+   plugin's single context menu had been using the *global* semantics for both, since that's
+   all "Reduce to One!"/"Follow Mouse!" had ever been checked against. Fixed:
+   `Stage.removeAllButOne` now takes an optional filter (implementing both real overloads
+   correctly, including the keep-oldest-vs-keep-newest asymmetry), and the context menu's
+   versions are rescoped to the clicked mascot's own character (retitled "Reduce this character
+   to one"/"Make this character follow the mouse" so the scope is honest at a glance) while the
+   command palette keeps the global, tray-equivalent behavior. The real per-mascot "Another One!"
+   (this character, but random fall-in position/facing, not offset-from-parent) was *not*
+   changed to match exactly — "Duplicate this Shimeji" already covers "spawn the same character"
+   reasonably, and the position/facing difference is a minor, defensible UX choice rather than a
+   missing feature, unlike the two behavioral gaps above.
 
 ## Open live-bug reports (need user diagnostics, not more audit)
 
@@ -319,18 +347,19 @@ the last two are new as of Pass 8, genuinely untested rather than unconfirmed-by
 
 ## Next steps, in priority order
 
-1. Test/verify/commit/push Pass 8 (this file + PaneActions/ObsidianPaneActions + the
-   WalkWithIE/ThrowIE wiring + new settings).
-2. Live-test the two new Pass 8 entries in "Open live-bug reports" above — enable "Window
-   mischief" in a real desktop Obsidian window and confirm resize and throw both actually do
-   something, then report back so this file can move them from "live-bug report" to "confirmed."
-3. Re-test the two pre-existing open live-bug reports now that Passes 3-8 have landed.
+1. Test/verify/commit/push Pass 9 (this file + Stage.removeAllButOne's filter + the context
+   menu's character-scoping fix).
+2. Live-test the Pass 8 "Window mischief" entries in "Open live-bug reports" above — enable it
+   in a real desktop Obsidian window and confirm resize and throw both actually do something,
+   then report back so this file can move them from "live-bug report" to "confirmed."
+3. Re-test the two pre-existing open live-bug reports now that Passes 3-9 have landed.
 4. **Every file in the real source tree has now actually been opened and read — not just the
    core simulation subset, the Swing/AWT/JNA GUI files too.** No `❓` rows remain anywhere, and
    the "out of scope" list is no longer split into "opened" vs. "inferred" tiers — it's just
    "opened." What's left is: re-auditing anything a *future* real source update changes, and
-   staying skeptical of any comment (ours) that says "no ground truth found" or "approximated" —
-   Passes 5, 6, and 7 all came from doubting exactly that kind of claim rather than trusting it,
-   and all three turned up real, previously-unverified bugs. If another one ever turns up the
-   same way, it's a sign to re-read this whole file's own status column with fresh suspicion
-   rather than assume Pass 7 was really the last one.
+   staying skeptical of any comment (ours) that says "no ground truth found," "approximated," or
+   — Pass 9's own new lesson — "already has a faithful analog," without the specific claim ever
+   having been checked. Passes 5, 6, 7, and 9 all came from doubting exactly one of these kinds
+   of claims rather than trusting it, and all four turned up real, previously-unverified bugs. If
+   another one ever turns up the same way, it's a sign to re-read this whole file's own status
+   column with fresh suspicion rather than assume Pass 9 was really the last one.

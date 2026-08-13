@@ -96,6 +96,11 @@ export default class ShimejiPlugin extends Plugin {
 		this.addCommand({ id: "shimeji-spawn", name: "Spawn mascot", callback: () => this.spawnMascot() });
 		this.addCommand({ id: "shimeji-remove", name: "Remove mascot", callback: () => this.stage?.removeMascot() });
 		this.addCommand({ id: "shimeji-remove-all", name: "Remove all mascots", callback: () => this.stage?.removeAllMascots() });
+		// Real Main.java's "Reduce to One!" tray item (Manager.remainOne()) — a *third* distinct
+		// population command from "Another One!"/spawnMascot and "Bye Everyone!"/removeAllMascots,
+		// previously missing entirely (this had been incorrectly treated as a duplicate of
+		// "remove all" instead of its own real, real-mascot-keeping primitive).
+		this.addCommand({ id: "shimeji-reduce-to-one", name: "Reduce to one mascot", callback: () => this.stage?.removeAllButOne() });
 		this.addCommand({ id: "shimeji-follow-mouse", name: "Make all mascots follow the mouse", callback: () => this.followMouseAllMascots() });
 		this.addCommand({ id: "shimeji-rescan", name: "Rescan pack folder", callback: () => this.rescanPacks() });
 		// Real Main.java's "Restore IE!" tray item — always available regardless of the "Window
@@ -183,17 +188,25 @@ export default class ShimejiPlugin extends Plugin {
 	}
 
 	/** Real shimeji-ee has no autonomous/spontaneous ChaseMouse at all — it's exclusively
-	 * triggered by the desktop app's "Follow Mouse!" system-tray menu item
-	 * (`Main.java`: `getManager().setBehaviorAll("ChaseMouse")`), which forces every live mascot
-	 * onto it at once. This is the same thing: iterate every mascot and jump each straight to
-	 * its own pack's ChaseMouse behavior (a no-op for a mascot whose pack doesn't declare one,
-	 * or a placeholder with no driver at all — see Mascot.startNamedBehavior). */
-	followMouseAllMascots(): void {
+	 * triggered on demand, and by *two* separate real menus with different scopes, not one:
+	 * the tray's own "Follow Mouse!" (`Main.java`: `getManager().setBehaviorAll("ChaseMouse")`,
+	 * every live mascot regardless of character) and a mascot's own right-click "Follow Mouse!"
+	 * (`Mascot.java`'s own popup menu: `setBehaviorAll(config, "ChaseMouse", imageSet)`, only
+	 * mascots sharing *that* mascot's character). `onlyMatching` is that same distinction —
+	 * omitted for the command-palette/tray-equivalent case, passed for the per-mascot menu. */
+	followMouseAllMascots(onlyMatching?: (mascot: Mascot) => boolean): void {
 		if (!this.effectiveChaseMouseEnabled()) {
 			new Notice("Chase the mouse is disabled (see Settings), or unavailable on mobile.");
 			return;
 		}
-		for (const mascot of this.stage?.getMascots() ?? []) mascot.startNamedBehavior("ChaseMouse");
+		const mascots = this.stage?.getMascots() ?? [];
+		for (const mascot of onlyMatching ? mascots.filter(onlyMatching) : mascots) mascot.startNamedBehavior("ChaseMouse");
+	}
+
+	/** True when `other` wears the same character (pack, including "no pack"/placeholder) as
+	 * `mascot` — the filter both of the per-mascot menu's character-scoped items use. */
+	private sameCharacter(mascot: Mascot, other: Mascot): boolean {
+		return (this.mascotPackId.get(other) ?? null) === (this.mascotPackId.get(mascot) ?? null);
 	}
 
 	/** Re-validates every live mascot's pack assignment against the current settings (called
@@ -305,15 +318,34 @@ export default class ShimejiPlugin extends Plugin {
 				.setIcon("trash-2")
 				.onClick(() => this.stage?.removeAllMascots()),
 		);
-		// Real shimeji-ee's "Follow Mouse!" tray-menu item, the only real trigger ChaseMouse
-		// ever has — see followMouseAllMascots(). Hidden rather than shown-disabled here, same
-		// as "Switch character"/"Set behavior" below when there's nothing for them to do either.
+		// Real shimeji-ee actually has *two* separate "Reduce to One!"/"Follow Mouse!" items —
+		// the tray's own (global, every character — see the shimeji-reduce-to-one/
+		// shimeji-follow-mouse commands, which mirror those) and a *second*, distinct pair on
+		// each mascot's own right-click menu (`Mascot.java`'s showPopup), scoped to only that
+		// mascot's character. This single context menu stands in for the per-mascot one, so
+		// these two use the character-scoped real semantics, not the global ones — previously
+		// missing/conflated with the global versions entirely.
+		const sameCharacterCount = (this.stage?.getMascots() ?? []).filter((m) => this.sameCharacter(mascot, m)).length;
+		if (sameCharacterCount > 1) {
+			menu.addItem((item) =>
+				item
+					.setTitle("Reduce this character to one")
+					.setIcon("minus")
+					// Real remainOne(imageSet) keeps the *newest* matching mascot (scanning back
+					// from the end, first match wins) — genuinely the opposite end from the
+					// no-filter overload's "keep oldest", confirmed by reading both literally.
+					.onClick(() => this.stage?.removeAllButOne((m) => this.sameCharacter(mascot, m))),
+			);
+		}
+		// Real shimeji-ee's "Follow Mouse!", the only real trigger ChaseMouse ever has — see
+		// followMouseAllMascots(). Hidden rather than shown-disabled here, same as "Switch
+		// character"/"Set behavior" below when there's nothing for them to do either.
 		if (this.effectiveChaseMouseEnabled()) {
 			menu.addItem((item) =>
 				item
-					.setTitle("Make all Shimejis follow the mouse")
+					.setTitle("Make this character follow the mouse")
 					.setIcon("mouse-pointer-click")
-					.onClick(() => this.followMouseAllMascots()),
+					.onClick(() => this.followMouseAllMascots((m) => this.sameCharacter(mascot, m))),
 			);
 		}
 		// Real shimeji-ee's "Restore IE!" tray item — see restoreThrownWindows(). Shown whenever

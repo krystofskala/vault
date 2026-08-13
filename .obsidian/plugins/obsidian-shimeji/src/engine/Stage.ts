@@ -224,6 +224,36 @@ export class Stage {
 		this.mascots = [];
 	}
 
+	/**
+	 * Real Manager.remainOne()/remainOne(imageSet) ("Reduce to One!" in *both* the tray menu and
+	 * a mascot's own right-click menu — see Mascot.java's showPopup, a second, separate
+	 * per-mascot context menu the real engine has that this plugin's single context menu stands
+	 * in for). A distinct, third population primitive from removeAllMascots ("Bye Everyone!",
+	 * zero left) and spawnMascot ("Another One!") — previously missing entirely (conflated with
+	 * "remove all").
+	 *
+	 * The two real overloads genuinely differ on *which end* they keep, not just whether
+	 * they're filtered — confirmed by reading both literally, not assumed symmetric:
+	 * - No `matches` (global, tray-level): keeps the *oldest* mascot (index 0), disposes
+	 *   everyone else regardless of character.
+	 * - With `matches` (per-mascot menu, scoped to that mascot's own character): keeps the
+	 *   *newest* mascot satisfying it, disposes only *other* satisfying mascots — anything not
+	 *   matching (other characters) is left completely untouched.
+	 */
+	removeAllButOne(matches?: (mascot: Mascot) => boolean): void {
+		if (!matches) {
+			const [keep, ...rest] = this.mascots;
+			for (const m of rest) m.destroy();
+			this.mascots = keep ? [keep] : [];
+			return;
+		}
+		const matching = this.mascots.filter(matches);
+		if (matching.length <= 1) return;
+		const toRemove = new Set(matching.slice(0, -1)); // all but the newest (last) match
+		for (const m of toRemove) m.destroy();
+		this.mascots = this.mascots.filter((m) => !toRemove.has(m));
+	}
+
 	getMascots(): readonly Mascot[] {
 		return this.mascots;
 	}
