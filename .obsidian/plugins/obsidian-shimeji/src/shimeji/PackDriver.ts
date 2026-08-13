@@ -1,4 +1,5 @@
 import type { Mascot, MascotDriver } from "../engine/Mascot";
+import type { PaneActions } from "../engine/PaneActions";
 import { Random } from "../engine/Random";
 import type { AmbientPointer, EngineConfig, Ledge, NativeStateName } from "../engine/types";
 import { BehaviorAI } from "./BehaviorAI";
@@ -20,12 +21,12 @@ const STATE_TO_ACTION: Partial<Record<NativeStateName, string>> = {
 export class PackDriver implements MascotDriver {
 	private readonly ai: BehaviorAI;
 
-	constructor(private pack: MascotPack, private config: EngineConfig, private rng: Random) {
+	constructor(private pack: MascotPack, private config: EngineConfig, private rng: Random, private paneActions?: PaneActions) {
 		this.ai = new BehaviorAI(pack, rng);
 	}
 
 	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer): void {
-		this.ai.tick(mascot, dt, ledges, ambientPointer, this.config);
+		this.ai.tick(mascot, dt, ledges, ambientPointer, this.config, this.paneActions);
 	}
 
 	renderState(mascot: Mascot, state: NativeStateName, elapsedMs: number, ambientPointer: AmbientPointer): boolean {
@@ -63,7 +64,7 @@ export class PackDriver implements MascotDriver {
 	}
 
 	startNamedBehavior(mascot: Mascot, name: string, ambientPointer: AmbientPointer): void {
-		this.ai.forceBehavior(name, mascot, ambientPointer, this.config);
+		this.ai.forceBehavior(name, mascot, ambientPointer, this.config, this.paneActions);
 	}
 
 	listBehaviorNames(): string[] {

@@ -1,11 +1,13 @@
 import { findCeilingAt } from "../engine/Ledges";
 import type { Mascot } from "../engine/Mascot";
 import { applyGravityAndLand, findClingableWall } from "../engine/nativeBehaviors";
-import type { EngineConfig, Ledge, MascotPhysics } from "../engine/types";
+import type { PaneActions, ThrownWindowHandle } from "../engine/PaneActions";
+import type { EngineConfig, Ledge, MascotPhysics, PaneRef, Rect } from "../engine/types";
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "./constants";
 import { evaluate, evaluateCondition, parseParamValue, withLocals, type ExprContext, type ExprValue } from "./Expression";
-import { applyNativeEmbedded } from "./nativeAdapter";
+import { applyNativeEmbedded, paramOrDefault } from "./nativeAdapter";
 import { pickLoopingPose } from "./poseUtil";
+import { resolveActivePaneLedge } from "./RuntimeContext";
 import type { ActionDef, MascotPack, PoseDef } from "./types";
 
 export interface PushEnv {
@@ -13,6 +15,7 @@ export interface PushEnv {
 	ctx: ExprContext;
 	ambient: { x: number; y: number };
 	config: EngineConfig;
+	paneActions?: PaneActions;
 }
 
 interface Frame {
@@ -32,6 +35,25 @@ interface Frame {
 	/** Breed only: guards requestSibling so a multi-Pose birth animation spawns exactly one
 	 * sibling on its first tick rather than once per pose frame. */
 	bredAlready: boolean;
+	/** ThrowIE only: the popped-out real window this specific throw is driving, once begun (see
+	 * PaneActions.beginThrow) — cached on the frame so a multi-tick throw pops the pane out
+	 * exactly once and keeps moving the same window, not a fresh one every tick. */
+	thrownWindow?: ThrownWindowHandle | null;
+	/** ThrowIE only: this throw's own locally-tracked window position, seeded from the grabbed
+	 * pane's rect the moment the throw begins and advanced every tick by the real per-tick
+	 * ballistic formula (see tickThrowIE) — mirrors real ThrowIE.tick() reading activeIE's own
+	 * *current* left/top each call, without needing a round trip back through PaneActions just
+	 * to ask where the window currently is. */
+	thrownPos?: { x: number; y: number };
+	/** FallWithIE/WalkWithIE/ThrowIE only, otherwise always inherited unchanged from the parent
+	 * frame (see pushAction): which real pane this Sequence has "grabbed" for the whole
+	 * jump-carry-throw chain, resolved once (a mascot is only ever touching the pane at the
+	 * instant it grabs on — by the WalkWithIE/ThrowIE phases it's back on the floor below,
+	 * walking, so re-resolving activeIE by touch at *those* points would find nothing). `Rect`
+	 * travels alongside it so ThrowIE can seed thrownPos without needing to ask the opaque
+	 * `paneRef` for its own geometry. */
+	grabbedPaneRef?: PaneRef;
+	grabbedPaneRect?: Rect;
 }
 
 const DEFERRED_PARAMS = new Set(["TargetX", "TargetY", "Duration"]);
@@ -107,6 +129,7 @@ export class ActionRunner {
 		const locals = resolveLocals(overrides, env.ctx);
 		const ctxWithLocals = withLocals(env.ctx, locals);
 		const poses = this.chooseAnimation(def, ctxWithLocals);
+		const parent = this.stack[this.stack.length - 1];
 		const frame: Frame = {
 			action: def,
 			poses,
@@ -119,7 +142,19 @@ export class ActionRunner {
 			holdElapsedMs: 0,
 			instantComplete: false,
 			bredAlready: false,
+			grabbedPaneRef: parent?.grabbedPaneRef,
+			grabbedPaneRect: parent?.grabbedPaneRect,
 		};
+
+		// The one moment a mascot is actually touching the pane it's about to carry off and
+		// throw — see the grabbedPaneRef/grabbedPaneRect field comments on Frame.
+		if (def.embeddedName === "FallWithIE" || def.embeddedName === "WalkWithIE" || def.embeddedName === "ThrowIE") {
+			const grabbed = resolveActivePaneLedge(env.mascot.physics);
+			if (grabbed?.paneRef !== undefined && grabbed.rect) {
+				frame.grabbedPaneRef = grabbed.paneRef;
+				frame.grabbedPaneRect = grabbed.rect;
+			}
+		}
 
 		if (def.type === "Move" && numOrUndefined(locals.TargetX) !== undefined) {
 			env.mascot.physics.facing = (locals.TargetX as number) >= env.mascot.physics.x ? 1 : -1;
@@ -206,7 +241,12 @@ export class ActionRunner {
 			case "Move":
 				return this.tickMove(frame, env, dt, ledges);
 			case "Embedded":
-				if (frame.action.embeddedName === "WalkWithIE") return this.tickMove(frame, env, dt, ledges);
+				// WalkWithIE/RunWithIE ("carry the window along while walking" in the real
+				// engine): the mascot's own movement is still exactly real Move physics
+				// (BorderType="Floor", same walk-toward-TargetX as any other Move), tickWalkWithIE
+				// only adds the pane-resize side effect on top — see its own comment for why
+				// that's what "carrying" means here instead of repositioning.
+				if (frame.action.embeddedName === "WalkWithIE") return this.tickWalkWithIE(frame, env, dt, ledges);
 				if (frame.action.embeddedName === "Breed") return this.tickBreed(frame, env, dt, ledges);
 				// Regist (e.g. the real pack's "Resisting", a struggle animation nested inside
 				// Dragged): every real-pack Pose under it is Velocity="0,0" — it's a pure held
@@ -216,13 +256,12 @@ export class ActionRunner {
 				if (frame.action.embeddedName === "Regist") return this.tickHold(frame, env, dt, ledges);
 				// ThrowIE: real ThrowIE.java extends Animate, not Fall — its own tick() never
 				// touches the mascot's position at all (BorderType="Floor", every real-pack Pose
-				// under it is Velocity="0,0"), it only throws the *tracked window* out from under
-				// a stationary mascot, which has no equivalent here (see WalkWithIE/FallWithIE
-				// for the same activeIE-dragging concept, also not ported). Previously mapped to
-				// plain "Fall" alongside FallWithIE, which wrongly ran real falling physics on
-				// the mascot itself and cut the held "threw it" pose short the instant gravity's
-				// own landing check re-detected the floor already underfoot.
-				if (frame.action.embeddedName === "ThrowIE") return this.tickHold(frame, env, dt, ledges);
+				// under it is Velocity="0,0"); the mascot just holds its throwing pose exactly as
+				// tickHold already gives us (previously mapped to plain "Fall", which wrongly ran
+				// real falling physics on the mascot itself and cut the held pose short the
+				// instant gravity's own landing check re-detected the floor already underfoot).
+				// tickThrowIE adds the actual window-throwing side effect on top, when available.
+				if (frame.action.embeddedName === "ThrowIE") return this.tickThrowIE(frame, env, dt, ledges);
 				return this.tickEmbedded(frame, env, dt, ledges);
 			case "Stay":
 			case "Animate":
@@ -345,6 +384,50 @@ export class ActionRunner {
 		return frame.holdElapsedMs >= effectiveDurationMs;
 	}
 
+	/**
+	 * Real ThrowIE.tick(), on top of the ordinary held pose tickHold already gives it:
+	 * `moveActiveIE(new Point(activeIE.getLeft() ± getInitialVx(), activeIE.getTop() +
+	 * getInitialVy() + (int)(getTime() * getGravity())))`, called once per tick, unconditionally
+	 * (no dt scaling — Java's tick() *is* one fixed tick, same as this one in real usage). Sign
+	 * of the x term depends on facing (`isLookRight()`, our physics.facing===1); the y term
+	 * accumulates a growing per-tick offset as `getTime()` (ticks since this action started)
+	 * grows, which is what gives the real "rises then arcs down" throw shape despite there being
+	 * no explicit velocity/acceleration state anywhere — position is just recomputed fresh from
+	 * the *current* window position every tick. thrownPos tracks that "current position" locally
+	 * (seeded from the grabbed pane's rect) so this doesn't need to ask PaneActions where the
+	 * window currently is on every single tick.
+	 */
+	private tickThrowIE(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
+		const done = this.tickHold(frame, env, dt, ledges);
+
+		const paneActions = env.paneActions;
+		if (paneActions?.beginThrow && frame.grabbedPaneRef !== undefined && frame.grabbedPaneRect) {
+			if (frame.thrownWindow === undefined) {
+				frame.thrownWindow = paneActions.beginThrow(frame.grabbedPaneRef) ?? null;
+				if (frame.thrownWindow) frame.thrownPos = { x: frame.grabbedPaneRect.left, y: frame.grabbedPaneRect.top };
+			}
+			if (frame.thrownWindow && frame.thrownPos) {
+				// Real ThrowIE's InitialVX/InitialVY/Gravity are attributes on the Action's own
+				// definition (`<Action Name="ThrowIe" InitialVX="32" .../>`), not
+				// ActionReference-site overrides — unlike Thrown's InitialVX/VY (a genuine
+				// override, see applyEmbeddedStartEffects), so these read frame.action.params
+				// directly, the same convention nativeAdapter.ts uses for Fall's own
+				// Gravity/RegistanceX/Y. Defaults match ThrowIE.java's own DEFAULT_* constants.
+				const initialVX = paramOrDefault(frame.action.params, "InitialVX", 32);
+				const initialVY = paramOrDefault(frame.action.params, "InitialVY", -10);
+				const gravity = paramOrDefault(frame.action.params, "Gravity", 0.5);
+				const timeTicks = frame.holdElapsedMs / SHIMEJI_TICK_MS;
+				frame.thrownPos = {
+					x: frame.thrownPos.x + (env.mascot.physics.facing === 1 ? initialVX : -initialVX),
+					y: frame.thrownPos.y + initialVY + timeTicks * gravity,
+				};
+				frame.thrownWindow.moveTo(frame.thrownPos.x, frame.thrownPos.y);
+			}
+		}
+
+		return done;
+	}
+
 	/** Unlike tickHold/tickEmbedded (see currentPoses), this deliberately keeps frame.poses fixed
 	 * from push time instead of re-choosing every tick. A Move's poses carry real per-tick
 	 * velocity, not just an image — switching mid-walk to a variant with a different velocity
@@ -420,6 +503,28 @@ export class ActionRunner {
 			return false;
 		}
 		return true;
+	}
+
+	/**
+	 * Real WalkWithIE/RunWithIE, on top of the ordinary floor-walk tickMove already gives it:
+	 * every tick, the real class also repositions activeIE to stay glued to the mascot's own
+	 * anchor (`moveActiveIE(mascot.anchor.x - offsetX, mascot.anchor.y + offsetY -
+	 * activeIE.height)`, mirrored by facing) — the window is being dragged along the ground as
+	 * the mascot walks. Obsidian panes can't be freely repositioned like that (see
+	 * PaneActions.resizeBy's own comment), so this reinterprets "carrying the window along" as
+	 * resizing it instead: however far the mascot's own Move physics just moved it this tick is
+	 * exactly how much the pane grows or shrinks. This is *not* a literal port — shimeji-ee has
+	 * no resize concept — it's the closest real Obsidian equivalent to "I am doing something to
+	 * this specific window by walking with it."
+	 */
+	private tickWalkWithIE(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
+		const beforeX = env.mascot.physics.x;
+		const done = this.tickMove(frame, env, dt, ledges);
+		const deltaX = env.mascot.physics.x - beforeX;
+		if (deltaX !== 0 && frame.grabbedPaneRef !== undefined) {
+			env.paneActions?.resizeBy?.(frame.grabbedPaneRef, deltaX);
+		}
+		return done;
 	}
 
 	/**

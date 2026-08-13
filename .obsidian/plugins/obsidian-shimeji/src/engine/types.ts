@@ -12,15 +12,25 @@ export interface Rect {
 
 export type LedgeSource = "window" | "pane" | "statusbar";
 
+/** Opaque handle identifying a specific real pane, meaningless to engine/ or shimeji/ — neither
+ * layer ever looks inside it, only carries it from Environment.getPlatformRects() through to
+ * whichever PaneActions method eventually needs to act on that exact pane. The real
+ * (Obsidian-specific) Environment implementation populates this with an HTMLElement and the real
+ * PaneActions implementation is what actually knows that; everything in between just plumbs it
+ * through unchanged, the same way `rect` does. */
+export type PaneRef = unknown;
+
 /** `rect` (only ever set for pane-sourced ledges) points back at the full bounding box of the
  * pane this ledge was derived from — a floor/wall/ceiling ledge all sourced from the *same*
  * pane carry the *same* rect, so whichever one the mascot currently happens to be against, its
  * `mascot.environment.activeIE.*` (left/right/top/bottom/width/height) all resolve consistently
- * to that one pane, not whichever ledge answered a given query. */
+ * to that one pane, not whichever ledge answered a given query. `paneRef` travels alongside it
+ * for the same reason, for whenever something needs to actually *act* on that pane rather than
+ * just read its geometry — see engine/PaneActions.ts. */
 export type Ledge =
-	| { kind: "floor"; y: number; x1: number; x2: number; source: LedgeSource; rect?: Rect }
-	| { kind: "ceiling"; y: number; x1: number; x2: number; source: LedgeSource; rect?: Rect }
-	| { kind: "wall"; side: "left" | "right"; x: number; y1: number; y2: number; source: LedgeSource; rect?: Rect };
+	| { kind: "floor"; y: number; x1: number; x2: number; source: LedgeSource; rect?: Rect; paneRef?: PaneRef }
+	| { kind: "ceiling"; y: number; x1: number; x2: number; source: LedgeSource; rect?: Rect; paneRef?: PaneRef }
+	| { kind: "wall"; side: "left" | "right"; x: number; y1: number; y2: number; source: LedgeSource; rect?: Rect; paneRef?: PaneRef };
 
 export type FloorLedge = Extract<Ledge, { kind: "floor" }>;
 export type CeilingLedge = Extract<Ledge, { kind: "ceiling" }>;

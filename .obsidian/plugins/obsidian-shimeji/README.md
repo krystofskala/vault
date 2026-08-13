@@ -451,20 +451,63 @@ its editor.
 A custom action/behavior with the same name as a standard one (or another custom one) replaces
 it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml` directly.
 
+## Window mischief (experimental, off by default)
+
+Real shimeji-ee mascots can grab the OS window they're standing next to, carry it along while
+walking, and throw it — `WalkWithIE`/`RunWithIE`/`ThrowIE` in the real source, reachable
+autonomously whenever a mascot ends up on the ground below and to the side of a recognized
+window (real `Main.java`'s activeIE maps here to whichever pane the mascot is currently against —
+see "Approximated, not literal" above). Obsidian panes aren't free-floating OS windows, so this
+couldn't be a literal port, but it's not nothing either:
+
+- **Carrying a window along while walking is reinterpreted as resizing the pane** instead of
+  moving it — however far the mascot's own real walk physics moves it that tick is exactly how
+  much the pane grows or shrinks, in whichever direction its own layout actually resizes (a
+  side-by-side split resizes left/right, a stacked split resizes up/down — decided by the pane's
+  real layout, not hardcoded). This leans on Obsidian internals that aren't part of the
+  documented plugin API (confirmed working by reading the source of a real published plugin,
+  [`obsidian-resize-split`](https://github.com/RyotaUshio/obsidian-resize-split), that does the
+  same thing) — if a future Obsidian release changes them, resizing just quietly stops
+  happening, nothing else breaks.
+- **The throw itself is the real thing**: the pane pops into its own genuine OS window
+  (`Workspace.moveLeafToPopout`, desktop only) and gets thrown with the *exact* real ballistic
+  formula (`ThrowIE.java`'s own per-tick `InitialVX`/`InitialVY`/`Gravity`), driven by repeatedly
+  moving that real window. A "Restore thrown windows" command/menu item (real `Main.java`'s
+  "Restore IE!") brings every popped-out window back if one ends up somewhere inconvenient — the
+  original has the exact same escape hatch for the exact same reason.
+- **Off by default** (Settings → "Window mischief"), because unlike everything else this plugin
+  does autonomously, this can resize your actual layout or spawn a separate OS window without
+  asking first. Turn it on if you want the real chaos; the toggle is instant and reversible
+  (resizing) or one click away from reversible (restore).
+- **Genuinely untested, not just unverified-by-source** — see `SOURCE_AUDIT.md`'s "Open live-bug
+  reports": both the undocumented resize API and whether Obsidian's Electron process actually
+  lets a popped-out window be moved this way need a real desktop window to confirm, which this
+  headless environment can't provide. Please report back if either one doesn't visibly do
+  anything.
+
+Alongside this, and *not* a port of anything — shimeji-ee has no concept of files or vaults at
+all — **note mischief** (Settings → "Note mischief", also off by default) occasionally swaps in a
+random other note from your vault while a mascot happens to be standing on the pane you're
+actively working in. Purely for fun; nothing is lost (the file you were on is still there,
+autosaved, one click of "back" away).
+
 ## Commands / UI
 
 - Ribbon icon (cat): removes every mascot if any are on screen, otherwise spawns the
   auto-spawn count.
 - Commands: "Spawn mascot", "Remove mascot" (the most recently spawned one), "Remove all
-  mascots", "Rescan pack folder" (re-reads the pack folder after you add/change files).
+  mascots", "Make all mascots follow the mouse", "Restore thrown windows" (see "Window
+  mischief" above), "Rescan pack folder" (re-reads the pack folder after you add/change files).
 - Right-click a mascot for its own menu: switch its character, jump it straight to a named
-  behavior, duplicate it, remove it, remove everyone, add another, or open plugin settings.
+  behavior, duplicate it, remove it, remove everyone, add another, make everyone follow the
+  mouse, restore thrown windows, or open plugin settings.
 - Settings: pack folder + rescan; per-character on/off toggles under **Characters** (a new
   mascot picks randomly among the ones turned on); a **Custom animations & reactions** editor
   per character (see above); population controls (spawn/remove-all buttons, max mascots on
   screen, auto-spawn on startup and how many); behavior toggles (allow dragging, allow
-  breeding, chase-the-mouse); size; whether panes/status bar count as extra ledges; and a
-  debug overlay that draws the ledges mascots currently think they can stand on.
+  breeding, chase-the-mouse, window mischief, note mischief — see above); size; whether
+  panes/status bar count as extra ledges; and a debug overlay that draws the ledges mascots
+  currently think they can stand on.
 
 ## Development
 

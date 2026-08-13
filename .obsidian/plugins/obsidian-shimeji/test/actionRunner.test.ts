@@ -5,6 +5,7 @@ import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
 import { parseCondition } from "../src/shimeji/Expression";
 import { Random } from "../src/engine/Random";
 import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
+import type { MascotPhysics } from "../src/engine/types";
 import type { Mascot } from "../src/engine/Mascot";
 import type { ActionDef, AnimationVariant, BehaviorDef, MascotPack } from "../src/shimeji/types";
 
@@ -698,5 +699,147 @@ describe("BehaviorAI", () => {
 
 		expect(ai.currentBehaviorName).toBe("Fall");
 		expect(mascot.physics.y).toBe(-256);
+	});
+});
+
+describe("ActionRunner: WalkWithIE/ThrowIE real pane actions", () => {
+	const PANE_REF = { id: "pane-1" };
+	const PANE_RECT = { left: 100, top: 50, right: 500, bottom: 300 };
+
+	/** Grounded on a pane-sourced floor ledge, matching the one moment WalkWithIE/FallWithIE/
+	 * ThrowIE actually resolve activeIE by touch (see resolveActivePaneLedge/grabbedPaneRef). */
+	function mascotOnPane() {
+		const mascot = makeFakeMascot();
+		const physics = mascot.physics as MascotPhysics;
+		physics.grounded = true;
+		physics.currentFloor = { kind: "floor", y: 50, x1: 100, x2: 500, source: "pane", rect: PANE_RECT, paneRef: PANE_REF };
+		return mascot;
+	}
+
+	it("tickWalkWithIE resizes the grabbed pane by exactly the mascot's own per-tick walk delta", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"WalkWithIe",
+					action({
+						name: "WalkWithIe",
+						type: "Embedded",
+						embeddedName: "WalkWithIE",
+						borderType: "Floor",
+						animations: animOf([{ image: "/w.png", durationMs: 1000, velocity: { x: -50, y: 0 } }]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = mascotOnPane();
+		const env = envFor(pack, mascot);
+		const resized: Array<{ pane: unknown; deltaPx: number }> = [];
+		env.paneActions = { resizeBy: (pane, deltaPx) => resized.push({ pane, deltaPx }) };
+		runner.start("WalkWithIe", env, { TargetX: "9999" });
+
+		runner.tick(env, 0.04, []);
+
+		// facing=1 (right) flips pose.velocity's sign: -50px/s * -1 * 0.04s = 2px this tick.
+		expect(resized).toEqual([{ pane: PANE_REF, deltaPx: 2 }]);
+	});
+
+	it("tickWalkWithIE does nothing if the mascot never actually touched a pane (no grabbedPaneRef)", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"WalkWithIe",
+					action({
+						name: "WalkWithIe",
+						type: "Embedded",
+						embeddedName: "WalkWithIE",
+						borderType: "Floor",
+						animations: animOf([{ image: "/w.png", durationMs: 1000, velocity: { x: -50, y: 0 } }]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot(); // not on any pane
+		mascot.physics.grounded = true;
+		const env = envFor(pack, mascot);
+		const resized: unknown[] = [];
+		env.paneActions = { resizeBy: (...args) => resized.push(args) };
+		runner.start("WalkWithIe", env, { TargetX: "9999" });
+
+		runner.tick(env, 0.04, []);
+
+		expect(resized).toHaveLength(0);
+	});
+
+	it("tickThrowIE pops the grabbed pane out exactly once and drives it with the real per-tick ballistic formula", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"ThrowIe",
+					action({
+						name: "ThrowIe",
+						type: "Embedded",
+						embeddedName: "ThrowIE",
+						borderType: "Floor",
+						params: { InitialVX: "32", InitialVY: "-10", Gravity: "0.5" },
+						animations: animOf([{ image: "/t.png", durationMs: 2000 }]),
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = mascotOnPane();
+		mascot.physics.facing = 1; // isLookRight() true -> +InitialVX
+		const env = envFor(pack, mascot);
+		const moves: Array<{ x: number; y: number }> = [];
+		let beginThrowCalls = 0;
+		env.paneActions = {
+			beginThrow: (pane) => {
+				beginThrowCalls++;
+				expect(pane).toBe(PANE_REF);
+				return { moveTo: (x, y) => moves.push({ x, y }) };
+			},
+		};
+		runner.start("ThrowIe", env);
+
+		runner.tick(env, 0.04, []);
+		runner.tick(env, 0.04, []);
+
+		expect(beginThrowCalls).toBe(1); // popped out once, not once per tick
+		// Seeded from the grabbed pane's rect (100, 50), then advanced each tick by
+		// x += InitialVX (facing right), y += InitialVY + timeTicks*Gravity — timeTicks counted
+		// *after* this tick's own holdElapsedMs advance, matching tickThrowIE's own read order.
+		expect(moves).toEqual([
+			{ x: 132, y: 40.5 }, // 100+32, 50-10+1*0.5
+			{ x: 164, y: 31.5 }, // 132+32, 40.5-10+2*0.5
+		]);
+	});
+
+	it("tickThrowIE flips the x direction when facing left", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"ThrowIe",
+					action({ name: "ThrowIe", type: "Embedded", embeddedName: "ThrowIE", borderType: "Floor", animations: animOf([{ image: "/t.png", durationMs: 2000 }]) }),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = mascotOnPane();
+		mascot.physics.facing = -1;
+		const env = envFor(pack, mascot);
+		const moves: Array<{ x: number; y: number }> = [];
+		env.paneActions = { beginThrow: () => ({ moveTo: (x, y) => moves.push({ x, y }) }) };
+		runner.start("ThrowIe", env);
+
+		runner.tick(env, 0.04, []);
+
+		// Default InitialVX=32 (no override/own-param supplied): 100-32=68.
+		expect(moves).toEqual([{ x: 68, y: 40.5 }]);
 	});
 });

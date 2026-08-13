@@ -17,6 +17,16 @@ export interface ShimejiSettings {
 	allowDragging: boolean;
 	allowBreeding: boolean;
 	chaseMouseEnabled: boolean;
+	/** Real ThrowIE/WalkWithIE: a mascot that grabs a pane resizes it while "carrying" it, then
+	 * pops it into its own real OS window and throws that. Off by default — unlike every other
+	 * toggle here, this can genuinely resize your layout or spawn/fling a whole separate window
+	 * on its own, not just move a mascot around. See PaneActions/ObsidianPaneActions. */
+	allowWindowThrow: boolean;
+	/** Invented — shimeji-ee has no vault/note awareness at all. While a mascot happens to be on
+	 * the pane you're actively working in, occasionally swaps in a random other note from the
+	 * vault. Off by default for the same reason as allowWindowThrow: it changes what you're
+	 * looking at without asking. */
+	allowNoteMischief: boolean;
 	/** Hand-authored actions/behaviors, keyed by pack id, overlaid onto that pack's parsed
 	 * actions.xml/behaviors.xml — see CustomContentBuilder. */
 	customContent: Record<string, CustomPackContent>;
@@ -37,6 +47,8 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowDragging: true,
 	allowBreeding: true,
 	chaseMouseEnabled: true,
+	allowWindowThrow: false,
+	allowNoteMischief: false,
 	customContent: {},
 };
 
@@ -212,6 +224,35 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					this.plugin.settings.chaseMouseEnabled = value;
 					await this.plugin.saveSettings();
 					this.plugin.applyChaseMouseEnabled();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Window mischief")
+			.setDesc(
+				"Real shimeji-ee's mascots can pick up, carry, and throw the OS window they're standing next to. Obsidian panes can't be freely moved, so this reinterprets it: a mascot resizes the pane it's carrying, then pops it into its own real OS window and throws that (desktop only). Off by default — this can resize your layout or spawn a flung window with no confirmation.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.allowWindowThrow).onChange(async (value) => {
+					this.plugin.settings.allowWindowThrow = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Restore thrown windows")
+			.setDesc('Bring back every popped-out window a mascot has thrown — the equivalent of real shimeji-ee\'s "Restore IE!" tray item.')
+			.addButton((button) => button.setButtonText("Restore").onClick(() => this.plugin.restoreThrownWindows()));
+
+		new Setting(containerEl)
+			.setName("Note mischief")
+			.setDesc(
+				"Not a real shimeji-ee feature — shimeji-ee has no awareness of files or vaults at all. While a mascot happens to be standing on the pane you're actively working in, occasionally swaps in a random other note from the vault. Off by default.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.allowNoteMischief).onChange(async (value) => {
+					this.plugin.settings.allowNoteMischief = value;
+					await this.plugin.saveSettings();
 				}),
 			);
 

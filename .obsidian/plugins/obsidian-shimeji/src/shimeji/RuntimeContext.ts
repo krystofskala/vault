@@ -1,6 +1,22 @@
 import type { ExprContext, ExprValue } from "./Expression";
-import type { MascotPhysics } from "../engine/types";
+import type { Ledge, MascotPhysics } from "../engine/types";
 import type { Random } from "../engine/Random";
+
+/** Whichever single pane (if any) the mascot is currently against — floor takes precedence
+ * since it's the most common, most stable case; a mascot is never against more than one of
+ * these at once in practice, but if it somehow were, this is at least a consistent pick rather
+ * than an arbitrary one. Shared by createRuntimeContext (for reading activeIE's geometry) and
+ * ActionRunner (for actually *acting* on that same pane — see PaneActions) so both agree on
+ * exactly which pane "activeIE" currently means. */
+export function resolveActivePaneLedge(physics: MascotPhysics): Ledge | undefined {
+	const floor = physics.currentFloor?.kind === "floor" ? physics.currentFloor : undefined;
+	const wall = physics.currentWall?.kind === "wall" ? physics.currentWall : undefined;
+	const ceiling = physics.currentCeiling?.kind === "ceiling" ? physics.currentCeiling : undefined;
+	if (physics.grounded && floor?.source === "pane") return floor;
+	if (wall?.source === "pane") return wall;
+	if (ceiling?.source === "pane") return ceiling;
+	return undefined;
+}
 
 export interface AmbientPointer {
 	x: number;
@@ -47,11 +63,7 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 	const onPaneCeiling = ceiling?.source === "pane";
 	const EPS = 4;
 
-	// Whichever single pane (if any) the mascot is currently against — floor takes precedence
-	// since it's the most common, most stable case; a mascot is never against more than one of
-	// these at once in practice, but if it somehow were, this is at least a consistent pick
-	// rather than an arbitrary one.
-	const activePaneRect = onPaneFloor ? floor?.rect : onPaneWall ? wall?.rect : onPaneCeiling ? ceiling?.rect : undefined;
+	const activePaneRect = resolveActivePaneLedge(physics)?.rect;
 
 	const activeIE = activePaneRect
 		? {

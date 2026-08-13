@@ -59,7 +59,7 @@ cross-checked against `gil/shimeji-ee`).
 | `ComplexAction.java` / `Select.java` / `Sequence.java` | ✅ | `seek()`-driven child selection confirmed structurally equivalent to `tickSequence`/`tickSelect`. Per-child `Condition` comes from `ActionBase.hasNext()`, not a separate mechanism — matches `evaluateCondition(ref.condition, ctx)`. `Loop=` is a **Sequence-only** XML attribute in every real usage (confirmed via full-pack grep) — never used on Stay/Animate, which is exactly the wrong assumption the old `tickHold` was making before the 2026-08-12 fix. |
 | `Dragged.java` | ✅ | Fully ported earlier this session (`tickDragFootX`, fixed anchor offset, no lerp). |
 | `Fall.java` | ✅ | Wall-termination, per-tick facing update, real resistance/gravity defaults (0.05/0.1/2) all ported. Sub-pixel "HACK IE" stepping loop deliberately not ported (guards against a fast-moving *tracked window*, not applicable to stable panes). |
-| `FallWithIE.java` | ✅ | Extends `Fall`, only adds IE-window-drag side effects (`moveActiveIE`) we have no analog for. Mapping to plain `Fall` confirmed correct. |
+| `FallWithIE.java` | ✅ | Extends `Fall`. Its own `moveActiveIE` snaps the window to the mascot's current anchor every tick (an absolute "glue the window to my feet" recompute, not an accumulated delta) — this specific phase is a brief, `Velocity="0,0"` grab/attach pose, so that snap never actually moves anything in practice; the pane only starts changing once `WalkWithIE` begins actually walking (see its own row and Pass 8). Mapping the mascot's own physics to plain `Fall` remains correct. |
 | `InstantAction.java` | ✅ | `apply()` once at `init()`, `hasNext()` permanently false after. Matches `frame.instantComplete` (Look/Offset). |
 | `Jump.java` | ✅ | Constant-speed direction-vector recomputed every tick, not gravity. Ported as `tickJump`. |
 | `Look.java` | ✅ | Default `LookRight` is *toggle current facing*, not face-the-cursor. Fixed. |
@@ -67,8 +67,8 @@ cross-checked against `gil/shimeji-ee`).
 | `Offset.java` | ✅ | Plain unconditional `(x+X, y+Y)`, never flipped by facing. Confirmed matches. |
 | `Regist.java` | ✅ | Extends `ActionBase` directly (not Animate) — real "hold forever absent Duration" default is actually *correct* for it, unlike Breed/ThrowIE. Own `hasNext()` (cursor within 5px) and tick()-thrown `LostGroundException` are architecturally unreachable here (Dragged/Resisting render via a separate live-preview path with no interpreter tick during a drag) — documented dead path, not silently dropped. |
 | `Stay.java` | ✅ | No extra cap beyond ActionBase — holds/cycles until Duration/Condition end it. This is the half of the 2026-08-12 tickHold bug that mattered most (multi-Pose Stay actions were self-ending after one pass instead of holding). |
-| `ThrowIE.java` | 🐛 | **Extends `Animate`, not Fall.** Its own `tick()` never touches the mascot's position — `BorderType="Floor"`, single `Velocity="0,0"` pose — it only throws the *tracked window*. Was wrongly mapped to plain `Fall` (ran real falling physics on the mascot, which immediately "landed" again since it was already grounded, cutting the held pose short). Fixed 2026-08-12: routed through `tickHold` like Regist, added to the `selfCapsAtOneCycle` check like Breed. |
-| `WalkWithIE.java` | ✅ | Extends `Move`, adds IE-window-drag + IE-position-consistency `LostGroundException` checks. Mapping to plain `Move` (dropping the window-drag side effect) confirmed correct — same reasoning as FallWithIE. |
+| `ThrowIE.java` | 🐛 | **Extends `Animate`, not Fall.** Its own `tick()` never touches the mascot's position — `BorderType="Floor"`, single `Velocity="0,0"` pose — it only throws the *tracked window*: `moveActiveIE(activeIE.left ± InitialVX, activeIE.top + InitialVY + time*Gravity)`, called every tick, sign of the x term by facing. Was wrongly mapped to plain `Fall` (ran real falling physics on the mascot, which immediately "landed" again since it was already grounded, cutting the held pose short). Fixed 2026-08-12: routed through `tickHold` like Regist, added to the `selfCapsAtOneCycle` check like Breed. The window-throwing side effect itself — genuinely absent at the time of that fix — is now ported too, see Pass 8: `tickThrowIE` runs this exact formula against a real popped-out Obsidian window via `PaneActions.beginThrow`, gated behind the (default-off) "Window mischief" setting. |
+| `WalkWithIE.java` | ✅ | Extends `Move`, adds IE-window-drag + IE-position-consistency `LostGroundException` checks: every tick, `moveActiveIE` snaps the window's position to the mascot's current anchor (offset by IeOffsetX/Y) — an absolute recompute from live position, not an accumulated delta, "the window is glued to my feet as I walk." An Obsidian pane can't be freely repositioned like an OS window (no analog for *that* exact mechanic — confirmed, see NativeFactory's row below), so Pass 8 reinterprets "carrying" as resizing instead: `tickWalkWithIE` forwards the mascot's own per-tick walk delta (identical physics to plain `Move`, which the mascot-position mapping already correctly used) to `PaneActions.resizeBy`. This is a deliberate Obsidian-native adaptation, not a literal port — see PaneActions.ts's own comment. |
 
 ## `animation/`
 
@@ -269,10 +269,36 @@ inside any of them the way `Main.java` turned out to have.
    activeIE-out-of-scope decision. See the "Out of scope" section below for the full per-file
    rundown — every file in the real source tree has now actually been opened and read, not just
    the core simulation subset.
+8. **Pass 8** (2026-08-13) — a real feature request, not an audit finding, but landed the same
+   way: read the actual `ThrowIE`/`WalkWithIE`/`FallWithIE` source precisely enough to port the
+   window-manipulation side effect that Passes prior to this one had correctly identified but
+   deliberately left unported ("no analog"). The user was explicit that resizing/popping out a
+   real window is worth having if genuinely possible, not to be waved off again — so this time,
+   instead of stopping at "no analog," went looking for the closest *real* Obsidian equivalent of
+   each: `resizeBy` (WalkWithIE/RunWithIE's "carry the window along while walking," reinterpreted
+   as resizing since a pane can't be freely repositioned the way a window can) leans on
+   `WorkspaceItem.setDimension`/`WorkspaceSplit.getElSize`, confirmed real (not guessed) by
+   reading a published plugin's own source
+   ([`obsidian-resize-split`](https://github.com/RyotaUshio/obsidian-resize-split)) that already
+   does the same undocumented-API trick. `beginThrow` (ThrowIE's actual window-fling) uses
+   `Workspace.moveLeafToPopout` (real, documented) plus repeated `window.moveTo()` on the popout,
+   which Electron intentionally lets a renderer drive on its own native window (confirmed against
+   Electron's own documented `will-move` interception behavior, not assumed) — the one part of
+   this pass that's a genuinely faithful, not reinterpreted, port. Also added `restoreThrown`
+   (real `Main.java`'s "Restore IE!" tray item — needed for the first time now that there's
+   something to restore) and an entirely new, honestly-not-a-port feature the user asked for
+   alongside it: `openRandomNote`, a low-frequency "mischief" swap of the active pane's note,
+   which has no real shimeji-ee analog at all (the original has zero vault/file awareness).
+   All three gated behind new settings, off by default. See `engine/PaneActions.ts` and
+   `ObsidianPaneActions.ts` for the full design reasoning, and the two new entries below this pass
+   added to "Open live-bug reports" — the resize/throw mechanisms are the first things in this
+   whole audit that couldn't be fully verified by reading source alone and need a live Obsidian
+   window to confirm.
 
 ## Open live-bug reports (need user diagnostics, not more audit)
 
-Both have `window.shimejiDebug` tooling ready (see README) but no repro data gathered yet:
+`window.shimejiDebug` tooling ready (see README) but no repro data gathered yet for the first two;
+the last two are new as of Pass 8, genuinely untested rather than unconfirmed-by-source:
 
 - Window title-bar can't be reliably dragged while the plugin is enabled (confirmed the plugin is
   the cause; not yet which part).
@@ -280,12 +306,26 @@ Both have `window.shimejiDebug` tooling ready (see README) but no repro data gat
   pass so far obviously explains this (Fall doesn't go through tickHold, and this isn't a
   ChaseMouse- or Thrown-adjacent path either), so still needs a live repro with `setVerbose(true)`
   rather than more speculation from the audit alone.
+- **Pane resizing** (`ObsidianPaneActions.resizeBy`): built entirely on undocumented internals
+  (`WorkspaceItem.dimension`/`.setDimension`, `WorkspaceSplit.getElSize`,
+  `Workspace.requestResize`) confirmed only by reading another plugin's source, never run against
+  a live Obsidian window from this environment (headless, no GUI — see README's own testing
+  caveat). Needs someone to actually enable "Window mischief" and watch a pane resize.
+- **Window throwing** (`ObsidianPaneActions.beginThrow`): `moveLeafToPopout` itself is documented
+  and should work; whether Obsidian's Electron main process actually *allows* the popout's own
+  `window.moveTo()` calls to move it (vs. silently no-op'ing, or intercepting via `will-move`) is
+  reasoned from Electron's own general documented behavior, not observed in this specific app.
+  Needs a live desktop test to confirm the window actually visibly flies across the screen.
 
 ## Next steps, in priority order
 
-1. Test/verify/commit/push Pass 7 (this file + the Stage.spawnMascot fall-in-from-above fix).
-2. Re-test the two open live-bug reports now that Passes 3-7 have landed.
-3. **Every file in the real source tree has now actually been opened and read — not just the
+1. Test/verify/commit/push Pass 8 (this file + PaneActions/ObsidianPaneActions + the
+   WalkWithIE/ThrowIE wiring + new settings).
+2. Live-test the two new Pass 8 entries in "Open live-bug reports" above — enable "Window
+   mischief" in a real desktop Obsidian window and confirm resize and throw both actually do
+   something, then report back so this file can move them from "live-bug report" to "confirmed."
+3. Re-test the two pre-existing open live-bug reports now that Passes 3-8 have landed.
+4. **Every file in the real source tree has now actually been opened and read — not just the
    core simulation subset, the Swing/AWT/JNA GUI files too.** No `❓` rows remain anywhere, and
    the "out of scope" list is no longer split into "opened" vs. "inferred" tiers — it's just
    "opened." What's left is: re-auditing anything a *future* real source update changes, and

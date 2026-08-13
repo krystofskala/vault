@@ -1,4 +1,4 @@
-import type { LedgeSource, Rect } from "./types";
+import type { LedgeSource, PaneRef, Rect } from "./types";
 
 /**
  * Everything the engine needs to know about the host app's window that isn't pure physics —
@@ -8,7 +8,7 @@ import type { LedgeSource, Rect } from "./types";
  */
 export interface Environment {
 	getViewportSize(): { width: number; height: number };
-	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource }>;
+	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }>;
 }
 
 /** The real implementation: reads the actual Obsidian window/DOM. */
@@ -17,15 +17,19 @@ export class ObsidianDomEnvironment implements Environment {
 		return { width: window.innerWidth, height: window.innerHeight };
 	}
 
-	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource }> {
-		const platforms: Array<{ rect: Rect; source: LedgeSource }> = [];
+	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }> {
+		const platforms: Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }> = [];
 
 		const leaves = document.querySelectorAll<HTMLElement>(".workspace-leaf");
 		leaves.forEach((leaf) => {
 			if (leaf.offsetParent === null) return;
 			const r = leaf.getBoundingClientRect();
 			if (r.width === 0 || r.height === 0) return;
-			platforms.push({ rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, source: "pane" });
+			// `paneRef` is this leaf's own container element, opaque to everything except
+			// PaneActions' real implementation (see engine/PaneActions.ts) — it's what lets a
+			// mascot standing on this exact pane later resize/pop out/swap the note in *this*
+			// pane specifically, not just read its geometry.
+			platforms.push({ rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, source: "pane", paneRef: leaf });
 		});
 
 		const statusBar = document.querySelector<HTMLElement>(".status-bar");

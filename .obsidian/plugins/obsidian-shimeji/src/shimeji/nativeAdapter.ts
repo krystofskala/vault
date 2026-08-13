@@ -23,7 +23,10 @@ const DEFAULT_GRAVITY = 2;
 // jump speed parameter is specifically "VelocityParam" instead, defaulting to 20 (px/tick).
 const DEFAULT_JUMP_VELOCITY = 20;
 
-function paramOrDefault(params: Record<string, string> | undefined, key: string, fallback: number): number {
+/** Reads a raw XML attribute straight off an Action's own definition (not through the
+ * locals/override system — see ActionRunner's tickThrowIE for why that distinction matters),
+ * with a real-Java-default fallback when the pack's own XML omits the attribute. */
+export function paramOrDefault(params: Record<string, string> | undefined, key: string, fallback: number): number {
 	const raw = params?.[key];
 	if (raw === undefined) return fallback;
 	const parsed = parseFloat(raw);

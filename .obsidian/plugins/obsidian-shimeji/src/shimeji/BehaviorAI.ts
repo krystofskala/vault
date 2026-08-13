@@ -1,6 +1,7 @@
 import { debugLog } from "../engine/debugLog";
 import type { Mascot } from "../engine/Mascot";
 import { updateWallCeilingAdherence } from "../engine/nativeBehaviors";
+import type { PaneActions } from "../engine/PaneActions";
 import type { Random } from "../engine/Random";
 import type { EngineConfig, Ledge } from "../engine/types";
 import { ActionRunner, type PushEnv } from "./ActionRunner";
@@ -42,12 +43,12 @@ export class BehaviorAI {
 		}
 	}
 
-	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig): void {
+	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): void {
 		// Before building this tick's context: a mascot can be "against a wall" (or under a
 		// pane's underside) regardless of what action put it there, most commonly just having
 		// walked into one — see updateWallCeilingAdherence.
 		updateWallCeilingAdherence(mascot.physics, ledges);
-		const env = this.buildEnv(mascot, ambientPointer, config);
+		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);
 
 		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(mascot, env), env);
 
@@ -107,15 +108,17 @@ export class BehaviorAI {
 		return this.pack.behaviors.get("Fall");
 	}
 
-	/** Used for a mouse-drag release: jump straight to the pack's own Fall/Thrown action. */
-	forceBehavior(name: string, mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig): void {
-		const env = this.buildEnv(mascot, ambientPointer, config);
+	/** Used for a mouse-drag release (Fall/Thrown) and for manually jumping a mascot straight to
+	 * a named behavior via Mascot.startNamedBehavior (ChaseMouse, or any behavior name at all via
+	 * the per-mascot right-click menu — including a ThrowIE-carrying one, hence paneActions). */
+	forceBehavior(name: string, mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): void {
+		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);
 		const behavior = this.pack.behaviors.get(name);
 		this.currentBehavior = behavior;
 		if (!this.runner.start(name, env)) this.currentBehavior = undefined;
 	}
 
-	private buildEnv(mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig): PushEnv {
+	private buildEnv(mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): PushEnv {
 		const viewport = mascot.getViewportSize();
 		const ctx = createRuntimeContext(
 			mascot.physics,
@@ -128,7 +131,7 @@ export class BehaviorAI {
 			mascot.stateElapsedMs,
 			this.rng,
 		);
-		return { mascot, ctx, ambient: ambientPointer, config };
+		return { mascot, ctx, ambient: ambientPointer, config, paneActions };
 	}
 
 	private startBehavior(behavior: BehaviorDef | undefined, env: PushEnv): void {

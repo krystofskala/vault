@@ -1,14 +1,24 @@
-import { Menu, Notice, Platform, Plugin } from "obsidian";
+import { MarkdownView, Menu, Notice, Platform, Plugin } from "obsidian";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { Mascot } from "./engine/Mascot";
+import type { PaneActions } from "./engine/PaneActions";
 import { Random } from "./engine/Random";
 import { Stage } from "./engine/Stage";
 import { DEFAULT_ENGINE_CONFIG, type EngineConfig } from "./engine/types";
+import { ObsidianPaneActions } from "./ObsidianPaneActions";
 import { mergeCustomContent } from "./shimeji/CustomContentBuilder";
 import { PackDriver } from "./shimeji/PackDriver";
 import { loadPacksFromFolder } from "./shimeji/PackLoader";
 import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
+
+/** How often to check whether a mascot is currently on the user's active pane and roll for
+ * "note mischief" — not tied to any real engine tick, this is Obsidian-layer-only and has no
+ * source to be faithful to at all (see allowNoteMischief). */
+const NOTE_MISCHIEF_CHECK_MS = 15_000;
+/** Chance per check, while eligible, of actually swapping the note — tuned to feel like a rare
+ * surprise (roughly once every several minutes of continuous editing) rather than a nuisance. */
+const NOTE_MISCHIEF_CHANCE = 0.03;
 
 export default class ShimejiPlugin extends Plugin {
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
@@ -25,6 +35,22 @@ export default class ShimejiPlugin extends Plugin {
 	/** Which pack (or null for the placeholder) each live mascot is currently wearing. A
 	 * WeakMap so a removed mascot's entry is simply dropped once nothing else references it. */
 	private mascotPackId = new WeakMap<Mascot, string | null>();
+	/** The real (Obsidian-specific) pane mutation implementation — see ObsidianPaneActions for
+	 * why resizing/throwing lean on undocumented internals more than anything else this plugin
+	 * does. */
+	private obsidianPaneActions!: ObsidianPaneActions;
+	/** What every PackDriver actually receives: gates obsidianPaneActions' resize/throw methods
+	 * behind the "Window mischief" setting live (read fresh on every call, not captured once),
+	 * so flipping the toggle takes effect immediately without reattaching every mascot's driver.
+	 * restoreThrown is deliberately always allowed through regardless of the toggle — turning
+	 * "throw" off shouldn't strand an already-thrown window with no way back. */
+	private paneActionsGate: PaneActions = {
+		resizeBy: (pane, deltaPx) => {
+			if (this.settings.allowWindowThrow) this.obsidianPaneActions.resizeBy(pane, deltaPx);
+		},
+		beginThrow: (pane) => (this.settings.allowWindowThrow ? this.obsidianPaneActions.beginThrow(pane) : undefined),
+		restoreThrown: () => this.obsidianPaneActions.restoreThrown(),
+	};
 
 	async onload(): Promise<void> {
 		const raw = ((await this.loadData()) ?? {}) as Partial<ShimejiSettings> & { activePackId?: string | null };
@@ -50,6 +76,7 @@ export default class ShimejiPlugin extends Plugin {
 		if (needsSave) await this.saveSettings();
 
 		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
+		this.obsidianPaneActions = new ObsidianPaneActions(this.app);
 
 		this.stage = new Stage({
 			config: this.engineConfig,
@@ -71,9 +98,14 @@ export default class ShimejiPlugin extends Plugin {
 		this.addCommand({ id: "shimeji-remove-all", name: "Remove all mascots", callback: () => this.stage?.removeAllMascots() });
 		this.addCommand({ id: "shimeji-follow-mouse", name: "Make all mascots follow the mouse", callback: () => this.followMouseAllMascots() });
 		this.addCommand({ id: "shimeji-rescan", name: "Rescan pack folder", callback: () => this.rescanPacks() });
+		// Real Main.java's "Restore IE!" tray item — always available regardless of the "Window
+		// mischief" toggle (see paneActionsGate), same reasoning as its real counterpart: turning
+		// throwing off in the future shouldn't strand a window thrown while it was still on.
+		this.addCommand({ id: "shimeji-restore-windows", name: "Restore thrown windows", callback: () => this.restoreThrownWindows() });
 
 		this.registerEvent(this.app.workspace.on("resize", () => this.stage?.notifyLayoutChanged()));
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.stage?.notifyLayoutChanged()));
+		this.registerInterval(window.setInterval(() => this.maybeTriggerNoteMischief(), NOTE_MISCHIEF_CHECK_MS));
 
 		await this.rescanPacks();
 		if (this.settings.autoSpawn) {
@@ -217,10 +249,31 @@ export default class ShimejiPlugin extends Plugin {
 		this.mascotPackId.set(mascot, packId);
 		const pack = packId ? this.availablePacks.find((p) => p.id === packId) : undefined;
 		if (pack) {
-			mascot.attachDriver(new PackDriver(pack, this.engineConfig, new Random()));
+			mascot.attachDriver(new PackDriver(pack, this.engineConfig, new Random(), this.paneActionsGate));
 		} else {
 			mascot.detachDriver();
 		}
+	}
+
+	restoreThrownWindows(): void {
+		this.obsidianPaneActions.restoreThrown();
+	}
+
+	/** Not a real shimeji-ee mechanism — see allowNoteMischief. Independent of the mascot
+	 * simulation loop entirely: just "is any live mascot's position currently over the pane the
+	 * user is actively editing," checked on its own timer rather than every 40ms tick. */
+	private maybeTriggerNoteMischief(): void {
+		if (!this.settings.allowNoteMischief) return;
+		const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+		if (!activeLeaf) return;
+		const rect = activeLeaf.containerEl.getBoundingClientRect();
+		const mascots = this.stage?.getMascots() ?? [];
+		const onActivePane = mascots.some(
+			(m) => m.physics.x >= rect.left && m.physics.x <= rect.right && m.physics.y >= rect.top && m.physics.y <= rect.bottom,
+		);
+		if (!onActivePane) return;
+		if (Math.random() > NOTE_MISCHIEF_CHANCE) return;
+		this.obsidianPaneActions.openRandomNote(activeLeaf.containerEl);
 	}
 
 	/** Right-click menu on a mascot itself (also reachable by a touch-and-hold on mobile — see
@@ -261,6 +314,18 @@ export default class ShimejiPlugin extends Plugin {
 					.setTitle("Make all Shimejis follow the mouse")
 					.setIcon("mouse-pointer-click")
 					.onClick(() => this.followMouseAllMascots()),
+			);
+		}
+		// Real shimeji-ee's "Restore IE!" tray item — see restoreThrownWindows(). Shown whenever
+		// window-throwing itself is enabled, same as "follow the mouse" above, even though this
+		// specific mascot may not have thrown anything itself (real Restore IE! isn't per-mascot
+		// either).
+		if (this.settings.allowWindowThrow) {
+			menu.addItem((item) =>
+				item
+					.setTitle("Restore thrown windows")
+					.setIcon("picture-in-picture-2")
+					.onClick(() => this.restoreThrownWindows()),
 			);
 		}
 
