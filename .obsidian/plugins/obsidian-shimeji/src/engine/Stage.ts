@@ -20,8 +20,10 @@ export interface StageOptions {
 	/** Called whenever Stage creates a mascot (a manual spawn or a Breed-spawned sibling), so
 	 * the Obsidian-specific layer can attach a pack driver / apply settings without Stage
 	 * needing to know anything about packs. `parent` is set only for a Breed-spawned sibling,
-	 * letting the caller inherit the parent's own pack instead of picking one at random. */
-	onMascotCreated?: (mascot: Mascot, bornBehaviorName?: string, parent?: Mascot) => void;
+	 * letting the caller inherit the parent's own pack instead of picking one at random.
+	 * `forcedPackId` is spawnMascot's own passthrough (see its own comment) for "this specific
+	 * character, but otherwise an ordinary fresh spawn" — real per-mascot "Another One!". */
+	onMascotCreated?: (mascot: Mascot, bornBehaviorName?: string, parent?: Mascot, forcedPackId?: string | null) => void;
 	onContextMenu?: (mascot: Mascot, ev: MouseEvent) => void;
 }
 
@@ -194,7 +196,13 @@ export class Stage {
 	 * real frame. Breed passes an exact parent-relative x/y instead (BornX/BornY) and must not
 	 * be redirected to a random position.
 	 */
-	spawnMascot(x?: number, y?: number, bornBehaviorName?: string, parent?: Mascot): Mascot | undefined {
+	/** `forcedPackId` has no effect on physics/position at all — it exists purely so main.ts can
+	 * request a *specific* character for an otherwise perfectly ordinary fresh spawn (real
+	 * per-mascot "Another One!": `Main.createMascot(imageSet)`, the exact same off-screen/
+	 * random-facing fresh-spawn path as the tray's own random-character "Another One!", just
+	 * with a forced imageSet instead of a random one — see onMascotCreated's own use of it).
+	 * Passed straight through untouched; Stage itself has no concept of packs/characters. */
+	spawnMascot(x?: number, y?: number, bornBehaviorName?: string, parent?: Mascot, forcedPackId?: string | null): Mascot | undefined {
 		if (this.mascots.length >= this.opts.maxMascots) return undefined;
 		const viewport = this.environment.getViewportSize();
 		const spawningFresh = x === undefined && y === undefined;
@@ -202,12 +210,19 @@ export class Stage {
 			spawningFresh ? this.rng.range(0, viewport.width) : x ?? viewport.width / 2,
 			spawningFresh ? FALL_SPAWN_Y : y ?? DEFAULT_SPAWN_Y,
 		);
-		// Real Breed.breed(): `mascot.setLookRight(getMascot().isLookRight())` — a new sibling
-		// always starts facing the same way its parent was, not the engine's usual default.
-		if (parent) mascot.physics.facing = parent.physics.facing;
+		if (parent) {
+			// Real Breed.breed(): `mascot.setLookRight(getMascot().isLookRight())` — a new
+			// sibling always starts facing the same way its parent was.
+			mascot.physics.facing = parent.physics.facing;
+		} else if (spawningFresh) {
+			// Real Main.createMascot(imageSet) — the *only* real path to a fresh top-level
+			// mascot, tray or per-mascot alike: `mascot.setLookRight(Math.random() < 0.5)`.
+			// Previously always defaulted right, silently, for every manual/auto spawn.
+			mascot.physics.facing = this.rng.chance(0.5) ? 1 : -1;
+		}
 		this.mascots.push(mascot);
 		this.container.appendChild(mascot.el);
-		this.opts.onMascotCreated?.(mascot, spawningFresh ? "Fall" : bornBehaviorName, parent);
+		this.opts.onMascotCreated?.(mascot, spawningFresh ? "Fall" : bornBehaviorName, parent, forcedPackId);
 		return mascot;
 	}
 

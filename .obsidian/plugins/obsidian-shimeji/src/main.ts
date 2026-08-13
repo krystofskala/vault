@@ -84,7 +84,7 @@ export default class ShimejiPlugin extends Plugin {
 			debugLedges: this.settings.debugLedges,
 			maxMascots: this.settings.maxMascots,
 			allowBreeding: this.settings.allowBreeding,
-			onMascotCreated: (mascot, bornBehaviorName, parent) => this.onMascotCreated(mascot, bornBehaviorName, parent),
+			onMascotCreated: (mascot, bornBehaviorName, parent, forcedPackId) => this.onMascotCreated(mascot, bornBehaviorName, parent, forcedPackId),
 			onContextMenu: (mascot, ev) => this.showMascotContextMenu(mascot, ev),
 		});
 		this.stage.start();
@@ -242,14 +242,31 @@ export default class ShimejiPlugin extends Plugin {
 		return this.settings.chaseMouseEnabled && !Platform.isMobile;
 	}
 
-	private onMascotCreated(mascot: Mascot, bornBehaviorName: string | undefined, parent: Mascot | undefined): void {
+	private onMascotCreated(
+		mascot: Mascot,
+		bornBehaviorName: string | undefined,
+		parent: Mascot | undefined,
+		forcedPackId: string | null | undefined,
+	): void {
 		mascot.scale = this.settings.scale;
 		mascot.dragEnabled = this.settings.allowDragging;
 		// A Breed-spawned sibling inherits its parent's exact character instead of picking a
 		// random active one, matching the original (splitting in two keeps the same look).
-		const packId = parent ? this.mascotPackId.get(parent) ?? null : this.pickPackId();
+		// forcedPackId is the *other* real reason to skip the random pick — real per-mascot
+		// "Another One!" (see spawnAnotherOfCharacter) — checked first since Breed never sets it.
+		const packId = forcedPackId !== undefined ? forcedPackId : parent ? this.mascotPackId.get(parent) ?? null : this.pickPackId();
 		this.attachActivePack(mascot, packId);
 		if (bornBehaviorName) mascot.startNamedBehavior(bornBehaviorName);
+	}
+
+	/** Real per-mascot "Another One!" (`Mascot.java`'s own popup: `Main.createMascot(imageSet)`)
+	 * — the exact same fresh, off-screen, random-facing spawn as the tray's own "Another One!"
+	 * (spawnMascot()), just forced to this specific character instead of a random active one.
+	 * Previously this menu slot ("Duplicate this Shimeji") spawned at a fixed offset next to the
+	 * source and inherited its facing — neither of which the real per-mascot menu item does. */
+	spawnAnotherOfCharacter(mascot: Mascot): void {
+		const packId = this.mascotPackId.get(mascot) ?? null;
+		this.stage?.spawnMascot(undefined, undefined, undefined, undefined, packId);
 	}
 
 	private pickPackId(): string | null {
@@ -296,15 +313,15 @@ export default class ShimejiPlugin extends Plugin {
 		const menu = new Menu();
 
 		menu.addItem((item) => item.setTitle("Add another Shimeji").setIcon("plus").onClick(() => this.spawnMascot()));
+		// Real per-mascot "Another One!" (`Mascot.java`'s own popup) — see
+		// spawnAnotherOfCharacter's own comment for why this is a fresh off-screen/random-facing
+		// spawn like the item above, just forced to this mascot's own character, not an offset
+		// duplicate next to it (that was this menu slot's previous, unverified behavior).
 		menu.addItem((item) =>
 			item
-				.setTitle("Duplicate this Shimeji")
+				.setTitle("Add another of this character")
 				.setIcon("copy")
-				// Goes straight through Stage.spawnMascot rather than mascot.requestSibling: a
-				// deliberate one-off menu action should bypass the "allow breeding" policy
-				// (which only governs a pack's own automatic Breed action), while still
-				// respecting maxMascots and still inheriting the same character.
-				.onClick(() => this.stage?.spawnMascot(mascot.physics.x + 24, mascot.physics.y, undefined, mascot)),
+				.onClick(() => this.spawnAnotherOfCharacter(mascot)),
 		);
 		menu.addItem((item) =>
 			item

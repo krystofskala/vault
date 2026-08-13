@@ -36,7 +36,7 @@ describe("Stage.spawnMascot", () => {
 		stage.destroy();
 	});
 
-	it("a spawn without a parent still defaults to facing right, unaffected", () => {
+	it("an explicit-position spawn without a parent keeps the default facing right, unaffected (only a *fresh* spawn randomizes — see below)", () => {
 		const stage = makeStage();
 		const mascot = stage.spawnMascot(100, 100)!;
 		expect(mascot.physics.facing).toBe(1);
@@ -73,6 +73,39 @@ describe("Stage.spawnMascot", () => {
 		expect(mascot.physics.x).toBe(321);
 		expect(mascot.physics.y).toBe(111);
 		expect(bornBehaviorName).toBe("SomeBornBehavior");
+		stage.destroy();
+	});
+
+	// Real Main.createMascot(imageSet) — the *only* real path to a fresh top-level mascot, tray
+	// "Another One!" and per-mascot "Another One!" alike: `mascot.setLookRight(Math.random() <
+	// 0.5)`. Previously every fresh/auto spawn silently defaulted to facing right always.
+	// Statistical rather than a single hand-computed seed value: what matters here is that both
+	// outcomes are actually reachable, not the exact PRNG sequence for one particular seed.
+	it("a spawn with no explicit position randomizes initial facing, not always right", () => {
+		const stage = makeStage({ seed: 1, maxMascots: 100 });
+		const facings = new Set<number>();
+		for (let i = 0; i < 30; i++) facings.add(stage.spawnMascot()!.physics.facing);
+		expect(facings).toEqual(new Set([1, -1]));
+		stage.destroy();
+	});
+
+	// Real per-mascot "Another One!" (`Mascot.java`'s popup: `Main.createMascot(imageSet)`) —
+	// forces a specific character but is otherwise an entirely ordinary fresh spawn (see the
+	// facing-randomization test above; forcedPackId doesn't change any of that, it only changes
+	// which pack the caller ends up attaching in onMascotCreated).
+	it("forcedPackId passes straight through to onMascotCreated, alongside an otherwise-fresh spawn", () => {
+		let seenPackId: string | null | undefined;
+		let seenParent: unknown;
+		const stage = makeStage({
+			onMascotCreated: (_mascot, _name, parent, forcedPackId) => {
+				seenPackId = forcedPackId;
+				seenParent = parent;
+			},
+		});
+		const mascot = stage.spawnMascot(undefined, undefined, undefined, undefined, "some-pack-id")!;
+		expect(seenPackId).toBe("some-pack-id");
+		expect(seenParent).toBeUndefined();
+		expect(mascot.physics.y).toBe(-256); // still a genuinely fresh (off-screen fall-in) spawn
 		stage.destroy();
 	});
 });
