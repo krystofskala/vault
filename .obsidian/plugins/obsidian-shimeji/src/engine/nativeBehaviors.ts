@@ -10,15 +10,32 @@ export interface TickArgs {
 	config: EngineConfig;
 }
 
-/** Clamps horizontal position to whichever left/right wall ledges bound the current y, so a
+/**
+ * Clamps horizontal position to whichever left/right wall ledges bound the current y, so a
  * hard throw can't send the mascot drifting off past the window edge into permanent freefall
- * (once x is outside every floor's x-range, nothing can ever land it again). */
+ * (once x is outside every floor's x-range, nothing can ever land it again).
+ *
+ * The window's own left/right walls apply regardless of y, unlike a pane's own side walls
+ * (still correctly range-checked below) — real regression found 2026-08-13: worldTop clamps
+ * the *ceiling* (and, for climbing purposes, the window walls' own y1) to below Obsidian's
+ * title-bar/tab-strip chrome, which is exactly right for autonomous wall-climbing. But this
+ * function's job is a completely different one — an unconditional screen-edge safety net — and
+ * sharing that same worldTop-bounded y1/y2 with it left a gap: a mascot whose y was briefly
+ * *above* worldTop (e.g. released mid-drag near the very top, which tickDragged doesn't prevent)
+ * had no horizontal containment at all until gravity pulled it back below worldTop. Released
+ * right at the edge with any residual velocity, physics.x would drift past the "off-screen"
+ * margin within a tick or two, triggering BehaviorAI's isOffScreen()/respawnAndFall() recovery —
+ * an instant, unrelated-looking teleport (no animated fall at all), not a gradual physics
+ * excursion. Window walls now ignore their own y1/y2 here specifically so this safety net can
+ * never have a gap, while still using y1=worldTop for actually *climbing* them (findWallAt/
+ * tickClimbWall, untouched) so autonomous wall-climbing still correctly stops at worldTop.
+ */
 export function clampToWalls(physics: MascotPhysics, ledges: Ledge[]): void {
 	let minX = -Infinity;
 	let maxX = Infinity;
 	for (const ledge of ledges) {
 		if (ledge.kind !== "wall") continue;
-		if (physics.y < ledge.y1 || physics.y > ledge.y2) continue;
+		if (ledge.source !== "window" && (physics.y < ledge.y1 || physics.y > ledge.y2)) continue;
 		if (ledge.side === "left" && ledge.x > minX) minX = ledge.x;
 		if (ledge.side === "right" && ledge.x < maxX) maxX = ledge.x;
 	}

@@ -46,6 +46,35 @@ describe("clampToWalls", () => {
 		expect(physics.x).toBeGreaterThanOrEqual(0);
 		expect(physics.x).toBeLessThanOrEqual(800);
 	});
+
+	// Regression test for a real bug found 2026-08-13: worldTop clamps the window walls' own y1
+	// (so autonomous *climbing* correctly stops below Obsidian's title-bar chrome — see
+	// Ledges.test.ts's "worldTop" suite), but this function's job is a completely different one —
+	// an unconditional screen-edge safety net — and used to share that same worldTop-bounded
+	// range. A mascot whose y was briefly *above* worldTop (e.g. released mid-drag near the very
+	// top, which tickDragged doesn't prevent) had no horizontal containment at all until gravity
+	// pulled it back below worldTop, so a hard drag-release right at the edge could drift physics.x
+	// past the screen before anything caught it — which then tripped BehaviorAI's
+	// isOffScreen()/respawnAndFall() safety net, an instant unrelated-looking teleport rather than
+	// a visible fall. Window walls must clamp regardless of y.
+	it("still stops horizontal drift even when y is above worldTop (window walls apply regardless of y)", () => {
+		const ledgesWithWorldTop = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, []);
+		const physics = physicsAt(850, 10); // y=10 is *above* worldTop=40
+		physics.vx = 500;
+		clampToWalls(physics, ledgesWithWorldTop);
+		expect(physics.x).toBe(800);
+		expect(physics.vx).toBe(0);
+	});
+
+	it("a pane's own side wall still only applies within its real y-range, unlike the window's", () => {
+		const paneRect = { left: 100, top: 300, right: 400, bottom: 580 };
+		const ledgesWithPane = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect: paneRect, source: "pane" }]);
+		// Well above the pane entirely — only the *window*'s wall (x=800) should apply, not the
+		// pane's own right wall (x=400), which only spans y=[300,580].
+		const physics = physicsAt(850, 10);
+		clampToWalls(physics, ledgesWithPane);
+		expect(physics.x).toBe(800);
+	});
 });
 
 describe("clampToCeiling", () => {

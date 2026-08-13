@@ -363,19 +363,29 @@ Swing/AWT/JNA GUI plumbing included, not just the core simulation subset.
   ceiling-walking (both authentic behaviors) could carry a mascot up onto the title bar/tab
   strip itself, rendered on top of it and capturing the clicks meant to drag or resize the
   window. Fixed by anchoring the ceiling to the top of Obsidian's actual workspace area instead,
-  now read from the real `app.workspace.containerEl` API rather than a guessed CSS selector (see
-  `SOURCE_AUDIT.md` Passes 11-12) — needs a live window to fully confirm, same as anything else
-  in this list. A second, more serious issue this tooling helped catch: dragging a mascot and
-  releasing it could skip the fall animation entirely and teleport it somewhere far from the
-  release point. Root cause: the mascot's own drag handler calls `preventDefault()` on
-  `pointerdown` (needed so touch-drag doesn't also scroll the page), which — per the Pointer
-  Events spec — suppresses the browser's synthetic `mousemove` events for the rest of that drag.
-  The plugin's shared ambient-cursor tracker (used for both ChaseMouse and a released mascot's
-  throw velocity) listened for exactly that suppressed event, so it froze at the grab point for
-  the whole drag and then saw one giant single-tick jump the instant it unfroze after release —
-  baked directly into release velocity, easily large enough to cross the window in a handful of
-  physics ticks. Fixed by tracking `pointermove` instead, which is never suppressed by another
-  element's own `preventDefault()` (see `SOURCE_AUDIT.md` Pass 12).
+  now read from the real `app.workspace.containerEl` API rather than a guessed CSS selector; a
+  mascot standing on a floor that's still legitimately close to that line (a pane's own top edge
+  often is) is also now kept from settling somewhere its own sprite height would still poke back
+  into the chrome, since floor-standing poses are anchored at the feet, not the head (see
+  `SOURCE_AUDIT.md` Passes 11 and 13). A second, more serious issue this tooling helped catch:
+  dragging a mascot and releasing it could skip the fall animation entirely and teleport it
+  somewhere unrelated to the release point. Two real bugs contributed, found across two rounds of
+  live testing: first, the shared ambient-cursor tracker (used for both ChaseMouse and a released
+  mascot's throw velocity) went stale for the whole drag because it listened for `mousemove`,
+  which the mascot's own `preventDefault()`-on-`pointerdown` handler suppresses for the rest of
+  that interaction (fixed by tracking `pointermove` instead, which is never suppressed this way).
+  That alone didn't fully explain it, though — the *actual* dominant cause turned out to be a
+  regression in the ceiling fix itself: the window's left/right walls had their vertical range
+  clamped to the same new ceiling line (correct for stopping autonomous wall-*climbing* there),
+  but the screen-edge safety net that stops a hard throw from drifting off-window shared that
+  same range, leaving a gap right above it. A mascot released near an edge with `y` briefly above
+  that line (easy to end up at mid-drag, since dragging itself isn't ceiling-clamped) had no
+  horizontal containment until gravity pulled it back down — drifting just far enough to trip a
+  *separate*, unrelated recovery mechanism (built to rescue a mascot that's genuinely gotten lost
+  off-screen) that resets position to a random spot with no animation at all, which is exactly
+  what reads as "no fall, instant teleport." Fixed by making that screen-edge clamp apply
+  regardless of `y` for the window's own walls specifically (see `SOURCE_AUDIT.md` Passes 12-13
+  for the full, honest before-and-after — including where the first fix attempt fell short).
 - **Drag is now a direct port of the real engine's own `Dragged.java`, not an invented
   approximation**: several rounds of home-grown drag heuristics here (a critically-damped
   spring for position, then an extrapolated-cursor "lean pointer", then exponential smoothing

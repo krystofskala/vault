@@ -411,10 +411,14 @@ inside any of them the way `Main.java` turned out to have.
 
 Two older items formerly listed here — "a mascot dropped from a height visually skips most of the
 fall" and "drop-to-a-spot lands somewhere else, converging on a few hotspots" — turned out to be
-the *same* bug, now root-caused and fixed in Pass 12 below (the ambient pointer tracker going
-stale mid-drag, baking a huge spurious velocity into every release). Moved out of this section
-since there's now a concrete diagnosis and fix rather than an open question, but still needs the
-user's live confirmation like everything DOM-dependent in this file.
+a *real, confirmed* bug (Pass 13's wall-clamp gap: a mascot released near the screen edge with
+`y` briefly above worldTop had no horizontal wall protection, so it could drift just past the
+edge and trip the *separate* off-screen-recovery safety net, which resets position to a random
+spot rather than falling — genuinely no animated fall at all, an instant reset). Pass 12's
+ambient-pointer fix (mousemove going stale mid-drag) was real too but turned out not to be what
+the user was actually hitting — flagged here so the next reader doesn't assume Pass 12 alone
+settled this. Moved out of "open" since there's now a concrete, verified-in-code diagnosis, but
+still needs the user's live confirmation like everything DOM-dependent in this file.
 
 ## Next steps, in priority order
 
@@ -502,3 +506,46 @@ user's live confirmation like everything DOM-dependent in this file.
      the guesswork entirely for real usage; the selector-based path now exists purely as a
      defensive fallback, not the primary mechanism.
    - Needs live confirmation, same as Pass 11 — this environment still has no GUI to test against.
+8. **Pass 13 (2026-08-13): found the real cause of the teleport — a gap Pass 11 itself
+   introduced — and fixed the "sprite still pokes into the title bar while standing" issue Pass
+   12 didn't touch.** User follow-up after live-testing Pass 12: both issues were "absolutely
+   the same" as before. Re-reading `BehaviorAI.isOffScreen()`/`respawnAndFall()` (the real
+   engine's off-screen recovery, ported in an earlier pass) explained why: it does a *hard*
+   position reset — random x, y=-256 — with no animation at all, unrelated to wherever the
+   mascot actually was. Working backward from what could trigger it right after a drag release:
+   - **Root cause**: Pass 11 clamped the *window's own* left/right wall ledges' `y1` to
+     `worldTop`, so autonomous wall-*climbing* would correctly stop there. But `clampToWalls`
+     (the unconditional screen-edge safety net — "a hard throw can't send the mascot drifting
+     off past the window edge," from an earlier pass) shares that exact same `y1`/`y2` as a
+     *containment* check, and now had a gap: a mascot whose `y` was briefly *above* worldTop —
+     entirely possible right at a drag release, since `tickDragged` clamps to the raw viewport,
+     not worldTop — had no horizontal wall protection at all until gravity pulled it back below
+     worldTop. Released right at the edge of the window (matching "top right" in the report)
+     with any residual velocity, `physics.x` could drift past the off-screen margin within a
+     tick or two — tripping `respawnAndFall()`'s hard, random-position reset, which reads as
+     exactly what was reported: no visible fall, an instant relocation to a spot with no
+     relation to the release point. Pass 12's ambient-pointer fix was a real, separate bug (and
+     stays fixed) but was never the dominant cause here — this is a *location*-triggered bug,
+     not a velocity-magnitude one, so it didn't need a large/bogus velocity to reproduce, just
+     "released near an edge," which is an entirely ordinary thing to do. Fixed:
+     `clampToWalls` now applies window-sourced wall ledges regardless of `y` (only pane-sourced
+     walls, and the separate wall-*climbing* detection path, still respect the worldTop-bounded
+     range) — see nativeBehaviors.ts's own comment on the function.
+   - **Root cause of the residual "still spawns on top"**: separate from the ceiling/wall fixes
+     entirely. A pane's own floor can legitimately sit just a few pixels below worldTop — there's
+     rarely much room between "top of the workspace" and "top of its topmost pane" — so a mascot
+     standing there has a perfectly correct anchor (physics.y never crosses worldTop), but
+     floor-standing poses are bottom-anchored, so the sprite's own rendered top edge still
+     extends upward from that anchor and pokes above worldTop into the chrome above. Ceiling-hang
+     poses don't have this problem (anchored near the sprite's *top*, extending downward). Fixed:
+     new `withoutFloorsTooCloseToTop()` (Ledges.ts) excludes any floor within a specific mascot's
+     own rendered height of worldTop from the ledges *that mascot* sees each tick (Stage's new
+     per-mascot `ledgesFor()`) — it keeps falling past a floor too close to the top instead of
+     settling there. Every mascot gets its own cutoff from its own height/scale, so a smaller
+     pack isn't excluded from floors a taller one legitimately would be.
+   - The honest framing for whoever reads this next: Pass 11 fixed a real bug (ceiling too high)
+     while introducing a real regression (wall coverage gap) by sharing one field for two
+     different jobs. Nothing here was reproducible without the user's own live testing — three
+     rounds of it — which is exactly the discipline this file keeps asking for and exactly why
+     guessing from the audit alone kept falling short. Needs live confirmation like everything
+     else DOM-dependent in this file.

@@ -1,5 +1,5 @@
 import { ObsidianDomEnvironment, type Environment } from "./Environment";
-import { computeLedgesFromRects } from "./Ledges";
+import { computeLedgesFromRects, withoutFloorsTooCloseToTop } from "./Ledges";
 import { Mascot, type MascotDeps } from "./Mascot";
 import { smoothCursorVelocity } from "./nativeBehaviors";
 import { Random } from "./Random";
@@ -41,6 +41,7 @@ export class Stage {
 	readonly container: HTMLDivElement;
 	private mascots: Mascot[] = [];
 	private ledges: Ledge[] = [];
+	private worldTop = 0;
 	private readonly environment: Environment;
 	private ambientPos: { x: number; y: number };
 	/** The position ambientPos held as of the *previous* fixed tick, and the smoothed per-tick
@@ -154,10 +155,16 @@ export class Stage {
 
 	private recomputeLedges(): void {
 		const viewport = this.environment.getViewportSize();
-		const worldTop = this.environment.getWorldTop();
+		this.worldTop = this.environment.getWorldTop();
 		const platforms = this.opts.paneLedgesEnabled ? this.environment.getPlatformRects() : [];
-		this.ledges = computeLedgesFromRects({ ...viewport, top: worldTop }, platforms);
+		this.ledges = computeLedgesFromRects({ ...viewport, top: this.worldTop }, platforms);
 		this.renderDebugLedges();
+	}
+
+	/** Per-mascot, since the cutoff depends on that specific mascot's own rendered height/scale —
+	 * see withoutFloorsTooCloseToTop's own comment for why this is needed at all. */
+	private ledgesFor(mascot: Mascot): Ledge[] {
+		return withoutFloorsTooCloseToTop(this.ledges, this.worldTop, mascot.height * mascot.scale);
 	}
 
 	private renderDebugLedges(): void {
@@ -303,7 +310,7 @@ export class Stage {
 			this.ledgeRecomputeTimer = 0;
 			this.recomputeLedges();
 		}
-		for (const m of this.mascots) m.simulate(dt, this.ledges);
+		for (const m of this.mascots) m.simulate(dt, this.ledgesFor(m));
 	}
 
 	/** Fixed-timestep accumulator: physics always advances in ENGINE_FIXED_TICK_MS-sized steps

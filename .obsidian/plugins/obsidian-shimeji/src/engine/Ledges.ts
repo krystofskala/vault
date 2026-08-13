@@ -54,6 +54,24 @@ export function computeLedgesFromRects(
 	return ledges;
 }
 
+/**
+ * Excludes any floor within `standingHeight` of `worldTop` — a pane's own top edge can
+ * legitimately sit just a few pixels below worldTop (there's rarely much room between "top of the
+ * workspace" and "top of its topmost pane"), and physics.y itself never crosses worldTop there, so
+ * the *anchor* is correct. But floor-standing poses are bottom-anchored, so the sprite's own
+ * rendered top edge still extends upward from that anchor by roughly its own height and pokes
+ * above worldTop into whatever's above (Obsidian's title bar/tab strip) — a real, reported
+ * problem, not merely cosmetic, since that title bar is real interactive chrome. `standingHeight`
+ * is the specific mascot's own rendered height (already includes its scale), so a smaller pack or
+ * a shrunk mascot isn't excluded from floors a taller one legitimately would be. Ceiling-hanging
+ * doesn't need this: that anchor sits near the *top* of the sprite and extends downward, away
+ * from worldTop, so it never pokes into the chrome above — only floors are affected here.
+ */
+export function withoutFloorsTooCloseToTop(ledges: Ledge[], worldTop: number, standingHeight: number): Ledge[] {
+	const minStandableY = worldTop + standingHeight;
+	return ledges.filter((ledge) => !(ledge.kind === "floor" && ledge.y < minStandableY));
+}
+
 export function findFloorBelow(ledges: Ledge[], x: number, y: number): FloorLedge | undefined {
 	let best: FloorLedge | undefined;
 	for (const ledge of ledges) {
