@@ -23,6 +23,9 @@ export interface StageOptions {
 	/** Injectable so the core simulation loop never has to touch `window`/`document` itself —
 	 * defaults to the real Obsidian window when omitted. */
 	environment?: Environment;
+	/** How many live mascots share a given mascot's character — real Manager.getCount(imageSet).
+	 * Stage has no concept of characters, so the Obsidian layer supplies this. */
+	getSameCharacterCount?: (mascot: Mascot) => number;
 	/** Called whenever Stage creates a mascot (a manual spawn or a Breed-spawned sibling), so
 	 * the Obsidian-specific layer can attach a pack driver / apply settings without Stage
 	 * needing to know anything about packs. `parent` is set only for a Breed-spawned sibling,
@@ -234,6 +237,7 @@ export class Stage {
 			// can change height, and every recomputeLedges refreshes it.
 			getWorldTop: () => this.worldTop,
 			getTotalMascotCount: () => this.mascots.length,
+			getSameCharacterCount: this.opts.getSameCharacterCount,
 			// Real Breed.Delegate: isEnabled() gates on `transients` for a BornTransient clone and
 			// on `breeding` otherwise, and BornCount clones are created in a plain loop, each one
 			// an ordinary independent mascot.

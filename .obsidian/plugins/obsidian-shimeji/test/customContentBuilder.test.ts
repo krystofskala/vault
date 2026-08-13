@@ -31,6 +31,7 @@ function fakeMascot(overrides: Partial<{ x: number; y: number; grounded: boolean
 		getViewportSize: () => ({ width: 800, height: 900 }),
 		getTotalMascotCount: () => 1,
 		getWorldTop: () => 0,
+		getSameCharacterCount: () => 1,
 		affordances: [] as string[],
 	};
 }

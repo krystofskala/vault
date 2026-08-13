@@ -65,12 +65,32 @@ export class PackDriver implements MascotDriver {
 	 * the mouse was moving. `wasThrown` only still matters to the *native fallback* state
 	 * machine (Mascot's own no-pack-loaded placeholder, which has no real equivalent to be
 	 * faithful to and is free to keep a simpler two-state visual distinction). */
+	/** Per-action `Draggable` (real ActionBase attribute, default true) — a pack can make specific
+	 * actions un-grabbable, which the global "allow dragging" setting alone can't express. */
+	isDraggable(mascot: Mascot, ambientPointer: AmbientPointer): boolean {
+		return this.ai.isDraggable(mascot, ambientPointer, this.config);
+	}
+
 	notifyReleased(mascot: Mascot, _wasThrown: boolean, ambientPointer: AmbientPointer): void {
 		this.ai.forceBehavior("Thrown", mascot, ambientPointer, this.config);
 	}
 
 	startNamedBehavior(mascot: Mascot, name: string, ambientPointer: AmbientPointer): void {
 		this.ai.forceBehavior(name, mascot, ambientPointer, this.config, this.paneActions);
+	}
+
+	setDisabledBehaviors(names: ReadonlySet<string>): void {
+		this.ai.setDisabledBehaviors(names);
+	}
+
+	/** Real `Configuration.isBehaviorToggleable(name)` — which behaviors may be shown as
+	 * user-switchable checkboxes. Real Mascot.showPopup also skips composite names containing
+	 * "/", which never appear as standalone entries. */
+	listToggleableBehaviorNames(): string[] {
+		return Array.from(this.pack.behaviors.values())
+			.filter((b) => b.toggleable && !b.name.includes("/"))
+			.map((b) => b.name)
+			.sort((a, b) => a.localeCompare(b));
 	}
 
 	listBehaviorNames(): string[] {

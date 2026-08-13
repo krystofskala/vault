@@ -59,11 +59,17 @@ function parseBehaviorElement(el: Element): BehaviorDef | null {
 	const ownConditionRaw = el.getAttribute("Condition");
 	const ownCondition = ownConditionRaw ? parseCondition(ownConditionRaw) : undefined;
 	const allConditions = [...collectAncestorConditions(el), ...(ownCondition ? [ownCondition] : [])];
+	// Real BehaviorBuilder: absent attribute means not toggleable, and the four behaviors the
+	// engine drives itself are force-excluded regardless of what the XML says — letting a user
+	// switch off Fall or Dragged would break the mascot rather than customise it.
+	const REQUIRED = ["ChaseMouse", "Fall", "Thrown", "Dragged"];
+	const toggleable = el.hasAttribute("Toggleable") && !REQUIRED.includes(name) && el.getAttribute("Toggleable") === "true";
 	return {
 		name,
 		frequency: Number(el.getAttribute("Frequency") ?? "0") || 0,
 		condition: andNodes(allConditions),
 		nextBehaviors: parseNextBehaviors(el),
+		toggleable,
 	};
 }
 

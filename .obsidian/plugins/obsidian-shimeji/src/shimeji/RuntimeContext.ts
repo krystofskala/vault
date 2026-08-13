@@ -36,6 +36,12 @@ export interface RuntimeEnv {
 	worldTop?: number;
 	pointer: AmbientPointer;
 	totalMascotCount: number;
+	/** Real `Mascot.getCount()` → `Manager.getCount(imageSet)`: how many mascots share *this*
+	 * mascot's character, as distinct from `getTotalCount()`'s everyone-regardless-of-character.
+	 * Added in v1.0.16 precisely so a behavior can react to "how many of me" rather than "how many
+	 * of anything". Optional (falls back to the total) so callers that can't tell characters apart
+	 * still behave sensibly. */
+	sameCharacterCount?: number;
 }
 
 const warned = new Set<string>();
@@ -161,6 +167,10 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 				return physics.grounded;
 			case "time":
 				return elapsedMs;
+			// Real Mascot exposes both, and they mean different things — `count` is scoped to this
+			// mascot's own image set, `totalCount` is every mascot on screen.
+			case "count":
+				return env.sameCharacterCount ?? env.totalMascotCount;
 			case "totalCount":
 				return env.totalMascotCount;
 			case "environment":

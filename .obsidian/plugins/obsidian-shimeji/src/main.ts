@@ -86,6 +86,8 @@ export default class ShimejiPlugin extends Plugin {
 			maxMascots: this.settings.maxMascots,
 			allowBreeding: this.settings.allowBreeding,
 			allowTransients: this.settings.allowTransients,
+			// Real Manager.getCount(imageSet) — only this layer knows which pack each mascot wears.
+			getSameCharacterCount: (mascot) => (this.stage?.getMascots() ?? []).filter((m) => this.sameCharacter(mascot, m)).length,
 			// Passed explicitly (rather than relying on Stage's own no-argument default) so
 			// getWorldTop() reads the real, documented `app.workspace.containerEl` instead of
 			// falling back to a guessed `.workspace` selector — see Environment.ts.
@@ -307,8 +309,24 @@ export default class ShimejiPlugin extends Plugin {
 		const pack = packId ? this.availablePacks.find((p) => p.id === packId) : undefined;
 		if (pack) {
 			mascot.attachDriver(new PackDriver(pack, this.engineConfig, new Random(), this.paneActionsGate));
+			mascot.setDisabledBehaviors(new Set(this.settings.disabledBehaviors[pack.id] ?? []));
 		} else {
 			mascot.detachDriver();
+		}
+	}
+
+	/** Real `Main.setMascotBehaviorEnabled(name, mascot, enabled)`: persists the choice and applies
+	 * it to every mascot of that character, not just the one whose menu was used. */
+	private async setBehaviorEnabled(mascot: Mascot, name: string, enabled: boolean): Promise<void> {
+		const packId = this.mascotPackId.get(mascot) ?? null;
+		if (!packId) return;
+		const current = new Set(this.settings.disabledBehaviors[packId] ?? []);
+		if (enabled) current.delete(name);
+		else current.add(name);
+		this.settings.disabledBehaviors[packId] = Array.from(current);
+		await this.saveSettings();
+		for (const m of this.stage?.getMascots() ?? []) {
+			if ((this.mascotPackId.get(m) ?? null) === packId) m.setDisabledBehaviors(current);
 		}
 	}
 
@@ -433,6 +451,27 @@ export default class ShimejiPlugin extends Plugin {
 						.setTitle(pack.name)
 						.setChecked(currentPackId === pack.id)
 						.onClick(() => this.attachActivePack(mascot, pack.id)),
+				);
+			}
+		}
+
+		// Real per-mascot "Allowed Behaviours" submenu: a checkbox per `Toggleable` behavior, each
+		// persisting an on/off choice for that character (distinct from "Set behavior", which runs
+		// one right now). Obsidian's Menu has no submenus, so this uses a label + checked items,
+		// the same pattern the rest of this menu already uses.
+		const toggleable = mascot.listToggleableBehaviorNames();
+		if (toggleable.length > 0) {
+			const packId = this.mascotPackId.get(mascot) ?? null;
+			const disabled = new Set(packId ? this.settings.disabledBehaviors[packId] ?? [] : []);
+			menu.addSeparator();
+			menu.addItem((item) => item.setTitle("Allowed behaviors").setIsLabel(true));
+			for (const name of toggleable) {
+				const enabled = !disabled.has(name);
+				menu.addItem((item) =>
+					item
+						.setTitle(name)
+						.setChecked(enabled)
+						.onClick(() => void this.setBehaviorEnabled(mascot, name, !enabled)),
 				);
 			}
 		}

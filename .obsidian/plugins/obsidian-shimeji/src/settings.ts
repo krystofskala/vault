@@ -19,6 +19,9 @@ export interface ShimejiSettings {
 	/** Real shimeji-ee's own `transients` setting — separate from `breeding`, and what
 	 * Breed.Delegate.isEnabled() consults for a `BornTransient` clone. */
 	allowTransients: boolean;
+	/** Behaviors the user has switched off from a mascot's own menu, keyed by pack id — real
+	 * `Toggleable` behaviors plus `Main.setMascotBehaviorEnabled`'s persisted state. */
+	disabledBehaviors: Record<string, string[]>;
 	chaseMouseEnabled: boolean;
 	/** Real ThrowIE/WalkWithIE: a mascot that grabs a pane resizes it while "carrying" it, then
 	 * pops it into its own real OS window and throws that. Off by default — unlike every other
@@ -50,6 +53,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowDragging: true,
 	allowBreeding: true,
 	allowTransients: true,
+	disabledBehaviors: {},
 	chaseMouseEnabled: true,
 	allowWindowThrow: false,
 	allowNoteMischief: false,

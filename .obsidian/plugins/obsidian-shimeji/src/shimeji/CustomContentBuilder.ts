@@ -61,6 +61,9 @@ export function buildBehaviorDef(spec: CustomBehaviorSpec): BehaviorDef {
 		frequency: spec.frequency,
 		condition: condition(spec.condition),
 		nextBehaviors: buildNextBehaviors(spec),
+		// User-authored custom behaviors aren't toggleable: the editor has no UI for it, and real
+		// BehaviorBuilder treats an absent Toggleable attribute as false too.
+		toggleable: false,
 	};
 }
 

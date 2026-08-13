@@ -66,6 +66,11 @@ export interface BehaviorDef {
 	 * elements (real behaviors.xml groups many behaviors under one wrapper condition). */
 	condition?: ExprNode;
 	nextBehaviors: BehaviorNextDef[];
+	/** Real `Toggleable` (v1.0.21): this behavior may be permanently enabled/disabled by the user
+	 * from the mascot's own menu, as opposed to the existing one-shot "run this behavior now".
+	 * Real BehaviorBuilder forces it false for the four required behaviors (ChaseMouse/Fall/
+	 * Thrown/Dragged) and for any behavior that simply doesn't declare the attribute. */
+	toggleable: boolean;
 }
 
 export interface MascotPack {

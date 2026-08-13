@@ -18,6 +18,7 @@ interface FakeMascot {
 	setVisualImage(): void;
 	getViewportSize(): { width: number; height: number };
 	getWorldTop(): number;
+	getSameCharacterCount(): number;
 	getTotalMascotCount(): number;
 	startNamedBehavior(name: string): void;
 	selfDestruct(): void;
@@ -38,6 +39,7 @@ function fakeMascot(x: number, y: number): FakeMascot {
 		setVisualImage() {},
 		getViewportSize: () => ({ width: 1000, height: 1000 }),
 		getWorldTop: () => 0,
+		getSameCharacterCount: () => 1,
 		getTotalMascotCount: () => 2,
 		startNamedBehavior(name: string) {
 			this.startedBehaviors.push(name);

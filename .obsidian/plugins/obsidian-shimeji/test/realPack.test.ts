@@ -144,6 +144,7 @@ describe("real standard Shimeji-ee pack", () => {
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
 		getWorldTop: () => 0,
+		getSameCharacterCount: () => 1,
 		affordances: [] as string[],
 		};
 		const ledges = [{ kind: "floor" as const, y: 600, x1: 0, x2: 800, source: "window" as const }];
@@ -176,6 +177,7 @@ describe("real standard Shimeji-ee pack", () => {
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
 		getWorldTop: () => 0,
+		getSameCharacterCount: () => 1,
 		affordances: [] as string[],
 			// A 200-simulated-second random walk through the real pack's full behavior graph can
 			// wander into a Breed action (e.g. SplitIntoTwo, weight 50, totalCount<50) same as any
@@ -204,6 +206,7 @@ describe("real standard Shimeji-ee pack", () => {
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
 		getWorldTop: () => 0,
+		getSameCharacterCount: () => 1,
 		affordances: [] as string[],
 		};
 		ai.forceBehavior("ChaseMouse", mascot as unknown as Mascot, { x: 700, y: 300, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
@@ -219,6 +222,7 @@ describe("real standard Shimeji-ee pack", () => {
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
 		getWorldTop: () => 0,
+		getSameCharacterCount: () => 1,
 		affordances: [] as string[],
 		});
 
@@ -253,6 +257,7 @@ describe("real standard Shimeji-ee pack", () => {
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
 		getWorldTop: () => 0,
+		getSameCharacterCount: () => 1,
 		affordances: [] as string[],
 			requestSibling: (x: number, y: number, bornBehaviorName?: string) => bred.push({ x, y, bornBehaviorName }),
 		};
@@ -288,6 +293,7 @@ describe("real standard Shimeji-ee pack", () => {
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
 		getWorldTop: () => 0,
+		getSameCharacterCount: () => 1,
 		affordances: [] as string[],
 		};
 		const env: PushEnv = {

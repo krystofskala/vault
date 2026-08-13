@@ -829,3 +829,36 @@ golden rule at the top of this file.
 Not in this batch (from the same inventory, all "Worth doing" rather than "Recommended"):
 ScanInteract, ScanJump, Interact, Draggable, Hotspot, Toggleable, Shimeji Variables, exposed
 physics variables, type-specific Count, and the whole Sound subsystem.
+
+## Feature port: the "Worth doing" set, part 1 (2026-08-13)
+
+22. **ScanInteract (v1.0.21)** — the stationary counterpart to ScanMove. Three differences from it,
+    all load-bearing: it **re-scans every tick** (rather than locking onto one target at init), it
+    never moves (plays its animation in place, only turning to face), and it fires on its
+    animation's **last frame** rather than on arrival — and only when `Behaviour` is actually set.
+23. **Per-action Draggable (v1.0.13)** — `ActionBase.isDraggable()`, default true, consulted by
+    UserBehavior on mouse-down as `handled = !actionBase.isDraggable()`: a non-draggable action
+    swallows the grab entirely. Reported from the innermost running frame (the action actually in
+    effect) and checked in Mascot's own pointerdown, *after* the app-level "allow dragging" toggle —
+    the two are independent, and the pack-level one is the finer-grained of the pair.
+24. **Exposed physics variables (v1.0.21)** — real Fall/Jump both `putVariable(VELOCITYX/Y)` every
+    tick; ScanMove publishes `TargetX`/`TargetY` the same way. Written into the frame's own locals,
+    which is exactly the scope an action's Animation conditions read, so `#{VelocityY > 20}` works
+    from inside the action producing it. Published in per-tick pixel units, matching every other
+    pack-authored quantity rather than our internal px/second.
+25. **Type-specific Count (v1.0.16)** — `Mascot.getCount()` → `Manager.getCount(imageSet)` is
+    scoped to the mascot's own character, distinct from `getTotalCount()`. Only the Obsidian layer
+    knows which pack each mascot wears, so the counter is supplied from there and falls back to the
+    total when unavailable.
+26. **Toggleable behaviors (v1.0.21)** — a `Toggleable` attribute making a behavior persistently
+    switchable from the mascot's own menu, distinct from the existing one-shot "run this now".
+    Faithful defaulting from real BehaviorBuilder: an **absent** attribute means *not* toggleable,
+    and ChaseMouse/Fall/Thrown/Dragged are force-excluded regardless of what the XML says — letting
+    a user switch off Fall would break the mascot rather than customise it. Disabling excludes a
+    behavior from *autonomous* selection only (both the general pool and NextBehavior edges);
+    forcing one by name still works, as the real "set behavior" item does. Choices persist per pack
+    and apply to every mascot of that character, matching real `Main.setMascotBehaviorEnabled`.
+
+Still outstanding from the inventory: **Hotspot** (v1.0.19), **Shimeji Variables** (v1.0.22 — needs
+bracket-indexing support in the expression parser, which it currently lacks), and the **Sound**
+subsystem (v1.0.9/v1.0.16), which is a genuine subsystem rather than a single feature.

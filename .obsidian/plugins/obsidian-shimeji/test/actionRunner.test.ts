@@ -32,6 +32,9 @@ function makeFakeMascot() {
 		getWorldTop() {
 			return 0;
 		},
+		getSameCharacterCount() {
+			return 1;
+		},
 		affordances: [] as string[],
 		startNamedBehavior(_name: string) {},
 		selfDestruct() {},
@@ -582,7 +585,7 @@ describe("ActionRunner", () => {
 
 describe("BehaviorAI", () => {
 	function behavior(partial: Partial<BehaviorDef> & { name: string }): BehaviorDef {
-		return { frequency: 0, nextBehaviors: [], ...partial };
+		return { frequency: 0, nextBehaviors: [], toggleable: false, ...partial };
 	}
 
 	it("only ever selects the one non-zero-frequency behavior in the pool", () => {

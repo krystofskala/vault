@@ -26,6 +26,15 @@ export class BehaviorAI {
 	private runner: ActionRunner;
 	private currentBehavior?: BehaviorDef;
 
+	/** Names the user has switched off via a mascot's own menu (real `Toggleable` behaviors, and
+	 * real `Main.setMascotBehaviorEnabled`). Excluded from *autonomous* selection only — forcing a
+	 * behavior by name still works, exactly as the real engine's own "set behavior" item does. */
+	private disabledBehaviors: ReadonlySet<string> = new Set();
+
+	setDisabledBehaviors(names: ReadonlySet<string>): void {
+		this.disabledBehaviors = names;
+	}
+
 	constructor(private pack: MascotPack, private rng: Random) {
 		this.runner = new ActionRunner(pack);
 		this.warnIfIncomplete();
@@ -108,6 +117,13 @@ export class BehaviorAI {
 		return this.pack.behaviors.get("Fall");
 	}
 
+	/** Real UserBehavior's mouse-down path consults the *currently running action*'s own
+	 * `Draggable` attribute before starting a drag — see ActionRunner.isCurrentActionDraggable. */
+	isDraggable(mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig): boolean {
+		if (!this.runner.isRunning) return true;
+		return this.runner.isCurrentActionDraggable(this.buildEnv(mascot, ambientPointer, config));
+	}
+
 	/** Used for a mouse-drag release (Fall/Thrown) and for manually jumping a mascot straight to
 	 * a named behavior via Mascot.startNamedBehavior (ChaseMouse, or any behavior name at all via
 	 * the per-mascot right-click menu — including a ThrowIE-carrying one, hence paneActions).
@@ -137,6 +153,7 @@ export class BehaviorAI {
 				worldTop: mascot.getWorldTop(),
 				pointer: ambientPointer,
 				totalMascotCount: mascot.getTotalMascotCount(),
+				sameCharacterCount: mascot.getSameCharacterCount(),
 			},
 			mascot.stateElapsedMs,
 			this.rng,
@@ -173,6 +190,7 @@ export class BehaviorAI {
 		const candidates: Array<{ item: BehaviorDef; weight: number }> = [];
 		for (const t of transitions) {
 			const target = this.pack.behaviors.get(t.name);
+			if (target && this.disabledBehaviors.has(target.name)) continue;
 			if (target && evaluateCondition(t.condition, ctx)) {
 				candidates.push({ item: target, weight: t.frequency });
 			}
@@ -183,6 +201,7 @@ export class BehaviorAI {
 			// so weightedPick's roll never actually lands on it here — matching the real engine,
 			// which has no autonomous path into ChaseMouse at all (see REQUIRED_BEHAVIOR_NAMES).
 			for (const behavior of this.pack.behaviors.values()) {
+				if (this.disabledBehaviors.has(behavior.name)) continue;
 				if (evaluateCondition(behavior.condition, ctx)) candidates.push({ item: behavior, weight: behavior.frequency });
 			}
 		}

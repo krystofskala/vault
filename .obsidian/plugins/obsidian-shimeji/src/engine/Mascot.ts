@@ -37,11 +37,18 @@ export interface MascotDriver {
 	 * a pack-backed driver still supply its own Dragged/Thrown artwork during/after a drag. */
 	renderState?(mascot: Mascot, state: NativeStateName, elapsedMs: number, ambientPointer: AmbientPointer): boolean;
 	notifyReleased?(mascot: Mascot, wasThrown: boolean, ambientPointer: AmbientPointer): void;
+	/** Whether the action the mascot is running right now permits being picked up — real
+	 * ActionBase's own per-action `Draggable` attribute. Absent means "no opinion" (draggable). */
+	isDraggable?(mascot: Mascot, ambientPointer: AmbientPointer): boolean;
 	/** Jumps straight to a named behavior (e.g. a right-click "Set behavior" menu, or the
 	 * BornBehavior a Breed action starts a new sibling with) instead of the normal weighted pick. */
 	startNamedBehavior?(mascot: Mascot, name: string, ambientPointer: AmbientPointer): void;
 	/** Behavior names this driver can run, for building a "Set behavior" menu generically. */
 	listBehaviorNames?(): string[];
+	/** Behaviors a pack marked `Toggleable`, i.e. offerable as persistent on/off switches. */
+	listToggleableBehaviorNames?(): string[];
+	/** Applies the user's on/off choices; excluded from autonomous selection only. */
+	setDisabledBehaviors?(names: ReadonlySet<string>): void;
 	onDetach?(mascot: Mascot): void;
 }
 
@@ -67,6 +74,9 @@ export interface MascotDeps {
 	getAmbientPointer: () => AmbientPointer;
 	getViewportSize: () => { width: number; height: number };
 	getTotalMascotCount: () => number;
+	/** How many live mascots share this one's character — real Manager.getCount(imageSet). Only
+	 * the Obsidian layer knows which pack each mascot wears, so this is supplied from there. */
+	getSameCharacterCount?: (mascot: Mascot) => number;
 	/** Viewport y the stage container's own top edge sits at (see Stage: the container is
 	 * deliberately positioned *below* the title bar rather than covering the whole window).
 	 * `physics.y` stays in plain viewport coordinates everywhere else; render() subtracts this
@@ -189,6 +199,12 @@ export class Mascot {
 		return this.deps.getTotalMascotCount();
 	}
 
+	/** Real Mascot.getCount(): mascots sharing this one's character. Falls back to the total when
+	 * nothing supplied a character-aware counter. */
+	getSameCharacterCount(): number {
+		return this.deps.getSameCharacterCount?.(this) ?? this.deps.getTotalMascotCount();
+	}
+
 	/** Breed: requests an independent sibling mascot at an offset from this one's current
 	 * position, optionally starting it directly on a named behavior (BornBehavior). Real
 	 * Breed.breed(): `lookRight ? (x - BornX) : (x + BornX)` — BornX is authored relative to
@@ -219,9 +235,20 @@ export class Mascot {
 		return this.driver?.listBehaviorNames?.() ?? [];
 	}
 
+	listToggleableBehaviorNames(): string[] {
+		return this.driver?.listToggleableBehaviorNames?.() ?? [];
+	}
+
+	setDisabledBehaviors(names: ReadonlySet<string>): void {
+		this.driver?.setDisabledBehaviors?.(names);
+	}
+
 	private bindPointerHandlers(): void {
 		this.el.addEventListener("pointerdown", (ev) => {
 			if (!this.dragEnabled) return;
+			// Real UserBehavior: `handled = !actionBase.isDraggable()` — the *currently running
+			// action* can refuse the grab outright, independently of the app-level toggle above.
+			if (this.driver?.isDraggable?.(this, this.deps.getAmbientPointer()) === false) return;
 			ev.preventDefault();
 			this.el.setPointerCapture(ev.pointerId);
 			this.activePointerId = ev.pointerId;

@@ -316,6 +316,9 @@ export class ActionRunner {
 				if (frame.action.embeddedName === "BreedJump") return this.tickBreedJump(frame, env, dt, ledges);
 				// ScanMove (v1.0.14): walk toward whichever mascot is broadcasting our Affordance.
 				if (frame.action.embeddedName === "ScanMove") return this.tickScanMove(frame, env, dt, ledges);
+				// ScanInteract (v1.0.21): the stationary variant — re-scans every tick and plays an
+				// interaction animation in place rather than travelling to the target.
+				if (frame.action.embeddedName === "ScanInteract") return this.tickScanInteract(frame, env, dt, ledges);
 				// SelfDestruct (v1.0.13): play the animation out, then remove this mascot.
 				if (frame.action.embeddedName === "SelfDestruct") return this.tickSelfDestruct(frame, env, dt, ledges);
 				// Regist (e.g. the real pack's "Resisting", a struggle animation nested inside
@@ -724,6 +727,9 @@ export class ActionRunner {
 		const physics = env.mascot.physics;
 		const targetX = target.physics.x;
 		const targetY = target.physics.y;
+		// Real ScanMove publishes the tracked target's live coordinates as variables every tick.
+		frame.locals.TargetX = targetX;
+		frame.locals.TargetY = targetY;
 		if (physics.x !== targetX) physics.facing = physics.x < targetX ? 1 : -1;
 
 		const poses = this.currentPoses(frame, env);
@@ -760,6 +766,63 @@ export class ActionRunner {
 		return true;
 	}
 
+	/**
+	 * Real ScanInteract (v1.0.21). Same target-finding as ScanMove, three differences that matter:
+	 *  - it **re-scans every tick** (`if (target == null || !target.getAffordances().contains(...))`
+	 *    then look again), rather than locking onto one mascot for the action's whole run;
+	 *  - it never moves — it plays its animation in place and simply turns to face the target;
+	 *  - it fires on the **last frame of its animation** (`getTime() == duration - 1`), not on
+	 *    arrival, and only if `Behaviour` is actually set.
+	 * Like ScanMove it clears its own affordances: a mascot cannot advertise itself while scanning.
+	 */
+	private tickScanInteract(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
+		const affordance = strParam(frame, env, "Affordance").trim();
+		if (env.mascot.affordances.length > 0) env.mascot.affordances.length = 0;
+
+		// Re-scan whenever the held target is gone or has stopped offering the affordance.
+		if (!frame.scanTarget || !frame.scanTarget.affordances.includes(affordance)) {
+			frame.scanTarget = affordance === "" ? undefined : env.mascot.findMascotWithAffordance(affordance);
+		}
+		const target = frame.scanTarget;
+		frame.locals.TargetX = target ? target.physics.x : undefined;
+		frame.locals.TargetY = target ? target.physics.y : undefined;
+
+		const poses = this.currentPoses(frame, env);
+		if (poses.length === 0) return true;
+		this.showPose(env.mascot, pickLoopingPose(poses, frame.holdElapsedMs));
+
+		if (target) {
+			const physics = env.mascot.physics;
+			if (physics.x !== target.physics.x) physics.facing = physics.x < target.physics.x ? 1 : -1;
+		}
+
+		const totalDurationMs = poses.reduce((sum, p) => sum + p.durationMs, 0);
+		const finishing = frame.holdElapsedMs + dt * 1000 >= totalDurationMs;
+		frame.holdElapsedMs += dt * 1000;
+		if (!finishing) return false;
+
+		const ownBehavior = strParam(frame, env, "Behaviour") || strParam(frame, env, "Behavior");
+		if (target && ownBehavior) {
+			const targetBehavior = strParam(frame, env, "TargetBehaviour") || strParam(frame, env, "TargetBehavior");
+			if (boolParam(frame, env, "TargetLook", false) && target.physics.facing === env.mascot.physics.facing) {
+				target.physics.facing = env.mascot.physics.facing === 1 ? -1 : 1;
+			}
+			if (targetBehavior) target.startNamedBehavior(targetBehavior);
+			env.mascot.startNamedBehavior(ownBehavior);
+		}
+		return true;
+	}
+
+	/** Real `ActionBase.isDraggable()` — a per-action `Draggable` attribute (default true) that
+	 * UserBehavior consults on mouse-down: `handled = !actionBase.isDraggable()`, i.e. a
+	 * non-draggable action swallows the grab and the mascot simply can't be picked up while it
+	 * runs. Reported from the innermost running frame, which is the action actually in effect. */
+	isCurrentActionDraggable(env: PushEnv): boolean {
+		const frame = this.stack[this.stack.length - 1];
+		if (!frame) return true;
+		return boolParam(frame, env, "Draggable", true);
+	}
+
 	private tickEmbedded(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
 		if (frame.instantComplete) return true;
 		const poses = this.currentPoses(frame, env);
@@ -769,6 +832,12 @@ export class ActionRunner {
 		}
 		const raw = frame.action.embeddedName ?? frame.action.name;
 		const mapped = raw === "FallWithIE" ? "Fall" : raw;
+		// Real Fall/Jump both call putVariable(VARIABLE_VELOCITYX/Y, velocity) every tick, so a
+		// pack can branch on how fast it is currently moving from inside that same action's own
+		// Animation conditions. Published in the engine's own per-tick pixel units, not px/second,
+		// because that is what every other pack-authored quantity uses.
+		frame.locals.VelocityX = env.mascot.physics.vx / SHIMEJI_TICKS_PER_SEC;
+		frame.locals.VelocityY = env.mascot.physics.vy / SHIMEJI_TICKS_PER_SEC;
 		// Jump needs TargetX/TargetY fresh every tick (real Jump.tick() recomputes its own
 		// direction vector from the current position each time, not a one-shot initial
 		// velocity) — everything else ignores these.
