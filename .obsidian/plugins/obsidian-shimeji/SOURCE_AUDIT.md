@@ -12,28 +12,77 @@ Java source and read it before changing or claiming anything about "real" behavi
 ## Getting the real source
 
 `WebFetch` paraphrases/summarizes Java source instead of returning it verbatim — unusable for an
-exact port. Two options that return real bytes:
+exact port. Fetch real bytes instead.
+
+### Ground truth (updated 2026-08-13): `DalekCraft2/Shimeji-Desktop`
+
+Kilkakon is the actual current maintainer of shimeji-ee — active as of an August 2025 Patreon
+post — but has no public git repo of his own; he distributes via kilkakon.com/shimeji and
+Patreon only. `logany20/shimeji-ee` (the source used for every audit pass through Pass 10, see
+below) turned out to be from an **older, divergent lineage that stops before Kilkakon's
+v1.0.14** — it is missing an entire subsystem (Affordances, Scan actions, BreedMove/BreedJump,
+Transients — the real mechanism behind mascot-to-mascot targeting) that ships in Kilkakon's
+actual current releases.
+
+`DalekCraft2/Shimeji-Desktop` contains isolated, individually-verifiable commits that import
+Kilkakon's own unmodified source, version by version. Use these as ground truth going forward:
+
+| Commit    | Contents                                              |
+|-----------|--------------------------------------------------------|
+| `e5616e5` | "Import the source of the original Shimeji Desktop" — a pristine, zero-third-party-modification snapshot of Kilkakon's source at **v1.0.19** (280 files, all pure additions — confirmed via `git show --stat` and `kilkakon.txt` inside the commit) |
+| `1fc2bf6` | Merge changes from version 1.0.20 |
+| `025e49e` | Merge changes from versions 1.0.21 and 1.0.21.1 |
+| `6f6ce4b` | Merge changes from 1.0.21.2 |
+| `8eda881` | Merge changes from 1.0.21.3 |
+| `16ee0e8` | Merge changes from 1.0.22 (current tip as of this audit) |
+
+Each version-merge commit's diff-stat was checked against `kilkakon.txt`'s own changelog entry
+for that version and touches only the files that entry describes — these are genuinely
+Kilkakon's own diffs, not a third party's reinterpretation.
 
 ```bash
-# One file:
-curl -sS "https://raw.githubusercontent.com/logany20/shimeji-ee/master/src/com/group_finity/mascot/<path>.java"
+# Full tree, deep history (needed to find the isolated version-import commits above):
+git clone --depth 1 --filter=blob:none --sparse https://github.com/DalekCraft2/Shimeji-Desktop.git <dest>
+cd <dest> && git sparse-checkout set --no-cone '/*'
+git fetch --deepen=500 origin main   # shallow clone only shows 1 commit until deepened
 
-# The whole tree (does a full, authoritative file listing — use this first when unsure
-# whether a file has been fetched before):
+# One file at a specific version:
+curl -sS "https://raw.githubusercontent.com/DalekCraft2/Shimeji-Desktop/<commit>/src/main/java/com/group_finity/mascot/<path>.java"
+```
+
+**Package root differs from the old fork**: `src/main/java/com/group_finity/mascot/` (Maven
+layout), not `src/com/group_finity/mascot/`. 119 Java files at the current tip vs. 68 in
+`logany20` — 39 action classes vs. 18. New top-level packages `platform/` (cross-platform OS
+abstraction) and `sound/`. The in-tree `kilkakon.txt` is Kilkakon's own versioned changelog
+(v1.0.5 through v1.0.22) — read it first when investigating what changed and when.
+
+A clone lives in scratchpad at `shimeji-desktop-latest/` (827 commits on `main` after
+deepening) — re-clone with the commands above if it's gone; ephemeral scratchpad doesn't
+survive between sessions.
+
+**What this means for prior audit passes**: everything ported through Pass 10 was verified
+against `logany20/shimeji-ee`. That fork is a reasonably faithful mirror of Kilkakon's source
+*up through where it diverges* (roughly v1.0.13-era) — classes it shares with the new source
+(`Mascot.java`, `Move.java`, `Fall.java`, the core physics/behavior loop, etc.) don't need
+re-verification just because the ground truth moved. But treat any *specific* claim from an old
+pass as unverified against post-1.0.13 evolution until re-checked — e.g. `Breed.java`'s own API
+changed shape (params like `BornBehavior` became `BornBehaviour`) between the two lineages. New
+work should read from `DalekCraft2/Shimeji-Desktop` first; fall back to `logany20/shimeji-ee`
+(still cloned at `shimeji-ee-full/` in scratchpad) only for cross-checking or history.
+
+### Superseded: `logany20/shimeji-ee` (primary source through Pass 10)
+
+```bash
+curl -sS "https://raw.githubusercontent.com/logany20/shimeji-ee/master/src/com/group_finity/mascot/<path>.java"
 git clone --depth 1 --filter=blob:none --sparse https://github.com/logany20/shimeji-ee.git <dest>
 cd <dest> && git sparse-checkout set src/com/group_finity/mascot
 ```
 
-A prior partial checkout lives in scratchpad at `shimeji-src/` (hand-picked files, curl'd one at
-a time). A full sparse clone was done 2026-08-12 at `shimeji-ee-full/` in the same scratchpad —
-prefer that one going forward, it has every file including the ones nobody thought to fetch
-individually (that's how the `Move.java`/`Behavior.java`/`IActionBuilder.java` gaps below got
-closed). Both paths are inside the session's ephemeral scratchpad, not the repo — re-clone if
-they're gone.
-
-`logany20/shimeji-ee` is a direct mirror of the schema this plugin's bundled
-`Shimeji/conf/actions.xml`/`behaviors.xml` target (confirmed via `AnimationBuilder.java` and
-cross-checked against `gil/shimeji-ee`).
+Still useful as a second, independently-sourced reference for the pre-1.0.14 core it does cover
+(confirmed via `AnimationBuilder.java` and cross-checked against `gil/shimeji-ee`, itself
+"based on Kilkakon's v1.0.13" per its own README). A prior partial checkout also lives in
+scratchpad at `shimeji-src/` (hand-picked files, curl'd one at a time); the full sparse clone at
+`shimeji-ee-full/` supersedes it.
 
 ## Status legend
 
@@ -388,3 +437,14 @@ the last two are new as of Pass 8, genuinely untested rather than unconfirmed-by
    this whole file's own status column with fresh suspicion rather than assume Pass 10 was really
    the last one — and, per Pass 10's own lesson, to treat "I chose not to match the original
    here" as a claim needing its own check, not a stopping point.
+5. **Ground truth updated 2026-08-13** (see "Getting the real source" above) — the source tree
+   moved from `logany20/shimeji-ee` to `DalekCraft2/Shimeji-Desktop`'s verified Kilkakon
+   version-import commits (v1.0.19 through v1.0.22). This was triggered by investigating whether
+   real shimeji-ee can "fire a projectile mascot that self-destructs on contact" (it can — via
+   Affordances + ScanMove/ScanInteract + BreedMove/BreedJump + Transients + SelfDestruct, none of
+   which exist in the old fork). A full feature inventory of everything in the new source newer
+   than what's ported was produced and handed to the user as a standalone reference (not
+   duplicated into this file) so they can pick what to build next — nothing from it has been
+   built yet. Once specific items are chosen, audit and port them the same way as every other
+   pass: read the real source at the commits above first, don't infer from the changelog text
+   alone.
