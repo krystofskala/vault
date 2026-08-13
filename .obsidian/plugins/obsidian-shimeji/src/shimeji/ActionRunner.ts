@@ -35,6 +35,15 @@ interface Frame {
 	/** Breed only: guards requestSibling so a multi-Pose birth animation spawns exactly one
 	 * sibling on its first tick rather than once per pose frame. */
 	bredAlready: boolean;
+	/** Scan and Breed interval actions: whole ticks elapsed in this frame. Real ActionBase keeps a
+	 * `time` counter incremented once per tick and the Breed delegate's own interval test is
+	 * `action.getTime() % getBornInterval() == 0`, so this has to be a tick count, not elapsed ms. */
+	ticks: number;
+	/** ScanMove only: the mascot this scan locked onto at init. Real ScanMove resolves its target
+	 * exactly once in init() and then tracks *that* mascot's live position every tick — it does not
+	 * re-scan mid-action (ScanInteract is the variant that does). Held weakly in the original via
+	 * WeakReference; here the target simply going missing from the stage is the equivalent. */
+	scanTarget?: Mascot;
 	/** ThrowIE only: the popped-out real window this specific throw is driving, once begun (see
 	 * PaneActions.beginThrow) — cached on the frame so a multi-tick throw pops the pane out
 	 * exactly once and keeps moving the same window, not a fresh one every tick. */
@@ -79,6 +88,43 @@ function resolveLocals(overrides: Record<string, string> | undefined, baseCtx: E
 
 function numOrUndefined(v: ExprValue): number | undefined {
 	return typeof v === "number" ? v : undefined;
+}
+
+/**
+ * Evaluates one of an action's own attributes the way the real engine does. Real `ActionBase.eval`
+ * runs every parameter through the same variable/script machinery, so `BornX="${...}"`,
+ * `Affordance="${...}"` and friends are all live expressions, not literals — reading them with a
+ * bare `parseFloat` (as the first Breed port did) silently turns any expression into NaN/0.
+ *
+ * An `ActionReference` override for the same name still wins, which is what `frame.locals` already
+ * holds — checked first here so the precedence matches the rest of the runner.
+ */
+function evalActionParam(frame: Frame, env: PushEnv, key: string): ExprValue {
+	if (Object.prototype.hasOwnProperty.call(frame.locals, key)) return frame.locals[key];
+	const raw = frame.action.params[key];
+	if (raw === undefined) return undefined;
+	try {
+		return evaluate(parseParamValue(raw), withLocals(env.ctx, frame.locals));
+	} catch {
+		return undefined;
+	}
+}
+
+function numParam(frame: Frame, env: PushEnv, key: string, fallback: number): number {
+	const v = numOrUndefined(evalActionParam(frame, env, key));
+	return v === undefined ? fallback : v;
+}
+
+function strParam(frame: Frame, env: PushEnv, key: string, fallback = ""): string {
+	const v = evalActionParam(frame, env, key);
+	return v === undefined || v === "" ? fallback : String(v);
+}
+
+function boolParam(frame: Frame, env: PushEnv, key: string, fallback: boolean): boolean {
+	const v = evalActionParam(frame, env, key);
+	if (typeof v === "boolean") return v;
+	if (typeof v === "string") return v === "true";
+	return fallback;
 }
 
 /** Frame-by-frame interpreter for a single named Action (and whatever it references). See
@@ -142,6 +188,7 @@ export class ActionRunner {
 			holdElapsedMs: 0,
 			instantComplete: false,
 			bredAlready: false,
+			ticks: 0,
 			grabbedPaneRef: parent?.grabbedPaneRef,
 			grabbedPaneRect: parent?.grabbedPaneRect,
 		};
@@ -223,6 +270,13 @@ export class ActionRunner {
 		for (let guard = 0; guard < 64; guard++) {
 			if (this.stack.length === 0) return true;
 			const frame = this.stack[this.stack.length - 1];
+			// Real ActionBase.tick() rewrites the mascot's broadcast affordances at the top of
+			// *every* tick: clear the list, then re-add this action's own `Affordance` attribute if
+			// it has one. It is live state describing what the mascot is offering right now, never
+			// accumulated history — so a mascot stops being findable the moment it moves on to an
+			// action that doesn't declare one.
+			this.broadcastAffordance(frame, env);
+			frame.ticks++;
 			const done = this.tickFrame(frame, env, dt, ledges);
 			if (!done) return false;
 			this.stack.pop();
@@ -230,6 +284,13 @@ export class ActionRunner {
 		console.warn(`[obsidian-shimeji] action chain exceeded iteration guard on "${this.pack.name}", aborting`);
 		this.stack = [];
 		return true;
+	}
+
+	private broadcastAffordance(frame: Frame, env: PushEnv): void {
+		const affordances = env.mascot.affordances;
+		if (affordances.length > 0) affordances.length = 0;
+		const declared = strParam(frame, env, "Affordance").trim();
+		if (declared !== "") affordances.push(declared);
 	}
 
 	private tickFrame(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
@@ -248,6 +309,15 @@ export class ActionRunner {
 				// that's what "carrying" means here instead of repositioning.
 				if (frame.action.embeddedName === "WalkWithIE") return this.tickWalkWithIE(frame, env, dt, ledges);
 				if (frame.action.embeddedName === "Breed") return this.tickBreed(frame, env, dt, ledges);
+				// BreedMove/BreedJump (v1.0.18): ordinary Move/Jump that *additionally* breed on an
+				// interval for as long as they run — "fire repeatedly while moving" rather than
+				// plain Breed's single spawn at the end of a birth animation.
+				if (frame.action.embeddedName === "BreedMove") return this.tickBreedMove(frame, env, dt, ledges);
+				if (frame.action.embeddedName === "BreedJump") return this.tickBreedJump(frame, env, dt, ledges);
+				// ScanMove (v1.0.14): walk toward whichever mascot is broadcasting our Affordance.
+				if (frame.action.embeddedName === "ScanMove") return this.tickScanMove(frame, env, dt, ledges);
+				// SelfDestruct (v1.0.13): play the animation out, then remove this mascot.
+				if (frame.action.embeddedName === "SelfDestruct") return this.tickSelfDestruct(frame, env, dt, ledges);
 				// Regist (e.g. the real pack's "Resisting", a struggle animation nested inside
 				// Dragged): every real-pack Pose under it is Velocity="0,0" — it's a pure held
 				// pose-cycle with no physics tie-in at all, unlike Fall/Thrown/ChaseMouse. Without
@@ -371,8 +441,15 @@ export class ActionRunner {
 		}
 		this.showPose(env.mascot, pickLoopingPose(poses, frame.holdElapsedMs));
 
+		// Which actions stop after a single pass of their animation rather than looping until some
+		// other condition ends them. Real SelfDestruct `extends Animate`, so it inherits exactly
+		// that one-cycle cap — and it *must*, since disposing the mascot is what it does at the end
+		// of that cycle; without this it held its final pose forever and never fired.
 		const selfCapsAtOneCycle =
-			frame.action.type === "Animate" || frame.action.embeddedName === "Breed" || frame.action.embeddedName === "ThrowIE";
+			frame.action.type === "Animate" ||
+			frame.action.embeddedName === "Breed" ||
+			frame.action.embeddedName === "ThrowIE" ||
+			frame.action.embeddedName === "SelfDestruct";
 		const totalPoseCycleMs = poses.reduce((sum, p) => sum + p.durationMs, 0);
 		const durationOverride = numOrUndefined(frame.locals.Duration);
 		const effectiveDurationMs = Math.min(
@@ -550,13 +627,137 @@ export class ActionRunner {
 			// tickHold call immediately below, so it always catches the true last tick.
 			if (frame.holdElapsedMs + dt * 1000 >= totalDurationMs) {
 				frame.bredAlready = true;
-				const params = frame.action.params;
-				const bornX = parseFloat(params.BornX ?? "0") || 0;
-				const bornY = parseFloat(params.BornY ?? "0") || 0;
-				env.mascot.requestSibling(bornX, bornY, params.BornBehavior);
+				this.breedOnce(frame, env);
 			}
 		}
 		return this.tickHold(frame, env, dt, ledges);
+	}
+
+	/**
+	 * One breed event — real `Breed.Delegate.breed()`, shared by Breed/BreedMove/BreedJump exactly
+	 * as the Delegate is in the original. Every parameter goes through the expression evaluator
+	 * because the real engine evals all of them (see evalActionParam).
+	 *
+	 * `BornBehaviour` is the current spelling; older packs (and this plugin's own earlier port)
+	 * use `BornBehavior`, so both are accepted — the real engine only knows the former, but
+	 * silently doing nothing for a pack written against the older spelling would be a worse
+	 * failure than tolerating both.
+	 */
+	private breedOnce(frame: Frame, env: PushEnv): void {
+		env.mascot.requestSibling(
+			numParam(frame, env, "BornX", 0),
+			numParam(frame, env, "BornY", 0),
+			strParam(frame, env, "BornBehaviour") || strParam(frame, env, "BornBehavior") || undefined,
+			{
+				bornMascotName: strParam(frame, env, "BornMascot") || undefined,
+				transient: boolParam(frame, env, "BornTransient", false),
+				count: Math.max(1, Math.floor(numParam(frame, env, "BornCount", 1))),
+			},
+		);
+	}
+
+	/** Real Breed.Delegate.isIntervalFrame(): `action.getTime() % getBornInterval() == 0`, on the
+	 * action's own whole-tick counter. BornInterval defaults to 1 (every tick) and must be >= 1 —
+	 * the real engine throws on a smaller value; clamping is the sane equivalent here. */
+	private isBreedIntervalFrame(frame: Frame, env: PushEnv): boolean {
+		const interval = Math.max(1, Math.floor(numParam(frame, env, "BornInterval", 1)));
+		// frame.ticks was already incremented for this tick, so the action's own first tick is 1;
+		// subtracting brings it back to the real engine's 0-based getTime().
+		return (frame.ticks - 1) % interval === 0;
+	}
+
+	/** Real BreedMove.tick(): `super.tick()` (a plain Move) then, on an interval frame and while
+	 * not mid-turn, `delegate.breed()`. The enabled/transient gate lives in Stage's spawnSibling,
+	 * which is where the app-level breeding/transients settings actually are. */
+	private tickBreedMove(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
+		const done = this.tickMove(frame, env, dt, ledges);
+		if (this.isBreedIntervalFrame(frame, env)) this.breedOnce(frame, env);
+		return done;
+	}
+
+	/** Real BreedJump.tick(): same as BreedMove but over Jump's own physics. */
+	private tickBreedJump(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
+		const done = this.tickEmbedded(frame, env, dt, ledges);
+		if (this.isBreedIntervalFrame(frame, env)) this.breedOnce(frame, env);
+		return done;
+	}
+
+	/**
+	 * Real SelfDestruct.tick(): `if (getTime() == animation.getDuration()-1 || duration == 1)
+	 * getMascot().dispose()`. Purely time-based — it plays its animation once and then removes the
+	 * mascot. There is no collision test anywhere in it, in any version; "self-destructs on
+	 * contact" is achieved by whatever *sets* this behavior (a Scan action's arrival), never by
+	 * SelfDestruct sensing anything itself.
+	 */
+	private tickSelfDestruct(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
+		const done = this.tickHold(frame, env, dt, ledges);
+		if (done) env.mascot.selfDestruct();
+		return done;
+	}
+
+	/**
+	 * Real ScanMove (v1.0.14) — the mechanism behind "fire a projectile that homes in on another
+	 * mascot". Faithful to the original's own structure:
+	 *  - `init()` clears our own affordances (a scanner cannot simultaneously advertise itself)
+	 *    and resolves the target *once* via Manager.getMascotWithAffordance.
+	 *  - `hasNext()` ends the action if that target stops broadcasting the affordance.
+	 *  - `tick()` re-reads the target's *live* anchor every tick, turns to face it, and moves
+	 *    toward it; on arrival (anchor equal on both axes) it sets `Behaviour` on itself and
+	 *    `TargetBehaviour` on the target, plus `TargetLook` to turn the target to face back.
+	 *
+	 * "Contact" is therefore arrival at the target's tracked coordinates — never a bounding-box
+	 * overlap. Nothing in the real engine does box collision between mascots.
+	 */
+	private tickScanMove(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {
+		const affordance = strParam(frame, env, "Affordance").trim();
+		// A scanner never broadcasts while scanning (real init()/tick() both clear the list).
+		if (env.mascot.affordances.length > 0) env.mascot.affordances.length = 0;
+
+		if (!frame.scanTarget) {
+			frame.scanTarget = affordance === "" ? undefined : env.mascot.findMascotWithAffordance(affordance);
+			if (!frame.scanTarget) return true; // nothing to chase: the action is simply over
+		}
+		const target = frame.scanTarget;
+		// Real hasNext(): the target must still be offering the affordance.
+		if (!target.affordances.includes(affordance)) return true;
+
+		const physics = env.mascot.physics;
+		const targetX = target.physics.x;
+		const targetY = target.physics.y;
+		if (physics.x !== targetX) physics.facing = physics.x < targetX ? 1 : -1;
+
+		const poses = this.currentPoses(frame, env);
+		if (poses.length > 0) {
+			this.showPose(env.mascot, pickLoopingPose(poses, frame.embeddedElapsedMs));
+			frame.embeddedElapsedMs += dt * 1000;
+		}
+
+		// Move at the pose's own speed toward the target, then snap on overshoot — the same
+		// "if we went past it, we're there" rule real Move/ScanMove use on each axis.
+		const speed = env.config.walkSpeed * dt;
+		const dx = targetX - physics.x;
+		const dy = targetY - physics.y;
+		const distance = Math.hypot(dx, dy);
+		if (distance <= speed || distance === 0) {
+			physics.x = targetX;
+			physics.y = targetY;
+		} else {
+			physics.x += (speed * dx) / distance;
+			physics.y += (speed * dy) / distance;
+		}
+
+		const arrived = physics.x === targetX && physics.y === targetY;
+		if (!arrived) return false;
+
+		// Arrival: both mascots are redirected in the same instant.
+		const ownBehavior = strParam(frame, env, "Behaviour") || strParam(frame, env, "Behavior");
+		const targetBehavior = strParam(frame, env, "TargetBehaviour") || strParam(frame, env, "TargetBehavior");
+		if (boolParam(frame, env, "TargetLook", false) && target.physics.facing === physics.facing) {
+			target.physics.facing = physics.facing === 1 ? -1 : 1;
+		}
+		if (targetBehavior) target.startNamedBehavior(targetBehavior);
+		if (ownBehavior) env.mascot.startNamedBehavior(ownBehavior);
+		return true;
 	}
 
 	private tickEmbedded(frame: Frame, env: PushEnv, dt: number, ledges: Ledge[]): boolean {

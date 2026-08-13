@@ -13,6 +13,12 @@ export interface StageOptions {
 	/** Settings-level "allow breeding" toggle: gates Breed's spawnSibling request, independent
 	 * of the maxMascots cap (which spawnMascot itself still enforces either way). */
 	allowBreeding: boolean;
+	/** Real shimeji-ee keeps a *separate* `transients` setting from `breeding`, and
+	 * Breed.Delegate.isEnabled() picks between them by the clone's own BornTransient flag — so a
+	 * pack can fire disposable effect-clones (projectiles and the like) without the user also
+	 * having to switch on full self-replication. Defaults on where unset: transients are a visual
+	 * effect a pack opts into deliberately, not runaway population growth. */
+	allowTransients?: boolean;
 	seed?: number;
 	/** Injectable so the core simulation loop never has to touch `window`/`document` itself —
 	 * defaults to the real Obsidian window when omitted. */
@@ -153,6 +159,20 @@ export class Stage {
 		this.opts.allowBreeding = enabled;
 	}
 
+	setAllowTransients(enabled: boolean): void {
+		this.opts.allowTransients = enabled;
+	}
+
+	/**
+	 * Real `Manager.getMascotWithAffordance(String)`: the first live mascot currently broadcasting
+	 * this affordance. Linear scan in list order, exactly as the original — with several possible
+	 * partners the earliest-created one wins, which is what makes the pairing deterministic rather
+	 * than flickering between candidates tick to tick.
+	 */
+	getMascotWithAffordance(affordance: string): Mascot | undefined {
+		return this.mascots.find((m) => m.affordances.includes(affordance));
+	}
+
 	private recomputeLedges(): void {
 		const viewport = this.environment.getViewportSize();
 		this.worldTop = this.environment.getWorldTop();
@@ -214,10 +234,19 @@ export class Stage {
 			// can change height, and every recomputeLedges refreshes it.
 			getWorldTop: () => this.worldTop,
 			getTotalMascotCount: () => this.mascots.length,
-			spawnSibling: (sx, sy, bornBehaviorName, parent) => {
-				if (!this.opts.allowBreeding) return;
-				this.spawnMascot(sx, sy, bornBehaviorName, parent);
+			// Real Breed.Delegate: isEnabled() gates on `transients` for a BornTransient clone and
+			// on `breeding` otherwise, and BornCount clones are created in a plain loop, each one
+			// an ordinary independent mascot.
+			spawnSibling: (sx, sy, bornBehaviorName, parent, options) => {
+				const gate = options?.transient ? this.opts.allowTransients !== false : this.opts.allowBreeding;
+				if (!gate) return;
+				const count = Math.max(1, Math.floor(options?.count ?? 1));
+				for (let i = 0; i < count; i++) {
+					this.spawnMascot(sx, sy, bornBehaviorName, parent, options?.bornMascotName);
+				}
 			},
+			requestRemoval: (mascot) => this.removeMascot(mascot),
+			findMascotWithAffordance: (affordance) => this.getMascotWithAffordance(affordance),
 			onContextMenu: this.opts.onContextMenu,
 		};
 		return new Mascot(deps, x, y);
@@ -281,33 +310,33 @@ export class Stage {
 	}
 
 	/**
-	 * Real Manager.remainOne()/remainOne(imageSet) ("Reduce to One!" in *both* the tray menu and
-	 * a mascot's own right-click menu — see Mascot.java's showPopup, a second, separate
-	 * per-mascot context menu the real engine has that this plugin's single context menu stands
-	 * in for). A distinct, third population primitive from removeAllMascots ("Bye Everyone!",
-	 * zero left) and spawnMascot ("Another One!") — previously missing entirely (conflated with
-	 * "remove all").
+	 * Real `Manager.remainOne` — four overloads in the current source, and which mascot survives
+	 * depends on *how it was invoked*, not just on whether a filter is present:
+	 * - `remainOne()` (tray "Reduce to One!"): keeps index 0, the **oldest**.
+	 * - `remainOne(mascot)` (a mascot's own "Dismiss All Others"): keeps **that** mascot,
+	 *   disposes every other one regardless of character.
+	 * - `remainOne(imageSet, mascot)` (a mascot's own "Dismiss Others"): keeps **that** mascot,
+	 *   disposes only others sharing its character; other characters are untouched.
 	 *
-	 * The two real overloads genuinely differ on *which end* they keep, not just whether
-	 * they're filtered — confirmed by reading both literally, not assumed symmetric:
-	 * - No `matches` (global, tray-level): keeps the *oldest* mascot (index 0), disposes
-	 *   everyone else regardless of character.
-	 * - With `matches` (per-mascot menu, scoped to that mascot's own character): keeps the
-	 *   *newest* mascot satisfying it, disposes only *other* satisfying mascots — anything not
-	 *   matching (other characters) is left completely untouched.
+	 * Corrects an earlier port of this that read only the two *unparameterised* overloads and so
+	 * had the per-mascot menu keeping the newest mascot of a character rather than the one the
+	 * user actually right-clicked — clicking one mascot could leave a different one alive.
 	 */
-	removeAllButOne(matches?: (mascot: Mascot) => boolean): void {
-		if (!matches) {
-			const [keep, ...rest] = this.mascots;
+	removeAllButOne(keep?: Mascot, matches?: (mascot: Mascot) => boolean): void {
+		if (!keep) {
+			// remainOne(): `for (i = size-1; i > 0; i--) dispose()` — note `i > 0`, so index 0
+			// (the oldest) is the survivor.
+			const [oldest, ...rest] = this.mascots;
 			for (const m of rest) m.destroy();
-			this.mascots = keep ? [keep] : [];
+			this.mascots = oldest ? [oldest] : [];
 			return;
 		}
-		const matching = this.mascots.filter(matches);
-		if (matching.length <= 1) return;
-		const toRemove = new Set(matching.slice(0, -1)); // all but the newest (last) match
-		for (const m of toRemove) m.destroy();
-		this.mascots = this.mascots.filter((m) => !toRemove.has(m));
+		// remainOne(mascot) / remainOne(imageSet, mascot): both keep the *given* mascot and
+		// dispose every other one, differing only in whether an image-set filter narrows which
+		// others are affected.
+		const doomed = this.mascots.filter((m) => m !== keep && (matches ? matches(m) : true));
+		for (const m of doomed) m.destroy();
+		this.mascots = this.mascots.filter((m) => !doomed.includes(m));
 	}
 
 	getMascots(): readonly Mascot[] {

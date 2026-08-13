@@ -45,6 +45,23 @@ export interface MascotDriver {
 	onDetach?(mascot: Mascot): void;
 }
 
+/** Extra, all-optional knobs a Breed-family action can attach to the clone it requests — real
+ * Breed.Delegate's own BornMascot/BornTransient/BornCount parameters. Kept as one object so
+ * adding another Born* parameter later doesn't reshuffle every call site's positional args. */
+export interface SiblingOptions {
+	/** Real `BornMascot`: spawn a *different* character than the parent, by pack name. The real
+	 * engine falls back to the parent's own image set when no configuration by that name exists
+	 * (`getConfiguration(getBornMascot()) != null ? getBornMascot() : getMascot().getImageSet()`),
+	 * so an unknown name is not an error — it just means "same character as me". */
+	bornMascotName?: string;
+	/** Real `BornTransient`: gates the spawn on the app-level `transients` setting instead of
+	 * `breeding`. Two genuinely separate toggles in the original, so a pack can offer disposable
+	 * effect-clones without the user also having to enable full breeding. */
+	transient?: boolean;
+	/** Real `BornCount` (v1.0.21.2): how many clones this one breed event produces. */
+	count?: number;
+}
+
 export interface MascotDeps {
 	config: EngineConfig;
 	getAmbientPointer: () => AmbientPointer;
@@ -61,7 +78,15 @@ export interface MascotDeps {
 	 * this mascot's current position, matching the original's BornX/BornY semantics. `parent`
 	 * is always the requesting mascot itself, passed through so the caller can decide the new
 	 * mascot's pack (e.g. inherit the same character rather than picking a random active one). */
-	spawnSibling?: (x: number, y: number, bornBehaviorName: string | undefined, parent: Mascot) => void;
+	spawnSibling?: (x: number, y: number, bornBehaviorName: string | undefined, parent: Mascot, options?: SiblingOptions) => void;
+	/** Lets a mascot take itself out of the simulation — real SelfDestruct calls
+	 * `getMascot().dispose()` directly. Routed through deps because only the owner (Stage) can
+	 * actually drop it from the live list. */
+	requestRemoval?: (mascot: Mascot) => void;
+	/** Real `Manager.getMascotWithAffordance(String)`: the first live mascot currently
+	 * broadcasting that affordance, or undefined. The basis of every mascot-to-mascot
+	 * interaction in the real engine — see Mascot.affordances. */
+	findMascotWithAffordance?: (affordance: string) => Mascot | undefined;
 	onContextMenu?: (mascot: Mascot, ev: MouseEvent) => void;
 }
 
@@ -80,6 +105,15 @@ export class Mascot {
 	/** Settings-level "allow dragging" toggle; checked on pointerdown rather than removing the
 	 * listener itself, so flipping it mid-drag can't leave a drag stuck without its pointerup. */
 	dragEnabled = true;
+	/**
+	 * Real `Mascot.affordances` (`private final List<String> affordances`): the tags this mascot
+	 * is *currently* broadcasting, rewritten by the running action every tick — ActionBase.tick()
+	 * clears the list and re-adds its own `Affordance` attribute each frame, so it's live state,
+	 * never accumulated history. Another mascot's Scan* action finds a partner by searching these
+	 * (see MascotDeps.findMascotWithAffordance). Cleared on removal for the same reason the real
+	 * engine clears it in dispose(): a disposed mascot must stop advertising itself as a target.
+	 */
+	affordances: string[] = [];
 
 	private driver?: MascotDriver;
 	private walk?: WalkState;
@@ -160,9 +194,20 @@ export class Mascot {
 	 * Breed.breed(): `lookRight ? (x - BornX) : (x + BornX)` — BornX is authored relative to
 	 * facing direction (e.g. "spawn slightly behind me"), not a fixed screen-space offset, so it
 	 * flips sign when facing right. BornY is never flipped. */
-	requestSibling(offsetX: number, offsetY: number, bornBehaviorName?: string): void {
+	requestSibling(offsetX: number, offsetY: number, bornBehaviorName?: string, options?: SiblingOptions): void {
 		const signedOffsetX = this.physics.facing === 1 ? -offsetX : offsetX;
-		this.deps.spawnSibling?.(this.physics.x + signedOffsetX, this.physics.y + offsetY, bornBehaviorName, this);
+		this.deps.spawnSibling?.(this.physics.x + signedOffsetX, this.physics.y + offsetY, bornBehaviorName, this, options);
+	}
+
+	/** Real SelfDestruct: `getMascot().dispose()` once its animation has played out. */
+	selfDestruct(): void {
+		this.affordances.length = 0;
+		this.deps.requestRemoval?.(this);
+	}
+
+	/** See MascotDeps.findMascotWithAffordance — real Manager.getMascotWithAffordance(). */
+	findMascotWithAffordance(affordance: string): Mascot | undefined {
+		return this.deps.findMascotWithAffordance?.(affordance);
 	}
 
 	/** Jumps this mascot straight to a named behavior (right-click menu, Breed's BornBehavior). */

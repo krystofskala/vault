@@ -779,3 +779,53 @@ still needs the user's live confirmation like everything DOM-dependent in this f
     - Verified by replaying both logged throws: they now trace 10- and 5-tick arcs that genuinely
       rise as thrown and end at *different* positions, instead of collapsing onto one shared
       divider coordinate.
+
+## Feature port: the v1.0.13-v1.0.18 "Recommended" set (2026-08-13)
+
+First batch of features from the new ground truth (see the feature inventory handed to the user).
+All seven read from the real source at `DalekCraft2/Shimeji-Desktop` before implementing, per the
+golden rule at the top of this file.
+
+16. **Affordances (v1.0.14)** — `Mascot.affordances` (a live `List<String>`), rewritten by
+    `ActionBase.tick()` at the top of *every* tick: clear, then re-add this action's own
+    `Affordance` attribute. It describes what a mascot is offering *right now*, never accumulated
+    history. `Stage.getMascotWithAffordance()` ports `Manager.getMascotWithAffordance(String)` —
+    a linear scan in list order, so with several candidates the earliest-created wins and pairing
+    is deterministic rather than flickering tick to tick.
+17. **ScanMove (v1.0.14)** — resolves its target *once* in `init()` (ScanInteract is the variant
+    that re-scans; not ported in this batch), then tracks that mascot's live anchor every tick,
+    turns to face it, and moves toward it. On arrival it sets `Behaviour` on itself and
+    `TargetBehaviour` on the target **in the same instant**, with `TargetLook` turning the target
+    to face back. Ends early if the target stops broadcasting (real `hasNext()`). "Contact" is
+    arrival at tracked coordinates — there is no bounding-box collision between mascots anywhere
+    in the real engine, in any version.
+18. **BreedMove / BreedJump (v1.0.18)** — ordinary Move/Jump that additionally call the shared
+    `Breed.Delegate` on an interval frame (`getTime() % BornInterval == 0`) for as long as they
+    run: "fire repeatedly while moving", versus plain Breed's single spawn at the end of a birth
+    animation. Uses the same delegate for all three, as the original does.
+19. **BornMascot / BornTransient / BornCount / BornInterval** — the full `Breed.Delegate`
+    parameter set. `BornMascot` spawns a *different character*, with the real fallback to the
+    parent's own image set when no pack by that name exists (an unknown name means "same character
+    as me", never an error). `BornTransient` gates on a **separate** `transients` setting rather
+    than `breeding` — both real, both now exposed — so a pack can fire disposable effect-clones
+    without the user enabling full self-replication. `BornCount` spawns N per event.
+    Also fixed while here: Breed's parameters were being read with a bare `parseFloat`, so any
+    expression-valued `BornX`/`BornY` silently became 0. All action parameters now go through the
+    expression evaluator, which is what real `ActionBase.eval` does for every one of them.
+20. **SelfDestruct (v1.0.13)** — plays its animation once, then disposes. Purely time-based; there
+    is no collision test in it in any version. "Self-destructs on contact" is achieved by whatever
+    *sets* this behavior (a Scan action's arrival), never by SelfDestruct sensing anything. Note it
+    `extends Animate`, so it inherits Animate's one-cycle cap — our `tickHold` didn't know that and
+    held the final pose forever without ever firing, caught by the test that asserts it never
+    disposes early *and* does eventually dispose.
+21. **DismissAllOthers (v1.0.17)** — and, found while reading `Mascot.showPopup` for it, a real
+    divergence in the *existing* port: both per-mascot menu items pass the clicked mascot
+    (`remainOne(imageSet, this)` / `remainOne(this)`), so they keep **that** mascot. The earlier
+    port had read only the unparameterised overloads and kept "the newest of that character"
+    instead — clicking one mascot could leave a different one alive. Corrected, and the two
+    genuinely different per-mascot items are now both present ("Dismiss others of this character"
+    and "Dismiss all other Shimejis"), alongside the tray-level oldest-survives command.
+
+Not in this batch (from the same inventory, all "Worth doing" rather than "Recommended"):
+ScanInteract, ScanJump, Interact, Draggable, Hotspot, Toggleable, Shimeji Variables, exposed
+physics variables, type-specific Count, and the whole Sound subsystem.

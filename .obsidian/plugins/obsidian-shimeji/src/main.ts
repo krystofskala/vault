@@ -85,6 +85,7 @@ export default class ShimejiPlugin extends Plugin {
 			debugLedges: this.settings.debugLedges,
 			maxMascots: this.settings.maxMascots,
 			allowBreeding: this.settings.allowBreeding,
+			allowTransients: this.settings.allowTransients,
 			// Passed explicitly (rather than relying on Stage's own no-argument default) so
 			// getWorldTop() reads the real, documented `app.workspace.containerEl` instead of
 			// falling back to a guessed `.workspace` selector — see Environment.ts.
@@ -259,7 +260,19 @@ export default class ShimejiPlugin extends Plugin {
 		// random active one, matching the original (splitting in two keeps the same look).
 		// forcedPackId is the *other* real reason to skip the random pick — real per-mascot
 		// "Another One!" (see spawnAnotherOfCharacter) — checked first since Breed never sets it.
-		const packId = forcedPackId !== undefined ? forcedPackId : parent ? this.mascotPackId.get(parent) ?? null : this.pickPackId();
+		// `forcedPackId` carries two different things: a real pack id (per-mascot "Another One!")
+		// or a Breed `BornMascot` *name* straight out of the pack XML. Real Breed.Delegate falls
+		// back to the parent's own image set when no configuration by that name exists
+		// (`getConfiguration(getBornMascot()) != null ? ... : getMascot().getImageSet()`), so an
+		// unrecognised name means "same character as me", never a failure.
+		const packId =
+			forcedPackId !== undefined && forcedPackId !== null
+				? this.resolvePackRef(forcedPackId) ?? (parent ? this.mascotPackId.get(parent) ?? null : this.pickPackId())
+				: forcedPackId !== undefined
+					? forcedPackId
+					: parent
+						? this.mascotPackId.get(parent) ?? null
+						: this.pickPackId();
 		this.attachActivePack(mascot, packId);
 		if (bornBehaviorName) mascot.startNamedBehavior(bornBehaviorName);
 	}
@@ -272,6 +285,15 @@ export default class ShimejiPlugin extends Plugin {
 	spawnAnotherOfCharacter(mascot: Mascot): void {
 		const packId = this.mascotPackId.get(mascot) ?? null;
 		this.stage?.spawnMascot(undefined, undefined, undefined, undefined, packId);
+	}
+
+	/** Matches a pack by id first, then by name — Breed's BornMascot names a character the way the
+	 * pack XML does, which need not be our internal id. Returns null when neither matches, which
+	 * callers treat as "fall back", not as an error. */
+	private resolvePackRef(ref: string): string | null {
+		if (this.availablePacks.some((p) => p.id === ref)) return ref;
+		const byName = this.availablePacks.find((p) => p.name === ref);
+		return byName ? byName.id : null;
 	}
 
 	private pickPackId(): string | null {
@@ -351,12 +373,24 @@ export default class ShimejiPlugin extends Plugin {
 		if (sameCharacterCount > 1) {
 			menu.addItem((item) =>
 				item
-					.setTitle("Reduce this character to one")
+					.setTitle("Dismiss others of this character")
 					.setIcon("minus")
-					// Real remainOne(imageSet) keeps the *newest* matching mascot (scanning back
-					// from the end, first match wins) — genuinely the opposite end from the
-					// no-filter overload's "keep oldest", confirmed by reading both literally.
-					.onClick(() => this.stage?.removeAllButOne((m) => this.sameCharacter(mascot, m))),
+					// Real `remainOne(imageSet, mascot)` keeps *the mascot whose menu this is*, not
+					// the newest one of its character — an earlier port read only the unparameterised
+					// overloads and had that wrong, so right-clicking one mascot could leave a
+					// different one alive.
+					.onClick(() => this.stage?.removeAllButOne(mascot, (m) => this.sameCharacter(mascot, m))),
+			);
+		}
+		// Real per-mascot "Dismiss All Others" (`Mascot.java`: `manager.remainOne(this)`) — keeps
+		// this mascot and dismisses every other one *regardless of character*, a distinct item
+		// from "Dismiss Others" above (which is scoped to this mascot's own character).
+		if ((this.stage?.getMascots().length ?? 0) > 1) {
+			menu.addItem((item) =>
+				item
+					.setTitle("Dismiss all other Shimejis")
+					.setIcon("minus-circle")
+					.onClick(() => this.stage?.removeAllButOne(mascot)),
 			);
 		}
 		// Real shimeji-ee's "Follow Mouse!", the only real trigger ChaseMouse ever has — see

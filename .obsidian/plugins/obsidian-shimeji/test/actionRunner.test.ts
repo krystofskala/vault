@@ -32,6 +32,12 @@ function makeFakeMascot() {
 		getWorldTop() {
 			return 0;
 		},
+		affordances: [] as string[],
+		startNamedBehavior(_name: string) {},
+		selfDestruct() {},
+		findMascotWithAffordance(_a: string) {
+			return undefined;
+		},
 	};
 }
 

@@ -135,11 +135,11 @@ describe("Stage.removeAllButOne", () => {
 		stage.destroy();
 	});
 
-	// Real remainOne(imageSet) (the per-mascot right-click menu's own "Reduce to One!", scoped
-	// to that mascot's character) genuinely keeps the *opposite* end from the no-filter overload:
-	// the newest matching mascot, not the oldest — confirmed by reading both literally, not
-	// assumed symmetric. Non-matching mascots (other characters) are untouched either way.
-	it("with a filter, keeps the newest matching mascot and leaves non-matching ones alone", () => {
+	// Real `remainOne(imageSet, mascot)` keeps the mascot it was *given* — the one whose menu was
+	// opened — disposing only other mascots of that same character. Non-matching characters are
+	// untouched. (An earlier port kept "the newest match" instead, so right-clicking one mascot
+	// could leave a different one alive.)
+	it("with a kept mascot + filter, keeps exactly that mascot and leaves non-matching ones alone", () => {
 		const stage = makeStage();
 		const catA1 = stage.spawnMascot(10, 10)!;
 		const dogA = stage.spawnMascot(20, 10)!; // a different "character" — untouched throughout
@@ -147,9 +147,10 @@ describe("Stage.removeAllButOne", () => {
 		const catA3 = stage.spawnMascot(40, 10)!; // newest of the "cat" group — should be kept
 		const cats = new Set([catA1, catA2, catA3]);
 
-		stage.removeAllButOne((m) => cats.has(m));
+		stage.removeAllButOne(catA2, (m) => cats.has(m));
 
-		expect(stage.getMascots()).toEqual([dogA, catA3]);
+		// Keeps the mascot actually passed in (catA2), not the newest of its group.
+		expect(stage.getMascots()).toEqual([dogA, catA2]);
 		stage.destroy();
 	});
 });

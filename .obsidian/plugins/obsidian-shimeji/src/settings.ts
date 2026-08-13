@@ -16,6 +16,9 @@ export interface ShimejiSettings {
 	maxMascots: number;
 	allowDragging: boolean;
 	allowBreeding: boolean;
+	/** Real shimeji-ee's own `transients` setting — separate from `breeding`, and what
+	 * Breed.Delegate.isEnabled() consults for a `BornTransient` clone. */
+	allowTransients: boolean;
 	chaseMouseEnabled: boolean;
 	/** Real ThrowIE/WalkWithIE: a mascot that grabs a pane resizes it while "carrying" it, then
 	 * pops it into its own real OS window and throws that. Off by default — unlike every other
@@ -46,6 +49,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	maxMascots: 8,
 	allowDragging: true,
 	allowBreeding: true,
+	allowTransients: true,
 	chaseMouseEnabled: true,
 	allowWindowThrow: false,
 	allowNoteMischief: false,
@@ -211,6 +215,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					this.plugin.settings.allowBreeding = value;
 					await this.plugin.saveSettings();
 					this.plugin.stage?.setAllowBreeding(value);
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Allow transient clones")
+			.setDesc(
+				"Lets a pack spawn short-lived clones (BornTransient) — the mechanism behind effects like a mascot firing a projectile, which is itself just another mascot set to self-destruct. Separate from breeding in real shimeji-ee too, so a pack can use effects like this without you also enabling full self-replication.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.allowTransients).onChange(async (value) => {
+					this.plugin.settings.allowTransients = value;
+					await this.plugin.saveSettings();
+					this.plugin.stage?.setAllowTransients(value);
 				}),
 			);
 
