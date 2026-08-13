@@ -543,3 +543,50 @@ describe("wall side at a shared pane edge", () => {
 		expect(physics.currentWall).toBeUndefined();
 	});
 });
+
+// clampToCeiling had the exact same defect clampToWalls did — taking an extreme over *every*
+// ledge of its kind, including pane-sourced ones — and it was missed when clampToWalls was fixed.
+// A pane's underside is a ceiling ledge, so in a horizontally-split workspace one pane's bottom
+// edge sits partway down the screen and became the world's ceiling for everything above it: a
+// mascot thrown upward from below it was slammed down onto that line with its upward velocity
+// zeroed, in a single tick. Live trace 2026-08-13: two different throws (x=1098 vx=-1469, and
+// x=1030 vx=-2429) both reported landing at identical coordinates to 14 decimals,
+// y=1349.3333740234375 — a pane divider neither trajectory could have reached on its own.
+describe("clampToCeiling with a horizontal pane split", () => {
+	const DIV = 1349.3333740234375;
+	const splitLedges = computeLedgesFromRects({ width: 2000, height: 1392, top: 40 }, [
+		{ rect: { left: 0, top: 40, right: 482, bottom: 1392 }, source: "pane" },
+		{ rect: { left: 482, top: 40, right: 2000, bottom: DIV }, source: "pane" },
+		{ rect: { left: 482, top: DIV, right: 2000, bottom: 1392 }, source: "pane" },
+	]);
+
+	it("does not slam an upward-thrown mascot down onto a pane's underside", () => {
+		const physics = physicsAt(1098, 1043);
+		physics.vx = -1469;
+		physics.vy = -2254; // thrown upward
+		const args: TickArgs = { physics, ledges: splitLedges, dt: 0.04, config: DEFAULT_ENGINE_CONFIG };
+		applyGravityAndLand(args);
+		expect(physics.y).toBeLessThan(1043); // actually went up, as thrown
+		expect(physics.y).not.toBeCloseTo(DIV, 3);
+		expect(physics.vy).toBeLessThan(0); // upward velocity survived
+	});
+
+	it("two different throws no longer converge on the same divider coordinate", () => {
+		const run = (start: MascotPhysics) => {
+			const args: TickArgs = { physics: start, ledges: splitLedges, dt: 0.04, config: DEFAULT_ENGINE_CONFIG };
+			for (let i = 0; i < 300; i++) if (applyGravityAndLand(args)) break;
+			return start;
+		};
+		const a = run({ x: 1098, y: 1043, vx: -1469, vy: -2254, facing: -1, grounded: false });
+		const b = run({ x: 1030, y: 1015, vx: -2429, vy: -2973, facing: -1, grounded: false });
+		expect(a.y).not.toBeCloseTo(b.y, 3);
+	});
+
+	it("the window's own ceiling still stops an upward throw escaping the top", () => {
+		const physics = physicsAt(1000, 200);
+		physics.vy = -8000;
+		const args: TickArgs = { physics, ledges: splitLedges, dt: 0.04, config: DEFAULT_ENGINE_CONFIG };
+		for (let i = 0; i < 50; i++) applyGravityAndLand(args);
+		expect(physics.y).toBeGreaterThanOrEqual(40); // worldTop, not off the top of the window
+	});
+});

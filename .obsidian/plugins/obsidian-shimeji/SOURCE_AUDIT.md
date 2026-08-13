@@ -754,3 +754,28 @@ still needs the user's live confirmation like everything DOM-dependent in this f
       of a pixel *short* of a wall rather than strictly crossing it, so the post-loop proximity
       check is what actually catches most contacts — it needed the same tie-break, and fixing only
       `findCrossedWall` would have looked correct in isolation while changing nothing in practice.
+
+15. **Pass 20 (2026-08-13): the horizontal-split teleport — `clampToCeiling` had the identical
+    defect `clampToWalls` did, and it was missed when that one was fixed.** User: "horizontal panes
+    still break it." The log's tell was two different throws (from x=1098 vx=-1469, and x=1030
+    vx=-2429) reporting *identical* final coordinates to 14 decimal places —
+    `482.16668701171875, 1349.3333740234375`. Different trajectories cannot produce the same y;
+    that's a snap, and the y in question is a pane divider.
+    - **Root cause**: `clampToCeiling` took `max(y)` over **every** ceiling ledge spanning the
+      mascot's x — and a pane's underside is a ceiling ledge. A horizontal split puts a pane bottom
+      edge partway *down* the screen, so it became the world's ceiling for everything above it: a
+      mascot thrown *upward* from below was slammed straight down onto that line and had its upward
+      velocity zeroed in a single tick. Reproduced exactly before changing anything: tick 0 of the
+      logged throw moved y from 1043 to 1349.33 despite `vy = -2254` (upward). Fixed the same way
+      Pass 17 fixed its sibling — window-sourced ceilings only. Pane undersides remain fully usable
+      for detection and ceiling-hanging (`findCeilingAt`/`updateWallCeilingAdherence`, untouched).
+    - **Process note, and the real lesson of this pass**: Pass 17 diagnosed precisely this failure
+      mode ("an extreme over every ledge of a kind, including pane-sourced ones, is only meaningful
+      for ledges that genuinely bound the world") and fixed it in `clampToWalls` — while the
+      function directly beneath it, written from the same template and with a comment literally
+      beginning "Same idea as clampToWalls", had the same defect and was never looked at. When a
+      bug is found in one function, the sibling built from the same pattern must be checked in the
+      same pass; several rounds of user testing were spent on what one grep would have caught.
+    - Verified by replaying both logged throws: they now trace 10- and 5-tick arcs that genuinely
+      rise as thrown and end at *different* positions, instead of collapsing onto one shared
+      divider coordinate.

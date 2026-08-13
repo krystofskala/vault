@@ -53,13 +53,29 @@ export function clampToWalls(physics: MascotPhysics, ledges: Ledge[]): void {
 	}
 }
 
-/** Same idea as clampToWalls but for the top edge: a hard upward throw had nothing at all
- * stopping it (only the floor was ever checked), so it could sail straight through the
- * ceiling into permanent invisible freefall above the window. */
+/**
+ * Same idea as clampToWalls but for the top edge: a hard upward throw had nothing at all stopping
+ * it (only the floor was ever checked), so it could sail straight through the ceiling into
+ * permanent invisible freefall above the window.
+ *
+ * **Window-sourced ceilings only**, for exactly the reason clampToWalls is window-only — this had
+ * the identical bug and it was missed when that one was fixed. It took `max(y)` over *every*
+ * ceiling ledge spanning the mascot's x, and a pane's underside is a ceiling ledge too. In a
+ * horizontally-split workspace one pane's bottom edge sits partway *down* the screen, so that
+ * became the world's "ceiling" for everything above it: a mascot thrown upward from below it was
+ * slammed straight down onto that line and had its upward velocity zeroed, in a single tick.
+ * Reproduced from a live trace 2026-08-13 — two different throws (from x=1098 vx=-1469, and from
+ * x=1030 vx=-2429) both reported landing at *identical* coordinates to 14 decimal places,
+ * `y: 1349.3333740234375`, which is a pane divider, not anything either trajectory could have
+ * reached on its own. Only horizontal splits, because only they put a pane underside mid-screen.
+ *
+ * A pane's underside stays fully usable for what it's for — being detected and hung from
+ * (`findCeilingAt`/`updateWallCeilingAdherence`, untouched) — never as a position clamp.
+ */
 export function clampToCeiling(physics: MascotPhysics, ledges: Ledge[]): void {
 	let maxCeilingY = -Infinity;
 	for (const ledge of ledges) {
-		if (ledge.kind !== "ceiling") continue;
+		if (ledge.kind !== "ceiling" || ledge.source !== "window") continue;
 		if (physics.x < ledge.x1 || physics.x > ledge.x2) continue;
 		if (ledge.y > maxCeilingY) maxCeilingY = ledge.y;
 	}
