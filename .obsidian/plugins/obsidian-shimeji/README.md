@@ -355,13 +355,19 @@ Swing/AWT/JNA GUI plumbing included, not just the core simulation subset.
   title-bar drag), `elementsAtTop()` (what `document.elementFromPoint` actually finds along the
   top edge, including computed `pointer-events`/`-webkit-app-region`), `mascotRects()` (every
   live mascot's current bounding box, to catch one sitting over the title bar mid
-  ceiling-walk), and `setVerbose(true)` (a live trace of every landing and every behavior
-  transition, tagged `[obsidian-shimeji]`, for chasing a specific "drop from height did
-  something odd" repro). Two issues are still open and exactly what this tooling targets: the
-  window still can't reliably be dragged by its title bar while the plugin is enabled (confirmed
-  the plugin is the cause — disabling it fixes dragging immediately — but not yet which part
-  of it), and a mascot dropped from a height has been reported to visually skip most of the
-  fall. Both need real DevTools output from a live window to localize further.
+  ceiling-walk), `dumpLedges()` (every currently-computed floor/wall/ceiling, for "why did it
+  land/climb there" reports), and `setVerbose(true)` (a live trace of every landing and every
+  behavior transition, tagged `[obsidian-shimeji]`, for chasing a specific "drop from height did
+  something odd" repro). One issue this tooling helped catch: the window's own ceiling/walls
+  used to be anchored at the literal top of the app's viewport, so wall-climbing and
+  ceiling-walking (both authentic behaviors) could carry a mascot up onto the title bar/tab
+  strip itself, rendered on top of it and capturing the clicks meant to drag or resize the
+  window. Fixed by anchoring the ceiling to the top of Obsidian's actual workspace area instead
+  (see `SOURCE_AUDIT.md` Pass 11) — needs a live window to fully confirm, same as anything else
+  in this list. Still open: a mascot dropped from a height has been reported to visually skip
+  most of the fall, and a drag-release sometimes lands further from the release point than
+  expected on a pane-heavy layout (ordinary gravity finding the nearest real floor below that x,
+  which may just need `dumpLedges()` output from the layout in question to localize further).
 - **Drag is now a direct port of the real engine's own `Dragged.java`, not an invented
   approximation**: several rounds of home-grown drag heuristics here (a critically-damped
   spring for position, then an extrapolated-cursor "lean pointer", then exponential smoothing

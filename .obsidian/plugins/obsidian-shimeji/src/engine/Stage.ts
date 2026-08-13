@@ -138,8 +138,9 @@ export class Stage {
 
 	private recomputeLedges(): void {
 		const viewport = this.environment.getViewportSize();
+		const worldTop = this.environment.getWorldTop();
 		const platforms = this.opts.paneLedgesEnabled ? this.environment.getPlatformRects() : [];
-		this.ledges = computeLedgesFromRects(viewport, platforms);
+		this.ledges = computeLedgesFromRects({ ...viewport, top: worldTop }, platforms);
 		this.renderDebugLedges();
 	}
 

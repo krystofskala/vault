@@ -6,6 +6,7 @@ import type { Environment } from "../src/engine/Environment";
 function fakeEnvironment(): Environment {
 	return {
 		getViewportSize: () => ({ width: 800, height: 600 }),
+		getWorldTop: () => 0,
 		getPlatformRects: () => [],
 	};
 }

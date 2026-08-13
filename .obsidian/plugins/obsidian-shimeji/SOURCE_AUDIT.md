@@ -396,11 +396,9 @@ inside any of them the way `Main.java` turned out to have.
 
 ## Open live-bug reports (need user diagnostics, not more audit)
 
-`window.shimejiDebug` tooling ready (see README) but no repro data gathered yet for the first two;
-the last two are new as of Pass 8, genuinely untested rather than unconfirmed-by-source:
+`window.shimejiDebug` tooling ready (see README) but no repro data gathered yet for the first;
+the rest are genuinely untested rather than unconfirmed-by-source:
 
-- Window title-bar can't be reliably dragged while the plugin is enabled (confirmed the plugin is
-  the cause; not yet which part).
 - A mascot dropped from a height was reported to visually skip most of the fall. Nothing in any
   pass so far obviously explains this (Fall doesn't go through tickHold, and this isn't a
   ChaseMouse- or Thrown-adjacent path either), so still needs a live repro with `setVerbose(true)`
@@ -415,6 +413,13 @@ the last two are new as of Pass 8, genuinely untested rather than unconfirmed-by
   `window.moveTo()` calls to move it (vs. silently no-op'ing, or intercepting via `will-move`) is
   reasoned from Electron's own general documented behavior, not observed in this specific app.
   Needs a live desktop test to confirm the window actually visibly flies across the screen.
+- **Drop-to-a-specific-spot sometimes lands somewhere else, converging on a few repeated "hotspot"
+  floor lines as more mascots accumulate.** Diagnosed 2026-08-13 but only partially addressed (see
+  Pass 11 below) — the worldTop fix removes one real contributor (autonomous wandering piling up
+  along the old, wrongly-placed y=0 ceiling), but a drag-release landing far from the actual
+  release point is *ordinary gravity* finding whatever real floor is below that x (faithful to how
+  Fall always worked, on purpose) — if it still reads as wrong after Pass 11, it needs
+  `shimejiDebug.dumpLedges()` output from the live layout in question, not more guessing from here.
 
 ## Next steps, in priority order
 
@@ -448,3 +453,23 @@ the last two are new as of Pass 8, genuinely untested rather than unconfirmed-by
    built yet. Once specific items are chosen, audit and port them the same way as every other
    pass: read the real source at the commits above first, don't infer from the changelog text
    alone.
+6. **Pass 11 (2026-08-13): fixed the world ceiling/walls being anchored at the literal top of the
+   Electron viewport (y=0) instead of the top of Obsidian's actual usable workspace area.** User
+   report: mascots spawning/climbing/ceiling-walking onto the title bar and tab strip (unwanted —
+   "you cant see them there") and, separately, that this was blocking the user from dragging or
+   resizing the Obsidian window itself. The second half is the same mechanism as the long-open
+   "title-bar can't be reliably dragged" report above — the plugin's own ceiling/wall ledges had
+   nothing stopping autonomous wall-climbing/ceiling-walking (both authentic shimeji-ee behavior)
+   before the true top of the window, so mascots correctly performing that behavior ended up
+   rendered on top of, and pointer-event-capturing over, the title bar/tab-header chrome
+   underneath. Fixed: `Environment.getWorldTop()` (new) reads `.workspace`'s own bounding rect —
+   the element `app.workspace.containerEl` points at, a sibling of the custom title bar and the
+   left icon ribbon, not a descendant of either — and `computeLedgesFromRects` now anchors the
+   window ceiling and the top of both window walls (plus clamps every pane's own side walls) to
+   that instead of a hardcoded 0. This resolves the "spawns/climbs onto the title bar" and (very
+   likely — same mechanism, previously unconfirmed for lack of repro data) the "can't drag the
+   title bar" reports; it does *not* fully explain the first report's "drop lands somewhere else"
+   complaint, which is at least partly just ordinary Fall physics finding whatever real floor is
+   below the release x (see "Open live-bug reports" above) — added `shimejiDebug.dumpLedges()` to
+   get real geometry data if that persists. Needs live confirmation like every DOM-dependent fix
+   in this file (headless dev environment, no GUI).

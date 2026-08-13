@@ -57,6 +57,44 @@ describe("computeLedgesFromRects", () => {
 		]);
 		expect(ledges.filter((l) => l.source === "pane")).toHaveLength(0);
 	});
+
+	// Obsidian's custom title bar/tab strip sits above y=0 in raw window terms but is real app
+	// chrome, not open space — worldTop is how Environment.getWorldTop() tells this function
+	// where the actual usable area begins. Without it, autonomous wall-climbing/ceiling-walking
+	// (entirely authentic shimeji-ee behavior) had nothing stopping it before the literal top of
+	// the Electron window, landing mascots on top of that chrome and blocking clicks meant for it.
+	describe("worldTop", () => {
+		it("moves the window ceiling and the top of both window walls down to worldTop instead of 0", () => {
+			const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, []);
+			expect(ledges).toContainEqual({ kind: "ceiling", y: 40, x1: 0, x2: 800, source: "window" });
+			expect(ledges).toContainEqual({ kind: "wall", side: "left", x: 0, y1: 40, y2: 600, source: "window" });
+			expect(ledges).toContainEqual({ kind: "wall", side: "right", x: 800, y1: 40, y2: 600, source: "window" });
+			// The window floor (bottom) is untouched — only the top of the world moved.
+			expect(ledges).toContainEqual({ kind: "floor", y: 600, x1: 0, x2: 800, source: "window" });
+		});
+
+		it("clamps a pane's own side walls to worldTop even when the pane's rect starts above it", () => {
+			// A pane whose measured top (10) sits above worldTop (40) shouldn't let a mascot climb
+			// its left/right wall on up past worldTop into the chrome above — same bug, different
+			// path (via a pane's own wall instead of the window's).
+			const rect = { left: 100, top: 10, right: 400, bottom: 300 };
+			const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, [{ rect, source: "pane" }]);
+			const leftWall = ledges.find((l) => l.kind === "wall" && l.side === "left" && l.source === "pane");
+			expect(leftWall).toMatchObject({ y1: 40, y2: 300 });
+		});
+
+		it("does not add a floor for a pane whose top is at or above worldTop", () => {
+			const rect = { left: 100, top: 20, right: 400, bottom: 300 };
+			const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, [{ rect, source: "pane" }]);
+			expect(ledges.some((l) => l.kind === "floor" && l.source === "pane")).toBe(false);
+		});
+
+		it("omitting top behaves exactly as before (defaults to 0)", () => {
+			const withDefault = computeLedgesFromRects({ width: 800, height: 600 }, []);
+			const withExplicitZero = computeLedgesFromRects({ width: 800, height: 600, top: 0 }, []);
+			expect(withDefault).toEqual(withExplicitZero);
+		});
+	});
 });
 
 describe("findCeilingAt", () => {

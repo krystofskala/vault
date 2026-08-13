@@ -8,6 +8,7 @@ export interface ShimejiDebugApi {
 	showOverlay(): void;
 	elementsAtTop(y?: number): void;
 	mascotRects(): void;
+	dumpLedges(): void;
 }
 
 declare global {
@@ -78,9 +79,34 @@ export function installDebugApi(getStage: () => Stage | undefined): void {
 				});
 			});
 		},
+		// For chasing "why did it land/climb/spawn there" reports (pane-heavy layouts producing
+		// unexpected floor/ceiling geometry) without needing a live debugger session — paste this
+		// output straight into a bug report.
+		dumpLedges() {
+			const stage = getStage();
+			if (!stage) {
+				console.info("[obsidian-shimeji] no stage");
+				return;
+			}
+			const ledges = stage.getLedges();
+			console.info(`[obsidian-shimeji] ${ledges.length} ledges currently computed:`);
+			for (const ledge of ledges) {
+				if (ledge.kind === "wall") {
+					console.info(
+						`  wall   side=${ledge.side.padEnd(5)} x=${Math.round(ledge.x)}`.padEnd(38) +
+							`y=[${Math.round(ledge.y1)}, ${Math.round(ledge.y2)}]  source=${ledge.source}`,
+					);
+				} else {
+					console.info(
+						`  ${ledge.kind.padEnd(7)}         y=${Math.round(ledge.y)}`.padEnd(38) +
+							`x=[${Math.round(ledge.x1)}, ${Math.round(ledge.x2)}]  source=${ledge.source}`,
+					);
+				}
+			}
+		},
 	};
 	console.info(
-		"[obsidian-shimeji] debug helpers ready in this console: window.shimejiDebug.stageCount() / .hideOverlay() / .showOverlay() / .elementsAtTop() / .mascotRects() / .setVerbose(true)",
+		"[obsidian-shimeji] debug helpers ready in this console: window.shimejiDebug.stageCount() / .hideOverlay() / .showOverlay() / .elementsAtTop() / .mascotRects() / .dumpLedges() / .setVerbose(true)",
 	);
 }
 

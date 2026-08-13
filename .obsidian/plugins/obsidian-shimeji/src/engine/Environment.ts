@@ -8,6 +8,12 @@ import type { LedgeSource, PaneRef, Rect } from "./types";
  */
 export interface Environment {
 	getViewportSize(): { width: number; height: number };
+	/** Top of the usable/walkable area, in the same viewport-relative coordinates as everything
+	 * else here — below any app-level chrome mascots' *autonomous* physics shouldn't reach
+	 * (custom title bar, tab strip), not the literal top of the window. 0 when there's no such
+	 * chrome (e.g. in tests). See ObsidianDomEnvironment's own implementation for why this needs
+	 * to exist at all. */
+	getWorldTop(): number;
 	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }>;
 }
 
@@ -15,6 +21,31 @@ export interface Environment {
 export class ObsidianDomEnvironment implements Environment {
 	getViewportSize(): { width: number; height: number } {
 		return { width: window.innerWidth, height: window.innerHeight };
+	}
+
+	/**
+	 * `window.innerHeight`'s y=0 is the literal top of the Electron viewport — which, whenever
+	 * Obsidian's custom title bar is in play, is a strip of real app chrome (drag region, window
+	 * controls, tab headers), not open space. Ledges.ts used to plant the world's "ceiling" and
+	 * the top of its left/right walls right there, so a mascot climbing a wall (or ceiling-walking
+	 * after — both entirely authentic shimeji-ee behavior) would ride straight up into that chrome
+	 * and rest on top of it, rendered over it with pointer-events on for dragging. That's the
+	 * mechanism behind two separate-looking reports: mascots visibly parking on/around the title
+	 * bar, and the title bar becoming impossible to drag (the previously-unexplained open report
+	 * in SOURCE_AUDIT.md — shimejiDebug.hideOverlay()/elementsAtTop() were built to chase exactly
+	 * this without knowing yet what was causing it).
+	 *
+	 * `.workspace` is the element `app.workspace.containerEl` points at: a sibling of the custom
+	 * `.titlebar` and the left icon ribbon under `.app-container`, not a descendant of either, so
+	 * its own top edge already sits below both regardless of which chrome is actually present
+	 * (native title bar, no title bar, ribbon hidden, ...) — no need to special-case any of that
+	 * here. Queried by class the same way getPlatformRects() below already queries `.status-bar`,
+	 * rather than threading an App reference through just for this.
+	 */
+	getWorldTop(): number {
+		const workspace = document.querySelector<HTMLElement>(".workspace");
+		if (!workspace) return 0;
+		return Math.max(0, workspace.getBoundingClientRect().top);
 	}
 
 	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }> {
