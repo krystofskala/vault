@@ -588,3 +588,56 @@ still needs the user's live confirmation like everything DOM-dependent in this f
      directly at `findClingableWall` once taken literally instead of folded into the same bucket as
      the earlier random-teleport bug. Needs live confirmation, same as every DOM/physics fix in
      this file — this environment still has no GUI.
+10. **Pass 15 (2026-08-13): confirmed, not speculative — a real `Math.random` typo in actual pack
+    XML, breaking randomization silently.** User reported Passes 13-14 produced *zero* observed
+    change (title bar still blocked, drop still not falling right), verified they were actually
+    pulling and reloading correctly (a `git pull` transcript confirmed it), and posted a DevTools
+    console warning: `unsupported expression identifier "Math.random"; defaulting to
+    false/undefined`, firing continuously inside the simulation loop.
+    - Reading `Shimeji/conf/actions.xml` (this plugin's own bundled reference pack) for
+      `Math.random` found the exact cause at lines 443 and 533 (`ClimbCeiling`/`Walk`'s own
+      `TargetX`): `mascot.lookRight ? workArea.left+Math.random()*100 :
+      workArea.right-Math.random*100` — the second half of that ternary is missing the call
+      parens the first half has. A bare `Math.random` (no `()`) parses as a plain property *path*,
+      not a *call* — `RuntimeContext.resolve()` only recognized `mascot.*`/`environment.*` paths,
+      so this fell through its generic "unknown identifier" branch, warned, and returned
+      `undefined` — which arithmetic then silently turns into `0`. The randomized "walk to
+      somewhere within 100px of the edge" became "walk to *exactly* the edge, every single time,"
+      deterministically, whenever facing that direction — invisible as a bug in isolation, but the
+      likely explanation for the "walks to the edge, then respawns at start of line" pattern the
+      user found reproduced identically across multiple replications, and for at least some of the
+      broader sense that behavior wasn't varying the way it should.
+    - Fixed: `resolve()` now special-cases a bare `Math.random` (still nothing else in that
+      family — `.min`/`.max`/`.abs`/`.floor` all require arguments a bare reference can't supply
+      sensibly) to the same `rng.range(0, 1)` the real call already used, rather than defaulting
+      to a silently-wrong constant. This is a real, ported-content bug fix, not a new invention —
+      confirmed present in *our own bundled reference copy* of the pack, independent of whatever
+      third-party pack the user was actually testing with, so it isn't specific to their pack.
+    - Deliberately scoped narrow: this pass does **not** touch the title-bar or wall-catch fixes
+      from Passes 13-14, which the user reports still show no effect. Given confirmation that
+      reloading *is* working correctly, that needs its own fresh diagnosis rather than being
+      bundled with an unrelated, independently-confirmed fix — see "Open live-bug reports" below.
+
+## Open, actively-suspicious items (do not assume Passes 13-14 actually work)
+
+The user has confirmed — with a `git pull` transcript, not just a claim — that Passes 13 and 14
+were correctly pulled and reloaded, and observed *zero* change in either the title-bar-blocking or
+the wall-catch-on-release symptom. Both fixes were verified present in the built `main.js` on this
+end too. That combination means the diagnosis in Passes 13-14, not just the deployment, needs
+re-examining — don't treat either fix as confirmed-working just because it's committed and
+logically sound on paper:
+
+- **Title bar**: leading new theory, not yet checked — Obsidian's "tabs in the title bar" layout
+  (visible in the user's own screenshots: tab strip and window min/max/close buttons rendered in
+  *one combined row*) may mean the tab-strip portion of that row genuinely belongs to
+  `app.workspace.containerEl` itself, not to a separate `.titlebar` sibling above it. If so,
+  `getWorldTop()` returns ~0 in this layout (nothing to clip), making Pass 14's `clip-path` fix a
+  complete no-op — which would exactly match "absolutely zero changes." Needs a direct value check
+  (`document.querySelector('.workspace').getBoundingClientRect().top` compared against where the
+  draggable region actually is) before writing any more code against this.
+- **Wall-catch-on-release**: the `alreadyAtWall` fix (Pass 14) is unit-tested and the logic traces
+  through cleanly by hand, but the user's live result contradicts it just as flatly as the title
+  bar. Possible this specific mechanism was never the (or the only) actual path being hit for their
+  repro, possibly compounded by the Math.random bug above corrupting an unrelated Move's target
+  mid-sequence in a way that *looks* like the same "no fall" symptom. Needs a fresh repro with
+  `setVerbose(true)` now that Pass 15's fix is in, rather than assuming Pass 14 alone explains it.

@@ -114,6 +114,18 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 		const [head, ...rest] = path;
 		if (head === "mascot") return resolveMascot(rest);
 		if (head === "environment" || head === "env") return resolveEnvironment(rest);
+		// Real bug found 2026-08-13, present in this plugin's own bundled reference pack (and
+		// evidently others): actions.xml sometimes writes a bare "Math.random" with no `()` —
+		// e.g. ClimbCeiling/Walk's own TargetX, `...right-Math.random*100` (missing the call
+		// parens the *other* branch of the same ternary has, one line over). The parser reads an
+		// un-called "Math.random" as a plain property path, not a call, so it lands here instead
+		// of call()'s existing `.random` handling below. Silently resolving to 0 (this function's
+		// normal "unknown identifier" fallback) turned a randomized offset into an exact, always-
+		// identical edge coordinate — invisible as a bug in isolation, but the reason a walk/climb
+		// target that should vary run to run looked perfectly deterministic every single time.
+		// `Math.random()` is the only zero-argument Math member worth special-casing this way;
+		// nothing else in that family means anything referenced bare.
+		if (head === "Math" && rest.length === 1 && rest[0] === "random") return rng.range(0, 1);
 		warnUnknown(`identifier "${path.join(".")}"`);
 		return undefined;
 	}
