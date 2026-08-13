@@ -40,7 +40,13 @@ export class PackDriver implements MascotDriver {
 		const viewport = mascot.getViewportSize();
 		const baseCtx = createRuntimeContext(
 			mascot.physics,
-			{ viewportWidth: viewport.width, viewportHeight: viewport.height, pointer: ambientPointer, totalMascotCount: mascot.getTotalMascotCount() },
+			{
+				viewportWidth: viewport.width,
+				viewportHeight: viewport.height,
+				worldTop: mascot.getWorldTop(),
+				pointer: ambientPointer,
+				totalMascotCount: mascot.getTotalMascotCount(),
+			},
 			elapsedMs,
 			this.rng,
 		);

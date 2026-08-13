@@ -143,6 +143,7 @@ describe("real standard Shimeji-ee pack", () => {
 			// has nothing to do with what these tests are actually exercising.
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
+		getWorldTop: () => 0,
 		};
 		const ledges = [{ kind: "floor" as const, y: 600, x1: 0, x2: 800, source: "window" as const }];
 
@@ -173,6 +174,7 @@ describe("real standard Shimeji-ee pack", () => {
 			// has nothing to do with what these tests are actually exercising.
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
+		getWorldTop: () => 0,
 			// A 200-simulated-second random walk through the real pack's full behavior graph can
 			// wander into a Breed action (e.g. SplitIntoTwo, weight 50, totalCount<50) same as any
 			// other top-level behavior — this test isn't exercising breeding, just needs it not to
@@ -199,6 +201,7 @@ describe("real standard Shimeji-ee pack", () => {
 			setVisualImage: () => {},
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
+		getWorldTop: () => 0,
 		};
 		ai.forceBehavior("ChaseMouse", mascot as unknown as Mascot, { x: 700, y: 300, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
 		expect(ai.currentBehaviorName).toBe("ChaseMouse");
@@ -212,6 +215,7 @@ describe("real standard Shimeji-ee pack", () => {
 			setVisualImage: () => {},
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
+		getWorldTop: () => 0,
 		});
 
 		// ambient dx/dy are raw per-tick pixels (real Location.dx/dy's own units); Falling's
@@ -244,6 +248,7 @@ describe("real standard Shimeji-ee pack", () => {
 			setVisualImage: () => {},
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
+		getWorldTop: () => 0,
 			requestSibling: (x: number, y: number, bornBehaviorName?: string) => bred.push({ x, y, bornBehaviorName }),
 		};
 		const env: PushEnv = {
@@ -277,6 +282,7 @@ describe("real standard Shimeji-ee pack", () => {
 			setVisualImage: () => {},
 			getViewportSize: () => ({ width: 800, height: 900 }),
 			getTotalMascotCount: () => 1,
+		getWorldTop: () => 0,
 		};
 		const env: PushEnv = {
 			mascot: mascot as unknown as Mascot,

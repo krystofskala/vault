@@ -29,6 +29,9 @@ function makeFakeMascot() {
 		getTotalMascotCount() {
 			return 1;
 		},
+		getWorldTop() {
+			return 0;
+		},
 	};
 }
 

@@ -111,58 +111,91 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 		physics.grounded = false;
 	}
 
-	// Find the candidate floor using the pre-step position: querying with the
-	// post-step position would let a single large step (high dt, high vy) land past
-	// floor.y + 0.5 and get excluded as "already behind us", falling through forever.
-	const floor = findFloorBelow(ledges, physics.x, physics.y);
-	// Same idea, for the wall-catch check below: captured *before* this tick's own movement, so
-	// it reflects whether the mascot was already sitting at a wall walking in versus this tick's
-	// own motion being what brought it there. See that check's own comment for why the
-	// distinction matters.
+	// Captured before this tick's own movement: whether the mascot was *already* resting against a
+	// wall rather than this tick's motion being what brought it there. A drag release right at a
+	// wall leaves physics.x already pinned there by tickDragged's own clamp, before Fall/Thrown
+	// even begins, and without this the very first falling tick "catches" a wall it was never
+	// actually flying into — an instant catch with no visible fall at all.
 	const alreadyAtWall = findClingableWall(ledges, physics, 0.5) !== undefined;
-	const prevX = physics.x;
 
 	physics.vy += config.gravity * dt;
-	physics.x += physics.vx * dt;
-	physics.y += physics.vy * dt;
+	const startX = physics.x;
+	const startY = physics.y;
+	const dx = physics.vx * dt;
+	const dy = physics.vy * dt;
+
+	/*
+	 * Substepped sweep, a direct port of the real engine's own Fall.tick(): it does not apply a
+	 * tick's whole movement at once and then test where it ended up — it walks the path in ~1px
+	 * increments (`dev = max(1, max(|dx|, |dy|))`, then `x = anchorX + dx * i / dev`) and tests the
+	 * floor and wall at *each* substep, stopping exactly where contact happens.
+	 *
+	 * Doing it in one jump instead — which is what this used to do — is wrong in two ways that
+	 * both showed up in live traces:
+	 *  - The floor was looked up once at the *pre-step* x and then applied after the mascot had
+	 *    already moved somewhere else. In a horizontally-split workspace (panes stacked at
+	 *    different heights) a fast-moving mascot would land on the floor that was under its old
+	 *    position, at an x where that floor doesn't even exist — reading as a sideways teleport.
+	 *  - Anything moving faster than a gap is wide tunnels straight through it.
+	 * Sweeping fixes both, and makes floor and wall contact agree because they're evaluated
+	 * against the same point along the same path.
+	 *
+	 * Step count is capped: a pathological velocity shouldn't cost thousands of iterations a tick.
+	 * At the cap the sweep degrades to coarser steps, never to incorrect ones.
+	 */
+	const MAX_SUBSTEPS = 512;
+	const steps = Math.max(1, Math.min(MAX_SUBSTEPS, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)))));
+
+	let prevX = startX;
+	let prevY = startY;
+	for (let i = 1; i <= steps; i++) {
+		const nx = startX + (dx * i) / steps;
+		const ny = startY + (dy * i) / steps;
+
+		// Floor, looked up at *this* substep's x — the whole point of sweeping. Only while moving
+		// downward, matching Fall.tick()'s own `if (dy > 0)` guard, so an upward toss doesn't get
+		// caught by the floor it's leaving.
+		if (dy > 0) {
+			const floor = findFloorBelow(ledges, nx, prevY);
+			if (floor && ny >= floor.y) {
+				physics.x = nx;
+				physics.y = floor.y;
+				physics.vy = 0;
+				physics.vx = 0;
+				physics.grounded = true;
+				physics.currentFloor = floor;
+				debugLog("landed", { x: physics.x, y: floor.y, source: floor.source, vyAtLanding: physics.vy });
+				return true;
+			}
+		}
+
+		// Wall contact along the same substep. `alreadyAtWall` suppresses only the case of having
+		// started the tick against one; a wall genuinely reached during this move still catches.
+		const crossed = alreadyAtWall ? undefined : findCrossedWall(ledges, prevX, nx, ny);
+		if (crossed) {
+			physics.x = crossed.x;
+			physics.y = ny;
+			physics.vx = 0;
+			physics.vy = 0;
+			physics.currentWall = crossed;
+			clampToCeiling(physics, ledges);
+			debugLog("landed on a wall while falling", { x: physics.x, y: physics.y, side: crossed.side, source: crossed.source });
+			return true;
+		}
+
+		prevX = nx;
+		prevY = ny;
+	}
+
+	physics.x = startX + dx;
+	physics.y = startY + dy;
 	clampToWalls(physics, ledges);
 	clampToCeiling(physics, ledges);
 
-	// Pane walls are deliberately *not* position-clamps (see clampToWalls — treating them as
-	// global bounds is what teleported mascots across the screen), so catching one has to be a
-	// genuine swept test: did this tick's own horizontal movement actually carry the mascot
-	// across that wall's x, while its y was within the wall's real span? That's the same thing
-	// clampToWalls used to provide here as a side effect, minus the part where a wall nowhere
-	// near the mascot could still rewrite its position.
-	const crossedWall = findCrossedWall(ledges, prevX, physics.x, physics.y);
-	if (crossedWall) physics.x = crossedWall.x;
-
-	if (floor && physics.y >= floor.y) {
-		debugLog("landed", { x: physics.x, y: floor.y, source: floor.source, vyAtLanding: physics.vy });
-		physics.y = floor.y;
-		physics.vy = 0;
-		physics.vx = 0;
-		physics.grounded = true;
-		physics.currentFloor = floor;
-		return true;
-	}
-
-	// Faithful to the real engine's Fall.hasNext(): `floor.isOn(pos) || wall.isOn(pos)` — touching
-	// a wall ends a fall too, not just landing on a floor. clampToWalls above already snapped
-	// physics.x exactly onto a wall's x if this tick's fall drifted past it, so a tight reach
-	// here only catches a genuine touch, not merely being nearby — *except* when the mascot was
-	// already sitting at that exact wall before this tick even started (alreadyAtWall, captured
-	// above): real bug found 2026-08-13 — a drag release right at the screen edge leaves
-	// physics.x already pinned there by tickDragged's own clamp, before Fall/Thrown even begins,
-	// so without this check the very first falling tick "caught" a wall it was never actually
-	// flying into, reading as an instant catch with no visible fall at all. Skipping the catch
-	// when it was already there lets gravity keep pulling it straight down (clampToWalls still
-	// keeps x pinned, vx stays zeroed) until it reaches a real floor, same as the real engine's
-	// own "slides down the side of a window" case. A genuine "flew diagonally into the side of a
-	// window" case still crosses into reach fresh this tick (alreadyAtWall is false) and still
-	// catches correctly, including when the approach was fast enough to need clamping — this
-	// doesn't reopen the original bug that comment above describes.
-	const wall = alreadyAtWall ? undefined : crossedWall ?? findClingableWall(ledges, physics, 0.5);
+	// Faithful to Fall.hasNext()'s `floor.isOn(pos) || wall.isOn(pos)`: resting against a wall ends
+	// a fall too. The sweep above already handles *arriving* at one; this catches the case of
+	// having been clamped onto the window's own edge by clampToWalls just now.
+	const wall = alreadyAtWall ? undefined : findClingableWall(ledges, physics, 0.5);
 	if (wall) {
 		debugLog("landed on a wall while falling", { x: physics.x, y: physics.y, side: wall.side, source: wall.source });
 		physics.vx = 0;

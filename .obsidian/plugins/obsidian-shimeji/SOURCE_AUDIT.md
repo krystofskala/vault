@@ -694,3 +694,33 @@ still needs the user's live confirmation like everything DOM-dependent in this f
     - Verified end-to-end by replaying the user's exact logged release (x=978, y=435, vx=31,
       vy=-121) through the real integrator: a 30-tick arc that rises, turns over, accelerates down
       and lands on the actual floor — instead of one tick to x=482.
+
+13. **Pass 18 (2026-08-13): two remaining bugs from a live trace — both traced to real source.**
+    User confirmed Pass 17 fixed the title bar and most drops, leaving: (a) a mascot that climbs a
+    wall to the top can't transfer onto the ceiling and just falls, (b) drops still teleport when a
+    pane is split *horizontally*.
+    - **(b) root cause — the integrator wasn't sweeping.** Read real `Fall.tick()`: it does *not*
+      apply a tick's movement in one jump. It computes `dev = max(1, max(|dx|, |dy|))` and walks
+      the path in ~1px substeps (`x = anchorX + dx * i / dev`), testing floor and wall at *each*
+      substep and stopping exactly where contact happens. Ours applied the whole move at once and
+      looked the floor up at the **pre-step x**, then applied it after the mascot had already moved
+      elsewhere. With a horizontal split (panes stacked at different heights) a fast mascot landed
+      on the floor that was under its *old* position, at an x where that floor doesn't exist —
+      a sideways jump. It also tunnelled through anything thinner than one tick of travel. Ported
+      the substepped sweep; floor and wall contact now agree because both are evaluated against the
+      same point on the same path. Verified: a 9000px/s drop now catches a pane top at y=900
+      instead of falling through to y=2000, and the horizontal-split case lands on a floor that
+      genuinely spans its final x.
+    - **(a) root cause — the pack was asking about a ceiling that had moved.** `worldTop` (Pass 16)
+      moved the real ceiling ledge to below the tab strip, but `RuntimeContext` still answered
+      `mascot.environment.ceiling.isOn(...)` with `y <= 4` and `workArea.top` with a hardcoded `0`.
+      So the pack's own `HoldOntoCeiling`/`ClimbAlongCeiling` conditions could never be true at the
+      real ceiling line (y=40 in this user's layout), and its climb targets
+      (`workArea.top+64`, `workArea.top+64 + Math.random()*(workArea.height-128)`) aimed 40px into
+      the chrome. The mascot climbed, was told it wasn't on the ceiling, and fell — exactly the
+      report. `worldTop` is now threaded into `RuntimeEnv` and used for `ceiling.isOn`,
+      `workArea.topBorder.isOn`, `workArea.top` and `workArea.height`.
+    - Lesson worth keeping: (a) is a *second-order* bug created by Pass 16's own fix — moving the
+      world's ceiling without moving what the pack is told about it. Any future change to the
+      world's geometry has to update `RuntimeContext`'s answers in the same commit, or packs will
+      keep silently disagreeing with the physics.

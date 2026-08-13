@@ -144,6 +144,13 @@ export class Mascot {
 		return this.deps.getViewportSize();
 	}
 
+	/** Top of the walkable world (below the host app's own chrome) — see MascotDeps.getWorldTop.
+	 * Exposed so a pack-driven runtime context can answer `workArea.top`/`ceiling.isOn(...)` with
+	 * the same line the ledges actually use. */
+	getWorldTop(): number {
+		return this.deps.getWorldTop?.() ?? 0;
+	}
+
 	getTotalMascotCount(): number {
 		return this.deps.getTotalMascotCount();
 	}

@@ -28,6 +28,12 @@ export interface AmbientPointer {
 export interface RuntimeEnv {
 	viewportWidth: number;
 	viewportHeight: number;
+	/** Top of the walkable world — below Obsidian's title bar / tab strip, matching where
+	 * Ledges.ts actually puts the ceiling and the top of the window walls. The pack's own
+	 * `workArea.top`/`ceiling.isOn(...)` must agree with the real geometry, or a mascot that
+	 * climbs to the ceiling is told it isn't there. Optional (defaults to 0) so existing callers
+	 * and tests with no chrome above the stage are unaffected. */
+	worldTop?: number;
 	pointer: AmbientPointer;
 	totalMascotCount: number;
 }
@@ -62,6 +68,13 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 	const onPaneWall = wall?.source === "pane";
 	const onPaneCeiling = ceiling?.source === "pane";
 	const EPS = 4;
+	// Everything the pack asks about the top of the world has to use the *real* ceiling line, not
+	// a hardcoded 0. Live trace 2026-08-13: a mascot climbed the wall to the top and immediately
+	// fell instead of transferring onto the ceiling, because `ceiling.isOn(...)` tested `y <= 4`
+	// while the actual ceiling ledge sits at worldTop (40 in that user's layout, below the tab
+	// strip) — so the pack's HoldOntoCeiling/ClimbAlongCeiling conditions could never be true, and
+	// its `workArea.top+64` climb targets aimed 40px into the chrome.
+	const worldTop = env.worldTop ?? 0;
 
 	const activePaneRect = resolveActivePaneLedge(physics)?.rect;
 
@@ -88,13 +101,13 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 			case "mascot.environment.floor.isOn":
 				return onWindowFloor;
 			case "mascot.environment.ceiling.isOn":
-				return physics.y <= EPS;
+				return physics.y <= worldTop + EPS;
 			case "mascot.environment.workArea.leftBorder.isOn":
 				return physics.x <= EPS;
 			case "mascot.environment.workArea.rightBorder.isOn":
 				return physics.x >= env.viewportWidth - EPS;
 			case "mascot.environment.workArea.topBorder.isOn":
-				return physics.y <= EPS;
+				return physics.y <= worldTop + EPS;
 			case "mascot.environment.workArea.bottomBorder.isOn":
 				return physics.y >= env.viewportHeight - EPS;
 			case "mascot.environment.activeIE.topBorder.isOn":
@@ -176,8 +189,13 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 			switch (tail[0]) {
 				case "left":
 					return 0;
+				// The work area starts at the ceiling line, not at the raw top of the window — the
+				// pack builds real climb targets out of this (`workArea.top+64`, and
+				// `workArea.top+64 + Math.random()*(workArea.height-128)`), so a hardcoded 0 aimed
+				// them into the title bar and left `height` overstating the usable space by the
+				// same amount.
 				case "top":
-					return 0;
+					return worldTop;
 				case "right":
 					return env.viewportWidth;
 				case "bottom":
@@ -185,7 +203,7 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 				case "width":
 					return env.viewportWidth;
 				case "height":
-					return env.viewportHeight;
+					return env.viewportHeight - worldTop;
 			}
 		}
 		if (region === "activeIE") {

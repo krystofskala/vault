@@ -134,6 +134,7 @@ export class BehaviorAI {
 			{
 				viewportWidth: viewport.width,
 				viewportHeight: viewport.height,
+				worldTop: mascot.getWorldTop(),
 				pointer: ambientPointer,
 				totalMascotCount: mascot.getTotalMascotCount(),
 			},
