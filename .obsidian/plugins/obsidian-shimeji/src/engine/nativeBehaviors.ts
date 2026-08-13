@@ -82,10 +82,46 @@ const WALL_CEILING_ADHERENCE_REACH = 4;
  * conditions could never become true in the first place (nothing else would ever set them).
  */
 export function updateWallCeilingAdherence(physics: MascotPhysics, ledges: Ledge[]): void {
-	physics.currentWall =
-		findWallAt(ledges, physics.x, physics.y, "left", WALL_CEILING_ADHERENCE_REACH) ??
-		findWallAt(ledges, physics.x, physics.y, "right", WALL_CEILING_ADHERENCE_REACH);
+	physics.currentWall = keepOrFindWall(physics, ledges);
 	physics.currentCeiling = findCeilingAt(ledges, physics.x, physics.y, WALL_CEILING_ADHERENCE_REACH);
+}
+
+/**
+ * Keeps the mascot on the *same* wall it's already attached to, as long as it's still genuinely
+ * against it — only picking a fresh one when it isn't.
+ *
+ * Adjacent panes share an edge, so a split workspace has two wall ledges at the exact same x: the
+ * left pane's *right* face and the right pane's *left* face. Re-deriving purely by proximity had
+ * to break that tie somehow, and checked `"left"` first — so a mascot that had correctly caught a
+ * right-hand face was silently reassigned to the coincident left-hand one on the very next tick.
+ * The real pack asks `mascot.lookRight ? activeIE.leftBorder.isOn(...) : activeIE.rightBorder.isOn(...)`
+ * to decide what a wall-hanging mascot may do next, so the flipped side made that condition false,
+ * left *nothing* eligible, and dropped straight into the respawn safety net — a teleport to a
+ * random x above the screen. Confirmed from a live trace 2026-08-13: every occurrence read
+ * `landed on a wall ... side: 'right', source: 'pane'` immediately followed by
+ * `respawn (nothing eligible, or drifted off-screen)`.
+ *
+ * This also matches the real engine's own structure more closely: a BorderedAction holds a
+ * specific `getBorder()` for its whole run rather than re-deciding which border it's on each tick.
+ * Matched by value, not identity — Stage recomputes ledges into brand-new objects periodically.
+ */
+function keepOrFindWall(physics: MascotPhysics, ledges: Ledge[]): WallLedge | undefined {
+	const current = physics.currentWall;
+	if (current && current.kind === "wall") {
+		const stillThere = ledges.find(
+			(l): l is WallLedge =>
+				l.kind === "wall" &&
+				l.side === current.side &&
+				l.source === current.source &&
+				Math.abs(l.x - physics.x) <= WALL_CEILING_ADHERENCE_REACH &&
+				physics.y >= l.y1 &&
+				physics.y <= l.y2,
+		);
+		if (stillThere) return stillThere;
+	}
+	// No prior attachment (e.g. simply walked into one): the face it met is the one opposing the
+	// way it's heading, so bias by facing rather than by a fixed left-first order.
+	return findClingableWall(ledges, physics, WALL_CEILING_ADHERENCE_REACH, physics.facing === 1 ? "left" : "right");
 }
 
 /** Integrates gravity and snaps to a floor if one is crossed. Shared safety net used by
@@ -195,7 +231,10 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 	// Faithful to Fall.hasNext()'s `floor.isOn(pos) || wall.isOn(pos)`: resting against a wall ends
 	// a fall too. The sweep above already handles *arriving* at one; this catches the case of
 	// having been clamped onto the window's own edge by clampToWalls just now.
-	const wall = alreadyAtWall ? undefined : findClingableWall(ledges, physics, 0.5);
+	// A sweep can finish a hair short of a wall rather than strictly crossing it, so this
+	// proximity check is what actually catches most contacts — and it needs the same
+	// opposing-face preference the sweep uses, or a shared pane edge hands back the wrong side.
+	const wall = alreadyAtWall ? undefined : findClingableWall(ledges, physics, 0.5, dx < 0 ? "right" : dx > 0 ? "left" : undefined);
 	if (wall) {
 		debugLog("landed on a wall while falling", { x: physics.x, y: physics.y, side: wall.side, source: wall.source });
 		physics.vx = 0;
@@ -377,6 +416,13 @@ export function tickClimbWall(args: TickArgs, wall: WallLedge, direction: ClimbD
 export function findCrossedWall(ledges: Ledge[], fromX: number, toX: number, y: number): WallLedge | undefined {
 	if (fromX === toX) return undefined;
 	const movingRight = toX > fromX;
+	// Adjacent panes share an edge, so two wall ledges can sit at the exact same x — one pane's
+	// right face and the next pane's left face. The one actually struck is the face pointing back
+	// against the direction of travel: moving left you hit a right-hand face, moving right you hit
+	// a left-hand face. Picking arbitrarily here (or by array order) hands the mascot a wall whose
+	// side contradicts how it got there, which the pack's own
+	// `lookRight ? leftBorder.isOn(...) : rightBorder.isOn(...)` check then rejects.
+	const facingSide = movingRight ? "left" : "right";
 	const lo = Math.min(fromX, toX);
 	const hi = Math.max(fromX, toX);
 	let best: WallLedge | undefined;
@@ -387,12 +433,36 @@ export function findCrossedWall(ledges: Ledge[], fromX: number, toX: number, y: 
 		// Strictly crossed, not merely "started exactly on it" — a mascot already resting against
 		// a wall (vx pushing into it) would otherwise re-trigger a catch every single tick.
 		if (ledge.x === fromX) continue;
-		if (!best || (movingRight ? ledge.x < best.x : ledge.x > best.x)) best = ledge;
+		if (!best) {
+			best = ledge;
+			continue;
+		}
+		// Nearest along the direction of travel wins; at an exact tie, the correctly-facing side.
+		if (ledge.x === best.x) {
+			if (ledge.side === facingSide && best.side !== facingSide) best = ledge;
+		} else if (movingRight ? ledge.x < best.x : ledge.x > best.x) {
+			best = ledge;
+		}
 	}
 	return best;
 }
 
-export function findClingableWall(ledges: Ledge[], physics: MascotPhysics, reach: number): WallLedge | undefined {
+/**
+ * `preferSide` breaks the tie where adjacent panes share an edge and two wall ledges sit at the
+ * same x. Without it this fell back to a fixed left-first order, which can hand back a face
+ * pointing the same way the mascot was travelling — see findCrossedWall and keepOrFindWall for why
+ * the side has to be the one opposing travel, and what the pack does when it isn't.
+ */
+export function findClingableWall(
+	ledges: Ledge[],
+	physics: MascotPhysics,
+	reach: number,
+	preferSide?: "left" | "right",
+): WallLedge | undefined {
+	if (preferSide) {
+		const preferred = findWallAt(ledges, physics.x, physics.y, preferSide, reach);
+		if (preferred) return preferred;
+	}
 	return (
 		findWallAt(ledges, physics.x, physics.y, "left", reach) ??
 		findWallAt(ledges, physics.x, physics.y, "right", reach)

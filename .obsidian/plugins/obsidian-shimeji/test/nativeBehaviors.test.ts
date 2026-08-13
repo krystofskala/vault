@@ -485,3 +485,61 @@ describe("findCrossedWall", () => {
 		expect(findCrossedWall(ledges, 482, 490, 400)).toBeUndefined();
 	});
 });
+
+// Adjacent panes share an edge, so a split workspace has two wall ledges at the exact same x: the
+// left pane's right face and the right pane's left face. Which one the mascot ends up attached to
+// is not cosmetic — the pack gates what a wall-hanging mascot may do next on
+// `lookRight ? activeIE.leftBorder.isOn(...) : activeIE.rightBorder.isOn(...)`, so handing back the
+// face pointing the same way it was travelling made that condition false, left nothing eligible,
+// and dropped into the respawn safety net: a teleport to a random x above the screen. Live trace
+// 2026-08-13 showed every occurrence as `landed on a wall ... side: 'right'` immediately followed
+// by `respawn (nothing eligible, or drifted off-screen)`.
+describe("wall side at a shared pane edge", () => {
+	const SHARED_EDGE = 1400.8333740234375;
+	const sharedEdgeLedges = computeLedgesFromRects({ width: 2000, height: 1392, top: 40 }, [
+		{ rect: { left: 0, top: 100, right: SHARED_EDGE, bottom: 1392 }, source: "pane" },
+		{ rect: { left: SHARED_EDGE, top: 100, right: 2000, bottom: 1392 }, source: "pane" },
+	]);
+	const sideOf = (physics: MascotPhysics) => (physics.currentWall?.kind === "wall" ? physics.currentWall.side : undefined);
+
+	it("a mascot travelling left catches the right-hand face, not the coincident left-hand one", () => {
+		const physics = physicsAt(1831, 406);
+		physics.vx = -977;
+		physics.vy = -625;
+		physics.facing = -1;
+		const args: TickArgs = { physics, ledges: sharedEdgeLedges, dt: 0.04, config: DEFAULT_ENGINE_CONFIG };
+		let caught = false;
+		for (let i = 0; i < 200 && !caught; i++) caught = applyGravityAndLand(args);
+		expect(caught).toBe(true);
+		expect(sideOf(physics)).toBe("right");
+	});
+
+	it("a mascot travelling right catches the left-hand face", () => {
+		const physics = physicsAt(900, 406);
+		physics.vx = 1200;
+		physics.vy = -200;
+		const args: TickArgs = { physics, ledges: sharedEdgeLedges, dt: 0.04, config: DEFAULT_ENGINE_CONFIG };
+		let caught = false;
+		for (let i = 0; i < 200 && !caught; i++) caught = applyGravityAndLand(args);
+		expect(caught).toBe(true);
+		expect(sideOf(physics)).toBe("left");
+	});
+
+	it("does not silently flip to the coincident opposite face on the next tick's adherence pass", () => {
+		const physics = physicsAt(SHARED_EDGE, 268);
+		physics.facing = -1;
+		physics.currentWall = sharedEdgeLedges.find((l) => l.kind === "wall" && l.side === "right" && l.x === SHARED_EDGE);
+		updateWallCeilingAdherence(physics, sharedEdgeLedges);
+		expect(sideOf(physics)).toBe("right");
+		// and stays put across repeated passes, not just the first
+		updateWallCeilingAdherence(physics, sharedEdgeLedges);
+		expect(sideOf(physics)).toBe("right");
+	});
+
+	it("still re-derives a wall when the mascot genuinely isn't on its old one any more", () => {
+		const physics = physicsAt(700, 400); // nowhere near the shared edge
+		physics.currentWall = sharedEdgeLedges.find((l) => l.kind === "wall" && l.side === "right" && l.x === SHARED_EDGE);
+		updateWallCeilingAdherence(physics, sharedEdgeLedges);
+		expect(physics.currentWall).toBeUndefined();
+	});
+});

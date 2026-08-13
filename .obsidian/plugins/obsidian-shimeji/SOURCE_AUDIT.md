@@ -724,3 +724,33 @@ still needs the user's live confirmation like everything DOM-dependent in this f
       world's ceiling without moving what the pack is told about it. Any future change to the
       world's geometry has to update `RuntimeContext`'s answers in the same commit, or packs will
       keep silently disagreeing with the physics.
+
+14. **Pass 19 (2026-08-13): the last teleport — a coincident-edge tie-break picking the wrong wall
+    face.** User confirmed Pass 18 fixed the ceiling transfer (`ClimbAlongWall {y: 1328}` →
+    `ClimbAlongCeiling {x: 1977, y: 40}` in the trace) and most drops, leaving one residual
+    teleport. Its signature in the log was unmistakable and *different* from every earlier one:
+    `landed on a wall ... side: 'right', source: 'pane'` immediately followed by
+    `respawn (nothing eligible, or drifted off-screen)` — so the mascot was catching the wall
+    correctly and then being teleported by the respawn safety net a tick later.
+    - **Root cause**: adjacent panes share an edge, so a split workspace has *two* wall ledges at
+      the exact same x — the left pane's right face and the right pane's left face. Both
+      `updateWallCeilingAdherence` and `findClingableWall` broke that tie with a fixed
+      left-before-right order. A mascot flying leftward correctly caught the right-hand face, then
+      the very next tick's adherence pass silently reassigned it to the coincident *left*-hand one.
+      The pack decides what a wall-hanging mascot may do next with
+      `mascot.lookRight ? activeIE.leftBorder.isOn(...) : activeIE.rightBorder.isOn(...)` — with the
+      side flipped, that condition went false, **nothing** was eligible, `totalWeight <= 0` fired,
+      and `respawnAndFall()` threw the mascot to a random x above the screen. Exactly the observed
+      "still teleports when a pane is divided" case, and only in split layouts, because only a split
+      creates a shared edge.
+    - **Fixes**: (1) `keepOrFindWall` — stay attached to the wall already held as long as the mascot
+      is genuinely still against it (matched by value; Stage rebuilds ledge objects periodically),
+      mirroring how a real `BorderedAction` holds one `getBorder()` for its whole run instead of
+      re-deciding each tick. (2) At a genuine tie, pick the face *opposing* the direction of travel
+      — moving left you strike a right-hand face, moving right a left-hand face — applied in
+      `findCrossedWall`, in the post-sweep proximity catch, and (biased by facing) in the
+      adherence fallback for a mascot that simply walked into a wall with no prior attachment.
+    - Worth noting for anyone reading this later: the sweep from Pass 18 often finishes a fraction
+      of a pixel *short* of a wall rather than strictly crossing it, so the post-loop proximity
+      check is what actually catches most contacts — it needed the same tie-break, and fixing only
+      `findCrossedWall` would have looked correct in isolation while changing nothing in practice.
