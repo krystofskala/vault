@@ -396,13 +396,8 @@ inside any of them the way `Main.java` turned out to have.
 
 ## Open live-bug reports (need user diagnostics, not more audit)
 
-`window.shimejiDebug` tooling ready (see README) but no repro data gathered yet for the first;
-the rest are genuinely untested rather than unconfirmed-by-source:
+`window.shimejiDebug` tooling ready (see README) but no repro data gathered yet:
 
-- A mascot dropped from a height was reported to visually skip most of the fall. Nothing in any
-  pass so far obviously explains this (Fall doesn't go through tickHold, and this isn't a
-  ChaseMouse- or Thrown-adjacent path either), so still needs a live repro with `setVerbose(true)`
-  rather than more speculation from the audit alone.
 - **Pane resizing** (`ObsidianPaneActions.resizeBy`): built entirely on undocumented internals
   (`WorkspaceItem.dimension`/`.setDimension`, `WorkspaceSplit.getElSize`,
   `Workspace.requestResize`) confirmed only by reading another plugin's source, never run against
@@ -413,13 +408,13 @@ the rest are genuinely untested rather than unconfirmed-by-source:
   `window.moveTo()` calls to move it (vs. silently no-op'ing, or intercepting via `will-move`) is
   reasoned from Electron's own general documented behavior, not observed in this specific app.
   Needs a live desktop test to confirm the window actually visibly flies across the screen.
-- **Drop-to-a-specific-spot sometimes lands somewhere else, converging on a few repeated "hotspot"
-  floor lines as more mascots accumulate.** Diagnosed 2026-08-13 but only partially addressed (see
-  Pass 11 below) — the worldTop fix removes one real contributor (autonomous wandering piling up
-  along the old, wrongly-placed y=0 ceiling), but a drag-release landing far from the actual
-  release point is *ordinary gravity* finding whatever real floor is below that x (faithful to how
-  Fall always worked, on purpose) — if it still reads as wrong after Pass 11, it needs
-  `shimejiDebug.dumpLedges()` output from the live layout in question, not more guessing from here.
+
+Two older items formerly listed here — "a mascot dropped from a height visually skips most of the
+fall" and "drop-to-a-spot lands somewhere else, converging on a few hotspots" — turned out to be
+the *same* bug, now root-caused and fixed in Pass 12 below (the ambient pointer tracker going
+stale mid-drag, baking a huge spurious velocity into every release). Moved out of this section
+since there's now a concrete diagnosis and fix rather than an open question, but still needs the
+user's live confirmation like everything DOM-dependent in this file.
 
 ## Next steps, in priority order
 
@@ -468,8 +463,42 @@ the rest are genuinely untested rather than unconfirmed-by-source:
    window ceiling and the top of both window walls (plus clamps every pane's own side walls) to
    that instead of a hardcoded 0. This resolves the "spawns/climbs onto the title bar" and (very
    likely — same mechanism, previously unconfirmed for lack of repro data) the "can't drag the
-   title bar" reports; it does *not* fully explain the first report's "drop lands somewhere else"
-   complaint, which is at least partly just ordinary Fall physics finding whatever real floor is
-   below the release x (see "Open live-bug reports" above) — added `shimejiDebug.dumpLedges()` to
-   get real geometry data if that persists. Needs live confirmation like every DOM-dependent fix
-   in this file (headless dev environment, no GUI).
+   title bar" reports. Also added `shimejiDebug.dumpLedges()` for future geometry-related reports.
+   This pass's own "drop lands somewhere else" speculation (ordinary Fall physics finding a
+   different real floor) turned out to be wrong, or at least not the main story — see Pass 12,
+   immediately below, which the user's live follow-up made possible to properly root-cause instead
+   of guessing at. Needs live confirmation like every DOM-dependent fix in this file (headless dev
+   environment, no GUI).
+7. **Pass 12 (2026-08-13): fixed the shared ambient cursor tracker going stale for the entire
+   duration of every drag, and switched `getWorldTop()` to the real `app.workspace.containerEl`
+   API instead of a guessed selector.** User follow-up after live-testing Pass 11: mascots still
+   ended up at the top after a reload, and — the more serious finding — dragging a mascot to a
+   specific spot and releasing it never showed a fall at all; it instantly relocated to a wildly
+   different spot in a single visible frame.
+   - **Root cause of the teleport**: `Mascot`'s own `pointerdown` handler calls
+     `ev.preventDefault()` (needed so touch-drag doesn't also scroll/select text). Per the Pointer
+     Events spec, preventing a `pointerdown`'s default suppresses the *compatibility*
+     `mousedown`/`mousemove`/`mouseup` events the browser synthesizes from that pointer for the
+     rest of the interaction — real `pointer*` events are unaffected. `Stage`'s shared ambient
+     cursor tracker (used for ChaseMouse *and* as a thrown/released mascot's velocity, matching
+     the real engine's single `mascot.environment.cursor`) listened for `mousemove`, so it froze
+     solid at the grab point for the whole drag. The instant it "unfroze" (the next real mouse
+     movement after release), `smoothCursorVelocity` saw one giant single-tick jump instead of the
+     drag's true gradual path, and `finishDrag()` baked that bogus jump straight into
+     `physics.vx/vy` as release velocity — often large enough to cross the whole window in a
+     handful of physics ticks, reading as an instant teleport with no visible fall. This is also
+     almost certainly what the older "mascot dropped from a height visually skips most of the
+     fall" report (see former "Open live-bug reports" entry, now folded into this one) actually
+     was, not a Fall-specific bug. Fixed: `Stage` now listens for `pointermove` at the window
+     level instead of `mousemove` — pointer events are never suppressed by another element's own
+     `preventDefault()`, unlike the compatibility mouse events derived from them.
+   - **Root cause of "still spawns on top" after Pass 11**: unconfirmed, but the likely culprit is
+     that Pass 11's `.workspace` CSS selector either didn't match, or matched something with an
+     unexpected rect, in the user's actual layout — a guess I had no way to verify without a live
+     Obsidian window. Rather than keep guessing at selectors, `Environment`'s constructor now
+     optionally takes Obsidian's own `Workspace` object, and `main.ts` passes `this.app.workspace`
+     explicitly; `getWorldTop()` reads the real, documented `app.workspace.containerEl` directly
+     when available, falling back to the old selector only if nothing was injected. This removes
+     the guesswork entirely for real usage; the selector-based path now exists purely as a
+     defensive fallback, not the primary mechanism.
+   - Needs live confirmation, same as Pass 11 — this environment still has no GUI to test against.

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Stage, type StageOptions } from "../src/engine/Stage";
 import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
 import type { Environment } from "../src/engine/Environment";
@@ -151,5 +151,42 @@ describe("Stage.removeAllButOne", () => {
 
 		expect(stage.getMascots()).toEqual([dogA, catA3]);
 		stage.destroy();
+	});
+});
+
+describe("Stage ambient pointer tracking", () => {
+	// Regression test for a real bug: Mascot's own pointerdown handler calls preventDefault(),
+	// which — per the Pointer Events spec — suppresses the *compatibility* mousedown/mousemove/
+	// mouseup events the browser would otherwise synthesize from that pointer for the rest of the
+	// interaction (real pointer* events are unaffected). A `mousemove` listener here used to go
+	// completely silent for an entire drag, freezing the shared ambient pointer at the grab point;
+	// once it "unfroze" after release, smoothCursorVelocity saw one giant single-tick jump instead
+	// of the drag's true gradual path, and finishDrag() baked that bogus jump straight into the
+	// release velocity — reading as the mascot skipping the fall and teleporting instead. Asserting
+	// the exact listener type is what actually pins this fix down; the rest of the pipeline
+	// (smoothCursorVelocity, and finishDrag's own use of it) already has separate coverage.
+	it("listens for pointermove, not mousemove, to track the ambient cursor", () => {
+		const addSpy = vi.spyOn(window, "addEventListener");
+		const stage = makeStage();
+
+		expect(addSpy.mock.calls.some(([type]) => type === "pointermove")).toBe(true);
+		expect(addSpy.mock.calls.some(([type]) => type === "mousemove")).toBe(false);
+
+		stage.destroy();
+		addSpy.mockRestore();
+	});
+
+	it("removes the same pointermove listener it added, on destroy", () => {
+		const addSpy = vi.spyOn(window, "addEventListener");
+		const removeSpy = vi.spyOn(window, "removeEventListener");
+		const stage = makeStage();
+		const [, addedHandler] = addSpy.mock.calls.find(([type]) => type === "pointermove")!;
+
+		stage.destroy();
+
+		const [, removedHandler] = removeSpy.mock.calls.find(([type]) => type === "pointermove")!;
+		expect(removedHandler).toBe(addedHandler);
+		addSpy.mockRestore();
+		removeSpy.mockRestore();
 	});
 });

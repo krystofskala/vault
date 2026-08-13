@@ -1,5 +1,6 @@
 import { MarkdownView, Menu, Notice, Platform, Plugin } from "obsidian";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
+import { ObsidianDomEnvironment } from "./engine/Environment";
 import { Mascot } from "./engine/Mascot";
 import type { PaneActions } from "./engine/PaneActions";
 import { Random } from "./engine/Random";
@@ -84,6 +85,10 @@ export default class ShimejiPlugin extends Plugin {
 			debugLedges: this.settings.debugLedges,
 			maxMascots: this.settings.maxMascots,
 			allowBreeding: this.settings.allowBreeding,
+			// Passed explicitly (rather than relying on Stage's own no-argument default) so
+			// getWorldTop() reads the real, documented `app.workspace.containerEl` instead of
+			// falling back to a guessed `.workspace` selector — see Environment.ts.
+			environment: new ObsidianDomEnvironment(this.app.workspace),
 			onMascotCreated: (mascot, bornBehaviorName, parent, forcedPackId) => this.onMascotCreated(mascot, bornBehaviorName, parent, forcedPackId),
 			onContextMenu: (mascot, ev) => this.showMascotContextMenu(mascot, ev),
 		});

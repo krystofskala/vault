@@ -45,8 +45,8 @@ export class Stage {
 	private ambientPos: { x: number; y: number };
 	/** The position ambientPos held as of the *previous* fixed tick, and the smoothed per-tick
 	 * delta computed from it — see updateAmbientVelocity(). Deliberately separate from ambientPos
-	 * itself, which onMouseMove updates immediately on every real mouse event regardless of the
-	 * simulation's own tick boundary. */
+	 * itself, which onPointerMove updates immediately on every real pointer event regardless of
+	 * the simulation's own tick boundary. */
 	private lastTickAmbientPos: { x: number; y: number };
 	private ambientDx = 0;
 	private ambientDy = 0;
@@ -72,11 +72,27 @@ export class Stage {
 		this.container.style.pointerEvents = "none";
 		document.body.appendChild(this.container);
 		this.recomputeLedges();
-		window.addEventListener("mousemove", this.onMouseMove);
+		window.addEventListener("pointermove", this.onPointerMove);
 		window.addEventListener("resize", this.onResize);
 	}
 
-	private onMouseMove = (ev: MouseEvent): void => {
+	/**
+	 * Tracks `pointermove`, not `mousemove`: Mascot's own drag handler calls
+	 * `ev.preventDefault()` on `pointerdown` (needed so touch-drag doesn't also scroll/select
+	 * text), and per the Pointer Events spec, preventing a pointerdown's default suppresses the
+	 * *compatibility* `mousedown`/`mousemove`/`mouseup` events the browser would otherwise
+	 * synthesize from that same pointer for the rest of the interaction — real `pointer*` events
+	 * are unaffected. A `mousemove` listener here used to go completely silent for the entire
+	 * duration of every drag, freezing `ambientPos` at the grab point; smoothCursorVelocity would
+	 * then see one giant single-tick jump once a real mousemove finally fired again after
+	 * release, instead of the drag's true gradual path, and finishDrag()'s release-velocity
+	 * calculation baked that bogus jump straight into `physics.vx/vy` — reading as the mascot
+	 * skipping the fall entirely and teleporting to wherever that spurious velocity carried it in
+	 * a handful of ticks. This is also the same shared ambientPos every *other* (non-dragged)
+	 * mascot's ChaseMouse reads, so it was going stale for them too whenever any one mascot was
+	 * being dragged.
+	 */
+	private onPointerMove = (ev: PointerEvent): void => {
 		this.ambientPos = { x: ev.clientX, y: ev.clientY };
 	};
 
@@ -313,7 +329,7 @@ export class Stage {
 
 	destroy(): void {
 		cancelAnimationFrame(this.rafHandle);
-		window.removeEventListener("mousemove", this.onMouseMove);
+		window.removeEventListener("pointermove", this.onPointerMove);
 		window.removeEventListener("resize", this.onResize);
 		this.removeAllMascots();
 		this.container.remove();

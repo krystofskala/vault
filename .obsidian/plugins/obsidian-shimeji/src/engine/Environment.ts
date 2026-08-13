@@ -19,6 +19,16 @@ export interface Environment {
 
 /** The real implementation: reads the actual Obsidian window/DOM. */
 export class ObsidianDomEnvironment implements Environment {
+	/**
+	 * Obsidian's own `Workspace` (structurally — just the one property this needs), when the
+	 * caller has one to give it. Passing this is how main.ts gets `getWorldTop()` reading the
+	 * real, documented `app.workspace.containerEl` instead of a guessed CSS selector — see
+	 * getWorldTop() itself. Optional, with a selector-based fallback, purely so `new
+	 * ObsidianDomEnvironment()` (Stage's own no-argument default) still degrades instead of
+	 * throwing; real usage (main.ts) always provides it.
+	 */
+	constructor(private workspace?: { containerEl: HTMLElement }) {}
+
 	getViewportSize(): { width: number; height: number } {
 		return { width: window.innerWidth, height: window.innerHeight };
 	}
@@ -35,17 +45,17 @@ export class ObsidianDomEnvironment implements Environment {
 	 * in SOURCE_AUDIT.md — shimejiDebug.hideOverlay()/elementsAtTop() were built to chase exactly
 	 * this without knowing yet what was causing it).
 	 *
-	 * `.workspace` is the element `app.workspace.containerEl` points at: a sibling of the custom
-	 * `.titlebar` and the left icon ribbon under `.app-container`, not a descendant of either, so
-	 * its own top edge already sits below both regardless of which chrome is actually present
-	 * (native title bar, no title bar, ribbon hidden, ...) — no need to special-case any of that
-	 * here. Queried by class the same way getPlatformRects() below already queries `.status-bar`,
-	 * rather than threading an App reference through just for this.
+	 * `app.workspace.containerEl` (a real, documented public property, not a guessed class name)
+	 * is a sibling of the custom `.titlebar` and the left icon ribbon under `.app-container`, not
+	 * a descendant of either, so its own top edge already sits below both regardless of which
+	 * chrome is actually present (native title bar, no title bar, ribbon hidden, ...) — no need
+	 * to special-case any of that here. Falls back to the `.workspace` selector (what that same
+	 * property points at) only when no workspace was actually injected.
 	 */
 	getWorldTop(): number {
-		const workspace = document.querySelector<HTMLElement>(".workspace");
-		if (!workspace) return 0;
-		return Math.max(0, workspace.getBoundingClientRect().top);
+		const containerEl = this.workspace?.containerEl ?? document.querySelector<HTMLElement>(".workspace");
+		if (!containerEl) return 0;
+		return Math.max(0, containerEl.getBoundingClientRect().top);
 	}
 
 	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }> {

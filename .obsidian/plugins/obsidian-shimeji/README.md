@@ -362,12 +362,20 @@ Swing/AWT/JNA GUI plumbing included, not just the core simulation subset.
   used to be anchored at the literal top of the app's viewport, so wall-climbing and
   ceiling-walking (both authentic behaviors) could carry a mascot up onto the title bar/tab
   strip itself, rendered on top of it and capturing the clicks meant to drag or resize the
-  window. Fixed by anchoring the ceiling to the top of Obsidian's actual workspace area instead
-  (see `SOURCE_AUDIT.md` Pass 11) — needs a live window to fully confirm, same as anything else
-  in this list. Still open: a mascot dropped from a height has been reported to visually skip
-  most of the fall, and a drag-release sometimes lands further from the release point than
-  expected on a pane-heavy layout (ordinary gravity finding the nearest real floor below that x,
-  which may just need `dumpLedges()` output from the layout in question to localize further).
+  window. Fixed by anchoring the ceiling to the top of Obsidian's actual workspace area instead,
+  now read from the real `app.workspace.containerEl` API rather than a guessed CSS selector (see
+  `SOURCE_AUDIT.md` Passes 11-12) — needs a live window to fully confirm, same as anything else
+  in this list. A second, more serious issue this tooling helped catch: dragging a mascot and
+  releasing it could skip the fall animation entirely and teleport it somewhere far from the
+  release point. Root cause: the mascot's own drag handler calls `preventDefault()` on
+  `pointerdown` (needed so touch-drag doesn't also scroll the page), which — per the Pointer
+  Events spec — suppresses the browser's synthetic `mousemove` events for the rest of that drag.
+  The plugin's shared ambient-cursor tracker (used for both ChaseMouse and a released mascot's
+  throw velocity) listened for exactly that suppressed event, so it froze at the grab point for
+  the whole drag and then saw one giant single-tick jump the instant it unfroze after release —
+  baked directly into release velocity, easily large enough to cross the window in a handful of
+  physics ticks. Fixed by tracking `pointermove` instead, which is never suppressed by another
+  element's own `preventDefault()` (see `SOURCE_AUDIT.md` Pass 12).
 - **Drag is now a direct port of the real engine's own `Dragged.java`, not an invented
   approximation**: several rounds of home-grown drag heuristics here (a critically-damped
   spring for position, then an extrapolated-cursor "lean pointer", then exponential smoothing
