@@ -549,3 +549,42 @@ still needs the user's live confirmation like everything DOM-dependent in this f
      rounds of it — which is exactly the discipline this file keeps asking for and exactly why
      guessing from the audit alone kept falling short. Needs live confirmation like everything
      else DOM-dependent in this file.
+9. **Pass 14 (2026-08-13): the title bar was still undraggable with zero mascots anywhere near
+   it, and the drop still didn't fall — it clung to a wall instead.** Fourth round of live
+   testing. Two more real, distinct bugs, neither one about mascot position this time:
+   - **Title bar, real cause**: not a mascot at all — the stage overlay's *own* box. `.shimeji-
+     stage` is `position:fixed; inset:0`, so it geometrically covers the title-bar region
+     regardless of what's positioned inside it, `pointer-events:none` on itself or not. Electron's
+     native `-webkit-app-region: drag` hit-testing (what actually makes a custom title bar
+     draggable) isn't guaranteed to respect `pointer-events` the way ordinary DOM click dispatch
+     does — an overlay merely being *painted* there, even fully transparent and non-interactive by
+     normal DOM rules, can still block it. This was already suspected — `shimejiDebug.
+     hideOverlay()`/`elementsAtTop()` were built for exactly this back in an earlier pass — but
+     never confirmed until mascots stopped being the more obvious, competing explanation. Fixed:
+     `Stage`'s container now sets `clip-path: inset(${worldTop}px 0 0 0)`, recomputed alongside the
+     ledges — this removes the title-bar region from the element's box entirely (painting *and*
+     hit-testing) without touching `top`/`left`, so it doesn't shift the coordinate origin
+     `translate3d`-positioned mascots are anchored against.
+   - **The drop, real cause**: `clampToWalls` can pin `physics.x` exactly onto *any* wall's x
+     (window or pane) and zeroes `vx` when it does; `applyGravityAndLand`'s own wall-catch check
+     (`findClingableWall`, reach 0.5) ran immediately after, on the very same tick — so a position
+     `clampToWalls` had just corrected always satisfied it, collapsing "prevented from escaping"
+     and "genuinely flew into a wall" into the same event. A drag release near any wall (not just
+     the screen edge — Pass 13 only fixed the screen-edge escape case, not this) starts `physics.x`
+     already pinned there from `tickDragged`'s own clamp, so the very first falling tick "caught" a
+     wall it was never actually flying into — zero visible fall. Fixed the same way `findFloorBelow`
+     already handles its own version of this (pre-step position, not post-step): capture whether
+     the mascot was *already* within wall-catch reach *before* this tick's own movement; only treat
+     it as a genuine catch if this tick's own motion is what brought it into reach. A mascot
+     starting pinned at a wall now keeps falling under gravity (still x-clamped, but free to
+     integrate `vy`) until it reaches a real floor; a mascot that genuinely flies into a wall from
+     farther away — including fast enough to need clamping on the arrival tick itself — still
+     catches correctly, so this doesn't reopen the original "falling into the side of a pane just
+     clamped and kept going" bug an earlier pass fixed.
+   - Both bugs were invisible to static reading alone (everything downstream of the actual state
+     looked individually correct) and only became findable by working backward from precise,
+     literal descriptions of what was observed — "still can't interact with the top bar" with no
+     mascot in sight ruled out every mascot-position theory at once; "mostly snaps to wall" pointed
+     directly at `findClingableWall` once taken literally instead of folded into the same bucket as
+     the earlier random-teleport bug. Needs live confirmation, same as every DOM/physics fix in
+     this file — this environment still has no GUI.

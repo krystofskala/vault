@@ -158,6 +158,17 @@ export class Stage {
 		this.worldTop = this.environment.getWorldTop();
 		const platforms = this.opts.paneLedgesEnabled ? this.environment.getPlatformRects() : [];
 		this.ledges = computeLedgesFromRects({ ...viewport, top: this.worldTop }, platforms);
+		// Keeping mascots' own anchors below worldTop (Ledges.ts) stops them *reaching* the
+		// title-bar/tab-strip, but the overlay's own full-window box (position:fixed; inset:0)
+		// still geometrically covers that region regardless of what's inside it — and Electron's
+		// native window-drag-region hit-testing (`-webkit-app-region: drag`, what actually makes
+		// the title bar draggable) isn't guaranteed to respect `pointer-events: none` the way
+		// ordinary DOM click dispatch does, so the overlay's mere paint-order presence there can
+		// still block it even with nothing rendered on top. clip-path removes that region from
+		// this element's box entirely (painting *and* hit-testing) without touching `top`/`left`,
+		// so it doesn't shift the coordinate origin `translate3d`-positioned mascots are anchored
+		// against — only what's visible/interactive changes, not where (0,0) is.
+		this.container.style.clipPath = `inset(${this.worldTop}px 0 0 0)`;
 		this.renderDebugLedges();
 	}
 

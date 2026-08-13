@@ -110,6 +110,11 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 	// post-step position would let a single large step (high dt, high vy) land past
 	// floor.y + 0.5 and get excluded as "already behind us", falling through forever.
 	const floor = findFloorBelow(ledges, physics.x, physics.y);
+	// Same idea, for the wall-catch check below: captured *before* this tick's own movement, so
+	// it reflects whether the mascot was already sitting at a wall walking in versus this tick's
+	// own motion being what brought it there. See that check's own comment for why the
+	// distinction matters.
+	const alreadyAtWall = findClingableWall(ledges, physics, 0.5) !== undefined;
 
 	physics.vy += config.gravity * dt;
 	physics.x += physics.vx * dt;
@@ -130,11 +135,19 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 	// Faithful to the real engine's Fall.hasNext(): `floor.isOn(pos) || wall.isOn(pos)` — touching
 	// a wall ends a fall too, not just landing on a floor. clampToWalls above already snapped
 	// physics.x exactly onto a wall's x if this tick's fall drifted past it, so a tight reach
-	// here only catches a genuine touch, not merely being nearby. Without this, hitting a wall
-	// mid-fall was invisible to Fall, so the Select right after it in the real Fall sequence
-	// (Bounce+Stand vs GrabWall) could never actually reach the GrabWall branch from an ordinary
-	// fall — falling into the side of a pane just silently clamped and kept falling past it.
-	const wall = findClingableWall(ledges, physics, 0.5);
+	// here only catches a genuine touch, not merely being nearby — *except* when the mascot was
+	// already sitting at that exact wall before this tick even started (alreadyAtWall, captured
+	// above): real bug found 2026-08-13 — a drag release right at the screen edge leaves
+	// physics.x already pinned there by tickDragged's own clamp, before Fall/Thrown even begins,
+	// so without this check the very first falling tick "caught" a wall it was never actually
+	// flying into, reading as an instant catch with no visible fall at all. Skipping the catch
+	// when it was already there lets gravity keep pulling it straight down (clampToWalls still
+	// keeps x pinned, vx stays zeroed) until it reaches a real floor, same as the real engine's
+	// own "slides down the side of a window" case. A genuine "flew diagonally into the side of a
+	// window" case still crosses into reach fresh this tick (alreadyAtWall is false) and still
+	// catches correctly, including when the approach was fast enough to need clamping — this
+	// doesn't reopen the original bug that comment above describes.
+	const wall = alreadyAtWall ? undefined : findClingableWall(ledges, physics, 0.5);
 	if (wall) {
 		debugLog("landed on a wall while falling", { x: physics.x, y: physics.y, side: wall.side, source: wall.source });
 		physics.vx = 0;

@@ -357,5 +357,62 @@ describe("applyGravityAndLand grounded check", () => {
 		expect(physics.grounded).toBe(false); // touching a wall, not a floor
 		expect(physics.currentWall && physics.currentWall.kind === "wall" ? physics.currentWall.side : undefined).toBe("left");
 	});
+
+	// Regression test for a real bug found 2026-08-13: a drag release right at the screen edge
+	// leaves physics.x already pinned to the wall's own x by tickDragged's own clamp, *before*
+	// Fall/Thrown even starts. The wall-catch check above (rightly) still fires for a mascot that
+	// genuinely flies into a wall — but a mascot that simply *starts* sitting at one, with no real
+	// lateral velocity carrying it there, isn't "flying into" anything and should keep falling
+	// straight down under gravity instead of instantly clinging — this was reading as "no visible
+	// fall at all, mascot just snaps to the wall" on release.
+	it("does not catch a wall it was already sitting at before this tick — keeps falling to the real floor below", () => {
+		const physics = physicsAt(800, 50); // already exactly at the right wall's x, like a drag release pinned there
+		physics.vx = 0; // no lateral throw — this is what a gentle release looks like
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, []);
+		const args: TickArgs = { physics, ledges, dt: 0.02, config: DEFAULT_ENGINE_CONFIG };
+
+		let landed = false;
+		for (let i = 0; i < 200 && !landed; i++) landed = applyGravityAndLand(args);
+
+		expect(landed).toBe(true);
+		expect(physics.grounded).toBe(true); // landed on the floor, not clinging to the wall
+		expect(physics.y).toBe(600);
+	});
+
+	it("the skip is about *position*, not velocity — a small residual outward vx at the wall still doesn't catch", () => {
+		// A drag release is rarely perfectly still — there's often a small residual velocity from
+		// finishDrag()'s own release-velocity calculation. The fix has to key off "was it already
+		// at this wall before this tick moved it," not "is vx exactly zero," or a gentle-but-not-
+		// quite-zero release would still spuriously catch.
+		const physics = physicsAt(800, 50);
+		physics.vx = 50; // small outward push, same side as the wall it's already touching
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, []);
+		const args: TickArgs = { physics, ledges, dt: 0.02, config: DEFAULT_ENGINE_CONFIG };
+
+		let landed = false;
+		for (let i = 0; i < 200 && !landed; i++) landed = applyGravityAndLand(args);
+
+		expect(landed).toBe(true);
+		expect(physics.grounded).toBe(true); // still the floor, not the wall
+		expect(physics.y).toBe(600);
+	});
+
+	it("a genuine fast approach that overshoots and needs clamping still catches on the very first tick it arrives", () => {
+		// Distinguishing case: starting well clear of the wall (not "already there") and covering
+		// the remaining distance in one big step is still a real "flew into it" arrival, even
+		// though clampToWalls has to correct the overshoot — this must keep working exactly like
+		// the fast-throw test above, just approaching from the right instead of the left.
+		const physics = physicsAt(700, 50);
+		physics.vx = 6000; // 6000 * dt(0.02) = 120px of travel — overshoots the 100px gap to the right wall
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, []);
+		const args: TickArgs = { physics, ledges, dt: 0.02, config: DEFAULT_ENGINE_CONFIG };
+
+		const landed = applyGravityAndLand(args);
+
+		expect(landed).toBe(true);
+		expect(physics.x).toBe(800);
+		expect(physics.grounded).toBe(false); // caught the wall, not the floor
+		expect(physics.currentWall && physics.currentWall.kind === "wall" ? physics.currentWall.side : undefined).toBe("right");
+	});
 });
 

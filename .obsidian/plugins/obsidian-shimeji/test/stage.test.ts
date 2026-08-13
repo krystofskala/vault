@@ -3,10 +3,10 @@ import { Stage, type StageOptions } from "../src/engine/Stage";
 import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
 import type { Environment } from "../src/engine/Environment";
 
-function fakeEnvironment(): Environment {
+function fakeEnvironment(worldTop = 0): Environment {
 	return {
 		getViewportSize: () => ({ width: 800, height: 600 }),
-		getWorldTop: () => 0,
+		getWorldTop: () => worldTop,
 		getPlatformRects: () => [],
 	};
 }
@@ -188,5 +188,50 @@ describe("Stage ambient pointer tracking", () => {
 		expect(removedHandler).toBe(addedHandler);
 		addSpy.mockRestore();
 		removeSpy.mockRestore();
+	});
+});
+
+// Regression coverage for a real report: mascots no longer reaching the title bar (Ledges.ts'
+// worldTop) wasn't enough — the overlay's own full-window box still geometrically covered that
+// region, and Electron's native window-drag-region hit-testing isn't guaranteed to respect
+// `pointer-events: none` the way ordinary DOM click dispatch does, so the overlay's mere
+// paint-order presence there could still block dragging the title bar even with nothing rendered
+// on top of it.
+describe("Stage container clipping", () => {
+	it("clips its own box out of the title-bar region via clip-path, not just via child positioning", () => {
+		const stage = new Stage({
+			config: DEFAULT_ENGINE_CONFIG,
+			paneLedgesEnabled: false,
+			debugLedges: false,
+			maxMascots: 10,
+			allowBreeding: true,
+			environment: fakeEnvironment(40),
+		});
+		expect(stage.container.style.clipPath).toBe("inset(40px 0 0 0)");
+		stage.destroy();
+	});
+
+	it("clips nothing (starts at the true top) when there's no chrome to avoid", () => {
+		const stage = makeStage(); // fakeEnvironment() defaults worldTop to 0
+		expect(stage.container.style.clipPath).toBe("inset(0px 0 0 0)");
+		stage.destroy();
+	});
+
+	it("re-clips when the layout changes and worldTop moves", () => {
+		let worldTop = 40;
+		const stage = new Stage({
+			config: DEFAULT_ENGINE_CONFIG,
+			paneLedgesEnabled: false,
+			debugLedges: false,
+			maxMascots: 10,
+			allowBreeding: true,
+			environment: { ...fakeEnvironment(), getWorldTop: () => worldTop },
+		});
+		expect(stage.container.style.clipPath).toBe("inset(40px 0 0 0)");
+
+		worldTop = 64;
+		stage.notifyLayoutChanged();
+		expect(stage.container.style.clipPath).toBe("inset(64px 0 0 0)");
+		stage.destroy();
 	});
 });
