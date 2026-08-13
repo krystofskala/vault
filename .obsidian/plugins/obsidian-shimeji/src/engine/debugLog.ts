@@ -14,5 +14,9 @@ export function setVerboseLogging(enabled: boolean): void {
 
 export function debugLog(...args: unknown[]): void {
 	if (!verbose) return;
-	console.debug("[obsidian-shimeji]", ...args);
+	// console.debug is categorized as "Verbose" by Chromium DevTools and is hidden under the
+	// console's default "Default levels" filter (found the hard way: a user with setVerbose(true)
+	// on saw *zero* output tracing a live repro, even though this was firing the whole time) —
+	// console.info always shows without the user needing to know to flip an extra DevTools filter.
+	console.info("[obsidian-shimeji]", ...args);
 }

@@ -110,11 +110,20 @@ export class BehaviorAI {
 
 	/** Used for a mouse-drag release (Fall/Thrown) and for manually jumping a mascot straight to
 	 * a named behavior via Mascot.startNamedBehavior (ChaseMouse, or any behavior name at all via
-	 * the per-mascot right-click menu — including a ThrowIE-carrying one, hence paneActions). */
+	 * the per-mascot right-click menu — including a ThrowIE-carrying one, hence paneActions).
+	 * Unlike startBehavior() below, this used to log nothing at all — meaning a verbose trace
+	 * captured across a drag release never showed the single most relevant line, the moment Fall/
+	 * Thrown actually starts and with what position/velocity. */
 	forceBehavior(name: string, mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): void {
 		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);
 		const behavior = this.pack.behaviors.get(name);
 		this.currentBehavior = behavior;
+		debugLog("behavior -> (forced)", name, {
+			x: Math.round(mascot.physics.x),
+			y: Math.round(mascot.physics.y),
+			vx: Math.round(mascot.physics.vx),
+			vy: Math.round(mascot.physics.vy),
+		});
 		if (!this.runner.start(name, env)) this.currentBehavior = undefined;
 	}
 

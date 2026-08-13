@@ -36,26 +36,51 @@ export class ObsidianDomEnvironment implements Environment {
 	/**
 	 * `window.innerHeight`'s y=0 is the literal top of the Electron viewport — which, whenever
 	 * Obsidian's custom title bar is in play, is a strip of real app chrome (drag region, window
-	 * controls, tab headers), not open space. Ledges.ts used to plant the world's "ceiling" and
-	 * the top of its left/right walls right there, so a mascot climbing a wall (or ceiling-walking
-	 * after — both entirely authentic shimeji-ee behavior) would ride straight up into that chrome
-	 * and rest on top of it, rendered over it with pointer-events on for dragging. That's the
-	 * mechanism behind two separate-looking reports: mascots visibly parking on/around the title
-	 * bar, and the title bar becoming impossible to drag (the previously-unexplained open report
-	 * in SOURCE_AUDIT.md — shimejiDebug.hideOverlay()/elementsAtTop() were built to chase exactly
-	 * this without knowing yet what was causing it).
+	 * controls, tab headers), not open space. Ledges.ts plants the world's "ceiling" and the top
+	 * of its left/right walls at this value, so a mascot climbing a wall (or ceiling-walking after
+	 * — both entirely authentic shimeji-ee behavior) can't ride up into that chrome and rest on
+	 * top of it, rendered over it with pointer-events on for dragging.
 	 *
-	 * `app.workspace.containerEl` (a real, documented public property, not a guessed class name)
-	 * is a sibling of the custom `.titlebar` and the left icon ribbon under `.app-container`, not
-	 * a descendant of either, so its own top edge already sits below both regardless of which
-	 * chrome is actually present (native title bar, no title bar, ribbon hidden, ...) — no need
-	 * to special-case any of that here. Falls back to the `.workspace` selector (what that same
-	 * property points at) only when no workspace was actually injected.
+	 * Two independent signals, taken together (whichever excludes more is right, and either can
+	 * legitimately be 0 depending on the user's exact Obsidian layout/OS):
+	 *
+	 * 1. `app.workspace.containerEl`'s own top — correct whenever the title bar is a genuinely
+	 *    separate sibling above `.workspace`. Confirmed 2026-08-13 that this is *not* universal,
+	 *    though: with tabs merged into the title bar (a real, common layout — visible in a user's
+	 *    own screenshot as one continuous row holding both the tab strip and the window's minimize
+	 *    /maximize/close buttons), `.workspace` itself starts at literal y=0, same as if there
+	 *    were no chrome at all — this signal alone silently returns 0 in exactly the layout it
+	 *    most needs to handle.
+	 * 2. The bottom edge of the top-most `.workspace-tab-header-container` row(s) —
+	 *    `.workspace-tab-header-spacer` (a real, confirmed element: a user's own console showed it
+	 *    with computed `-webkit-app-region: drag`) lives inside one of these. This is what
+	 *    actually catches the merged-title-bar case: even though `.workspace` starts at y=0, the
+	 *    tab-header row itself still reports its own real height (e.g. 40px), which is the actual
+	 *    boundary that matters. Takes the *topmost* row(s) only (within a couple of pixels of the
+	 *    smallest `top` found) so a vertically-split layout's other, lower pane groups — which have
+	 *    their own tab-header-container too, irrelevant to the title bar — don't get pulled in.
 	 */
 	getWorldTop(): number {
 		const containerEl = this.workspace?.containerEl ?? document.querySelector<HTMLElement>(".workspace");
-		if (!containerEl) return 0;
-		return Math.max(0, containerEl.getBoundingClientRect().top);
+		const workspaceTop = containerEl ? Math.max(0, containerEl.getBoundingClientRect().top) : 0;
+		return Math.max(workspaceTop, this.topTabHeaderRowBottom());
+	}
+
+	private topTabHeaderRowBottom(): number {
+		const rects: DOMRect[] = [];
+		let minTop = Infinity;
+		document.querySelectorAll<HTMLElement>(".workspace-tab-header-container").forEach((el) => {
+			const r = el.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) return;
+			rects.push(r);
+			if (r.top < minTop) minTop = r.top;
+		});
+		const TOP_ROW_EPSILON = 2;
+		let maxBottom = 0;
+		for (const r of rects) {
+			if (r.top <= minTop + TOP_ROW_EPSILON) maxBottom = Math.max(maxBottom, r.bottom);
+		}
+		return Math.max(0, maxBottom);
 	}
 
 	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }> {

@@ -618,26 +618,43 @@ still needs the user's live confirmation like everything DOM-dependent in this f
       reloading *is* working correctly, that needs its own fresh diagnosis rather than being
       bundled with an unrelated, independently-confirmed fix — see "Open live-bug reports" below.
 
-## Open, actively-suspicious items (do not assume Passes 13-14 actually work)
+## Open, actively-suspicious items
 
-The user has confirmed — with a `git pull` transcript, not just a claim — that Passes 13 and 14
-were correctly pulled and reloaded, and observed *zero* change in either the title-bar-blocking or
-the wall-catch-on-release symptom. Both fixes were verified present in the built `main.js` on this
-end too. That combination means the diagnosis in Passes 13-14, not just the deployment, needs
-re-examining — don't treat either fix as confirmed-working just because it's committed and
-logically sound on paper:
-
-- **Title bar**: leading new theory, not yet checked — Obsidian's "tabs in the title bar" layout
-  (visible in the user's own screenshots: tab strip and window min/max/close buttons rendered in
-  *one combined row*) may mean the tab-strip portion of that row genuinely belongs to
-  `app.workspace.containerEl` itself, not to a separate `.titlebar` sibling above it. If so,
-  `getWorldTop()` returns ~0 in this layout (nothing to clip), making Pass 14's `clip-path` fix a
-  complete no-op — which would exactly match "absolutely zero changes." Needs a direct value check
-  (`document.querySelector('.workspace').getBoundingClientRect().top` compared against where the
-  draggable region actually is) before writing any more code against this.
 - **Wall-catch-on-release**: the `alreadyAtWall` fix (Pass 14) is unit-tested and the logic traces
-  through cleanly by hand, but the user's live result contradicts it just as flatly as the title
-  bar. Possible this specific mechanism was never the (or the only) actual path being hit for their
-  repro, possibly compounded by the Math.random bug above corrupting an unrelated Move's target
-  mid-sequence in a way that *looks* like the same "no fall" symptom. Needs a fresh repro with
-  `setVerbose(true)` now that Pass 15's fix is in, rather than assuming Pass 14 alone explains it.
+  through cleanly by hand, but the user's live result (as of the Pass 13/14 round) contradicted it
+  just as flatly as the title bar did. Turned out `debugLog` itself was silently broken (see Pass
+  16) — `setVerbose(true)` produced zero visible output for a live repro, meaning no verbose trace
+  has actually been collected against this specific symptom yet. Needs a fresh drag-release repro
+  with verbose logging now that the logger itself works, before concluding anything either way.
+
+11. **Pass 16 (2026-08-13): the title-bar theory from Pass 15 was confirmed with live data, not
+    just plausible — and verbose logging turned out to have been silently producing zero output
+    the entire time.**
+    - **Title bar, confirmed and fixed**: `document.querySelector('.workspace').getBoundingClientRect().top`
+      came back `0` from the user's own console — confirming Pass 15's theory exactly.
+      `shimejiDebug.elementsAtTop(15)` then found the real drag-region element directly:
+      `.workspace-tab-header-spacer` (inside a `.workspace-tab-header-container`), computed
+      `-webkit-app-region: drag` — genuinely exposed at the window's horizontal center, meaning
+      the overlay was never blocking *that* point at all. A final check
+      (`.workspace-tab-header-spacer`'s parent) gave the real, confirmed number: that container
+      spans `y: [0, 40]` — a real, nonzero row height that `.workspace.containerEl`'s own position
+      (stuck at 0 in this "tabs merged into the title bar" layout) can never see. `getWorldTop()`
+      now takes `Math.max()` of two independent signals: `workspace.containerEl`'s own top (right
+      for a separate-title-bar layout) and the bottom edge of the *topmost* row of
+      `.workspace-tab-header-container` elements (right for the merged layout this user actually
+      has) — restricted to the topmost row specifically so a vertically-split layout's other, lower
+      pane groups (which have their own tab-header-container too, unrelated to the title bar)
+      don't get pulled in.
+    - **Verbose logging was silently broken**: `debugLog()` used `console.debug()`, which
+      Chromium's DevTools console categorizes as "Verbose" and hides under the default "Default
+      levels" filter shown in the user's own screenshots throughout this investigation — so
+      `setVerbose(true)` had very likely been firing correctly the entire time, just never visibly,
+      for every verbose-logging request made across this whole bug-fixing arc. Switched to
+      `console.info()`. Also gave `forceBehavior()` (the drag-release/"jump to a named behavior"
+      path) its own log line — it was the one path that never logged at all, `startBehavior()`
+      being the only method with a debugLog call, so a verbose trace across a drag release used to
+      omit the single most relevant line even once the console-level issue is fixed.
+    - Both fixes are a direct product of insisting on real console output over reasoning from DOM
+      structure alone — the same discipline the user was (rightly, if bluntly) demanding after
+      Passes 13-14 landed and did nothing. Needs live confirmation like everything else in this
+      file, but this time from data, not a theory about Obsidian's DOM.

@@ -363,16 +363,17 @@ Swing/AWT/JNA GUI plumbing included, not just the core simulation subset.
   distinct bugs around the plugin's Obsidian-specific boundary, now all fixed:
   - The window's own ceiling/walls used to be anchored at the literal top of the app's viewport,
     so wall-climbing and ceiling-walking (both authentic behaviors) could carry a mascot onto the
-    title bar/tab strip itself. Fixed by anchoring to the top of Obsidian's actual workspace area
-    (`app.workspace.containerEl`, not a guessed selector) instead; a mascot standing on a floor
-    that's still legitimately close to that line no longer settles somewhere its own sprite
-    height would poke back into the chrome, since floor-standing poses are anchored at the feet.
-  - The title bar stayed undraggable even with no mascot anywhere near it — the stage overlay's
-    own full-window box was the culprit, not any mascot: Electron's native window-drag-region
-    hit-testing isn't guaranteed to respect `pointer-events: none` the way ordinary DOM clicks
-    are, so the overlay's mere paint-order presence over that region could still block it. Fixed
-    by clipping the overlay's own box out of that region entirely (`clip-path`, recomputed
-    alongside the workspace-area boundary above).
+    title bar/tab strip itself, and — confirmed directly from a user's own console, not assumed —
+    that overlap is *also* what was blocking the title bar from being dragged, not the overlay
+    itself. The fix first tried anchoring to `app.workspace.containerEl`'s own top, which works
+    when the title bar is a separate element above the workspace — but Obsidian can also merge the
+    tab strip into the same row as the window's minimize/maximize/close buttons, in which case
+    `containerEl` itself starts at literal y=0 and that fix does nothing. `getWorldTop()` now also
+    measures the real tab-header row directly (`.workspace-tab-header-container`, confirmed via
+    console to be the actual element carrying the OS drag region) and uses whichever of the two
+    signals excludes more. A mascot standing on a floor that's still legitimately close to that
+    line no longer settles somewhere its own sprite height would poke back into the chrome either,
+    since floor-standing poses are anchored at the feet.
   - A drag release could skip the fall animation entirely and teleport the mascot somewhere
     unrelated to the release point. Contributing causes, in the order they were found and fixed:
     the shared ambient-cursor tracker (used for both ChaseMouse and a released mascot's throw
@@ -389,10 +390,17 @@ Swing/AWT/JNA GUI plumbing included, not just the core simulation subset.
     whatever wall it was dragged up against, so the very first falling tick "caught" it instantly.
     Fixed by only counting it as a genuine catch when the mascot's own movement that same tick is
     what brought it into reach, not merely being left resting there from an earlier correction.
+  - Separately: a real typo in the bundled reference pack's own `actions.xml` (`ClimbCeiling`/
+    `Walk`'s `TargetX`, one branch of a ternary missing the call parens the other has —
+    `Math.random*100` instead of `Math.random()*100`) meant a bare, uncalled `Math.random`
+    silently resolved to a fixed `0` instead of warning loudly, turning a randomized walk/climb
+    target into an exact, deterministic one whenever facing that direction. And separately again:
+    `window.shimejiDebug.setVerbose(true)`'s trace used `console.debug()`, which Chromium hides
+    under DevTools' default console filter — verbose logging had likely been silently producing
+    zero visible output for every user who ever turned it on. Both fixed.
 
-  See `SOURCE_AUDIT.md` Passes 11-14 for the full, honest blow-by-blow — including two rounds
-  where a fix landed, looked complete, and turned out to have missed the actual dominant cause
-  entirely.
+  See `SOURCE_AUDIT.md` Passes 11-16 for the full, honest blow-by-blow — including rounds where a
+  fix landed, looked complete, and turned out to have missed the actual dominant cause entirely.
 - **Drag is now a direct port of the real engine's own `Dragged.java`, not an invented
   approximation**: several rounds of home-grown drag heuristics here (a critically-damped
   spring for position, then an extrapolated-cursor "lean pointer", then exponential smoothing
