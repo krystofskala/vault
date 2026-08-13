@@ -11,31 +11,36 @@ export interface TickArgs {
 }
 
 /**
- * Clamps horizontal position to whichever left/right wall ledges bound the current y, so a
- * hard throw can't send the mascot drifting off past the window edge into permanent freefall
- * (once x is outside every floor's x-range, nothing can ever land it again).
+ * Clamps horizontal position to the *screen's* own left/right edges, so a hard throw can't send
+ * the mascot drifting off past the window edge into permanent freefall (once x is outside every
+ * floor's x-range, nothing can ever land it again).
  *
- * The window's own left/right walls apply regardless of y, unlike a pane's own side walls
- * (still correctly range-checked below) — real regression found 2026-08-13: worldTop clamps
- * the *ceiling* (and, for climbing purposes, the window walls' own y1) to below Obsidian's
- * title-bar/tab-strip chrome, which is exactly right for autonomous wall-climbing. But this
- * function's job is a completely different one — an unconditional screen-edge safety net — and
- * sharing that same worldTop-bounded y1/y2 with it left a gap: a mascot whose y was briefly
- * *above* worldTop (e.g. released mid-drag near the very top, which tickDragged doesn't prevent)
- * had no horizontal containment at all until gravity pulled it back below worldTop. Released
- * right at the edge with any residual velocity, physics.x would drift past the "off-screen"
- * margin within a tick or two, triggering BehaviorAI's isOffScreen()/respawnAndFall() recovery —
- * an instant, unrelated-looking teleport (no animated fall at all), not a gradual physics
- * excursion. Window walls now ignore their own y1/y2 here specifically so this safety net can
- * never have a gap, while still using y1=worldTop for actually *climbing* them (findWallAt/
- * tickClimbWall, untouched) so autonomous wall-climbing still correctly stops at worldTop.
+ * **Window-sourced walls only.** This used to consider every wall ledge, pane sides included, by
+ * taking `max(all left walls)` / `min(all right walls)` — which is only meaningful for walls that
+ * genuinely bound the whole world. A *pane's* side is a local feature, not a boundary: with
+ * Obsidian's ordinary side-by-side layout, the left sidebar's own right wall sits somewhere in the
+ * middle of the screen, so `maxX` collapsed to that x for every mascot in the *entire* window,
+ * including ones far to its right with nothing actually in their way. A mascot released anywhere
+ * right of it got yanked to that exact coordinate on its very first falling tick, `vx` zeroed,
+ * then immediately "caught" the pane wall it had just been teleported onto. Confirmed from a live
+ * trace 2026-08-13: four separate releases from x=808, x=978 and two respawns all landed at
+ * *precisely* `x: 482.16668701171875` — one shared pane edge, reached instantly, every time. That
+ * is the "mascot doesn't trace any fall, it just teleports and snaps to a wall" report, and it
+ * also explains why several earlier attempts (all aimed at window walls and worldTop) changed
+ * nothing about it.
+ *
+ * Pane walls remain fully functional for what they're actually for — being climbed, grabbed and
+ * detected (`findWallAt`/`findClingableWall`/`updateWallCeilingAdherence`, all untouched) — which
+ * is also how the real engine treats a tracked window's edges: something to *land on* via border
+ * detection, never something that rewrites the mascot's position from across the screen. The
+ * window's own walls apply regardless of `y`, since this safety net must not have a gap above
+ * `worldTop` (see Ledges.ts, where window walls start at `worldTop` for climbing purposes).
  */
 export function clampToWalls(physics: MascotPhysics, ledges: Ledge[]): void {
 	let minX = -Infinity;
 	let maxX = Infinity;
 	for (const ledge of ledges) {
-		if (ledge.kind !== "wall") continue;
-		if (ledge.source !== "window" && (physics.y < ledge.y1 || physics.y > ledge.y2)) continue;
+		if (ledge.kind !== "wall" || ledge.source !== "window") continue;
 		if (ledge.side === "left" && ledge.x > minX) minX = ledge.x;
 		if (ledge.side === "right" && ledge.x < maxX) maxX = ledge.x;
 	}
@@ -115,12 +120,22 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 	// own motion being what brought it there. See that check's own comment for why the
 	// distinction matters.
 	const alreadyAtWall = findClingableWall(ledges, physics, 0.5) !== undefined;
+	const prevX = physics.x;
 
 	physics.vy += config.gravity * dt;
 	physics.x += physics.vx * dt;
 	physics.y += physics.vy * dt;
 	clampToWalls(physics, ledges);
 	clampToCeiling(physics, ledges);
+
+	// Pane walls are deliberately *not* position-clamps (see clampToWalls — treating them as
+	// global bounds is what teleported mascots across the screen), so catching one has to be a
+	// genuine swept test: did this tick's own horizontal movement actually carry the mascot
+	// across that wall's x, while its y was within the wall's real span? That's the same thing
+	// clampToWalls used to provide here as a side effect, minus the part where a wall nowhere
+	// near the mascot could still rewrite its position.
+	const crossedWall = findCrossedWall(ledges, prevX, physics.x, physics.y);
+	if (crossedWall) physics.x = crossedWall.x;
 
 	if (floor && physics.y >= floor.y) {
 		debugLog("landed", { x: physics.x, y: floor.y, source: floor.source, vyAtLanding: physics.vy });
@@ -147,7 +162,7 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 	// window" case still crosses into reach fresh this tick (alreadyAtWall is false) and still
 	// catches correctly, including when the approach was fast enough to need clamping — this
 	// doesn't reopen the original bug that comment above describes.
-	const wall = alreadyAtWall ? undefined : findClingableWall(ledges, physics, 0.5);
+	const wall = alreadyAtWall ? undefined : crossedWall ?? findClingableWall(ledges, physics, 0.5);
 	if (wall) {
 		debugLog("landed on a wall while falling", { x: physics.x, y: physics.y, side: wall.side, source: wall.source });
 		physics.vx = 0;
@@ -313,6 +328,35 @@ export function tickClimbWall(args: TickArgs, wall: WallLedge, direction: ClimbD
 		return false;
 	}
 	return true;
+}
+
+/**
+ * Swept horizontal collision: the wall (if any) whose x lies between `fromX` and `toX` — i.e. one
+ * this tick's own movement actually carried the mascot *through* — with `y` inside that wall's own
+ * vertical span. Returns the first one encountered along the direction of travel, so a fast move
+ * across several panes stops at the nearest rather than the furthest.
+ *
+ * Exists because pane walls are no longer position-clamps (see clampToWalls): they must still stop
+ * a mascot that genuinely flies into them, but must never affect one that merely happens to be
+ * elsewhere on the same row. A pure "am I near a wall right now" test can't distinguish those and
+ * also tunnels straight through at speed; a swept test does both correctly.
+ */
+export function findCrossedWall(ledges: Ledge[], fromX: number, toX: number, y: number): WallLedge | undefined {
+	if (fromX === toX) return undefined;
+	const movingRight = toX > fromX;
+	const lo = Math.min(fromX, toX);
+	const hi = Math.max(fromX, toX);
+	let best: WallLedge | undefined;
+	for (const ledge of ledges) {
+		if (ledge.kind !== "wall") continue;
+		if (y < ledge.y1 || y > ledge.y2) continue;
+		if (ledge.x < lo || ledge.x > hi) continue;
+		// Strictly crossed, not merely "started exactly on it" — a mascot already resting against
+		// a wall (vx pushing into it) would otherwise re-trigger a catch every single tick.
+		if (ledge.x === fromX) continue;
+		if (!best || (movingRight ? ledge.x < best.x : ledge.x > best.x)) best = ledge;
+	}
+	return best;
 }
 
 export function findClingableWall(ledges: Ledge[], physics: MascotPhysics, reach: number): WallLedge | undefined {

@@ -197,8 +197,14 @@ describe("Stage ambient pointer tracking", () => {
 // `pointer-events: none` the way ordinary DOM click dispatch does, so the overlay's mere
 // paint-order presence there could still block dragging the title bar even with nothing rendered
 // on top of it.
-describe("Stage container clipping", () => {
-	it("clips its own box out of the title-bar region via clip-path, not just via child positioning", () => {
+// The overlay must genuinely not *cover* the title bar / tab strip. An earlier attempt used
+// `clip-path`, which leaves the element's layout box exactly where it was and changed nothing for
+// the user; moving `top` actually shrinks the box (the stylesheet's own `inset: 0` still supplies
+// `bottom: 0`, so the container spans worldTop..bottom). Mascots' physics stays in viewport
+// coordinates throughout — Mascot.render() subtracts worldTop at the single point where a physics
+// coordinate becomes a DOM offset.
+describe("Stage container offset", () => {
+	it("starts its own box below the title-bar region instead of covering the whole window", () => {
 		const stage = new Stage({
 			config: DEFAULT_ENGINE_CONFIG,
 			paneLedgesEnabled: false,
@@ -207,17 +213,20 @@ describe("Stage container clipping", () => {
 			allowBreeding: true,
 			environment: fakeEnvironment(40),
 		});
-		expect(stage.container.style.clipPath).toBe("inset(40px 0 0 0)");
+		expect(stage.container.style.top).toBe("40px");
+		// The old approach must be gone, not merely supplemented — a stale clip-path would still
+		// be clipping content the container no longer even spans.
+		expect(stage.container.style.clipPath).toBe("");
 		stage.destroy();
 	});
 
-	it("clips nothing (starts at the true top) when there's no chrome to avoid", () => {
+	it("spans the full window when there's no chrome to avoid", () => {
 		const stage = makeStage(); // fakeEnvironment() defaults worldTop to 0
-		expect(stage.container.style.clipPath).toBe("inset(0px 0 0 0)");
+		expect(stage.container.style.top).toBe("0px");
 		stage.destroy();
 	});
 
-	it("re-clips when the layout changes and worldTop moves", () => {
+	it("re-offsets when the layout changes and worldTop moves", () => {
 		let worldTop = 40;
 		const stage = new Stage({
 			config: DEFAULT_ENGINE_CONFIG,
@@ -227,11 +236,33 @@ describe("Stage container clipping", () => {
 			allowBreeding: true,
 			environment: { ...fakeEnvironment(), getWorldTop: () => worldTop },
 		});
-		expect(stage.container.style.clipPath).toBe("inset(40px 0 0 0)");
+		expect(stage.container.style.top).toBe("40px");
 
 		worldTop = 64;
 		stage.notifyLayoutChanged();
-		expect(stage.container.style.clipPath).toBe("inset(64px 0 0 0)");
+		expect(stage.container.style.top).toBe("64px");
+		stage.destroy();
+	});
+
+	// The offset must not silently move mascots on screen: physics.y is viewport-space, and
+	// render() subtracts worldTop exactly once so the mascot still appears at the viewport y its
+	// physics says it's at. Without the compensation (or with it applied twice) a mascot standing
+	// on a floor would visibly sit worldTop pixels off from that floor.
+	it("renders a mascot at its true viewport position despite the container offset", () => {
+		const stage = new Stage({
+			config: DEFAULT_ENGINE_CONFIG,
+			paneLedgesEnabled: false,
+			debugLedges: false,
+			maxMascots: 10,
+			allowBreeding: true,
+			environment: fakeEnvironment(40),
+		});
+		const mascot = stage.spawnMascot(100, 300)!;
+		mascot.render();
+		const top = parseFloat(/translate3d\([-\d.]+px,\s*([-\d.]+)px/.exec(mascot.el.style.transform)![1]);
+		// Container starts at y=40, so a mascot whose physics y is 300 must be drawn at 260
+		// within it — plus its own anchor offset, which is its full height (feet-anchored).
+		expect(top).toBeCloseTo(300 - 40 - mascot.height * mascot.scale, 5);
 		stage.destroy();
 	});
 });

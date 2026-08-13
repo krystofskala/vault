@@ -158,17 +158,19 @@ export class Stage {
 		this.worldTop = this.environment.getWorldTop();
 		const platforms = this.opts.paneLedgesEnabled ? this.environment.getPlatformRects() : [];
 		this.ledges = computeLedgesFromRects({ ...viewport, top: this.worldTop }, platforms);
-		// Keeping mascots' own anchors below worldTop (Ledges.ts) stops them *reaching* the
-		// title-bar/tab-strip, but the overlay's own full-window box (position:fixed; inset:0)
-		// still geometrically covers that region regardless of what's inside it — and Electron's
-		// native window-drag-region hit-testing (`-webkit-app-region: drag`, what actually makes
-		// the title bar draggable) isn't guaranteed to respect `pointer-events: none` the way
-		// ordinary DOM click dispatch does, so the overlay's mere paint-order presence there can
-		// still block it even with nothing rendered on top. clip-path removes that region from
-		// this element's box entirely (painting *and* hit-testing) without touching `top`/`left`,
-		// so it doesn't shift the coordinate origin `translate3d`-positioned mascots are anchored
-		// against — only what's visible/interactive changes, not where (0,0) is.
-		this.container.style.clipPath = `inset(${this.worldTop}px 0 0 0)`;
+		// The overlay's own box must genuinely not cover the title bar / tab strip. Keeping
+		// mascots' anchors below worldTop (Ledges.ts) isn't enough on its own, and `clip-path`
+		// (tried first) demonstrably wasn't either — the user reported no change at all from it.
+		// clip-path is a paint-and-hit-test operation that leaves the element's *layout box*
+		// exactly where it was, and Electron's `-webkit-app-region: drag` handling works off
+		// layout, so a clipped-but-still-full-window overlay plausibly still swallows the drag
+		// region. Moving `top` actually shrinks the box: with `inset: 0` from the stylesheet
+		// supplying `bottom: 0`, the container now spans worldTop..bottom with nothing above it.
+		// NOT yet confirmed against a live window — this is a better-grounded attempt at the same
+		// symptom, not a verified fix; `shimejiDebug.hideOverlay()` is still the test that would
+		// prove whether the overlay is the cause at all. Costs one coordinate translation,
+		// applied in exactly one place — see Mascot.render().
+		this.container.style.top = `${this.worldTop}px`;
 		this.renderDebugLedges();
 	}
 
@@ -185,14 +187,15 @@ export class Stage {
 		for (const ledge of this.ledges) {
 			const el = document.createElement("div");
 			el.className = "shimeji-debug-ledge";
+			// Ledges are viewport-space; the container they're appended to starts at worldTop.
 			if (ledge.kind === "floor" || ledge.kind === "ceiling") {
 				el.style.left = `${ledge.x1}px`;
-				el.style.top = `${ledge.y - 1}px`;
+				el.style.top = `${ledge.y - this.worldTop - 1}px`;
 				el.style.width = `${ledge.x2 - ledge.x1}px`;
 				el.style.height = "2px";
 			} else {
 				el.style.left = `${ledge.x - 1}px`;
-				el.style.top = `${ledge.y1}px`;
+				el.style.top = `${ledge.y1 - this.worldTop}px`;
 				el.style.width = "2px";
 				el.style.height = `${ledge.y2 - ledge.y1}px`;
 			}
@@ -207,6 +210,9 @@ export class Stage {
 			getAmbientPointer: this.getAmbientPointer,
 			rng: this.rng,
 			getViewportSize: () => this.environment.getViewportSize(),
+			// Read live (a thunk, not this.worldTop's value at construction time) — the tab strip
+			// can change height, and every recomputeLedges refreshes it.
+			getWorldTop: () => this.worldTop,
 			getTotalMascotCount: () => this.mascots.length,
 			spawnSibling: (sx, sy, bornBehaviorName, parent) => {
 				if (!this.opts.allowBreeding) return;

@@ -658,3 +658,39 @@ still needs the user's live confirmation like everything DOM-dependent in this f
       structure alone — the same discipline the user was (rightly, if bluntly) demanding after
       Passes 13-14 landed and did nothing. Needs live confirmation like everything else in this
       file, but this time from data, not a theory about Obsidian's DOM.
+
+12. **Pass 17 (2026-08-13): found the actual teleport bug — from the user's own verbose log, after
+    four earlier passes guessed wrong at the same symptom.** The log line that broke it open:
+    three independent releases (from x=759, x=978, and a respawn at x=492) all reported
+    `landed on a wall while falling {x: 482.16668701171875}` — the *same* coordinate to 14 decimal
+    places, reached in a single tick. Identical output from different inputs is a snap, not physics.
+    - **Root cause**: `clampToWalls` computed `minX = max(all left walls)` / `maxX = min(all right
+      walls)` over *every* wall ledge, pane sides included. That's only meaningful for walls that
+      genuinely bound the world. In an ordinary side-by-side Obsidian layout, a pane boundary sits
+      partway across the screen, so `maxX` collapsed to that x **for every mascot in the window** —
+      including ones far to its right with nothing in their way. A mascot released anywhere right
+      of that boundary was yanked onto it on its first falling tick, `vx` zeroed, then immediately
+      "caught" the wall it had just been teleported onto. That is precisely "he just teleports,
+      mostly snaps to wall, no fall line traced." Fixed: only *window*-sourced walls act as
+      position clamps.
+    - **Why four passes missed it**: every earlier attempt (worldTop, `alreadyAtWall`, ambient
+      pointer, off-screen recovery) targeted the *window* edges and the top of the screen. The
+      actual culprit was a pane boundary in the *middle* of the screen, and nothing in those
+      theories could have touched it. Passes 12-14 shipped, were logically sound, and changed
+      nothing observable — the user said so plainly each time and was right each time.
+    - **Not a regression**: pane walls were still needed to *catch* a mascot that genuinely flies
+      into one (real packs' GrabIEBottomLeftWall etc. depend on it), which the old global clamp
+      supplied as a side effect. Replaced with `findCrossedWall()` — a proper swept test that fires
+      only when this tick's own movement actually carried the mascot through that wall's x within
+      its real y-span. Catches correctly, never acts at a distance, and doesn't tunnel at speed.
+    - **Also**: the stage overlay now offsets its own `top` to worldTop rather than using
+      `clip-path` (which leaves the layout box in place and demonstrably changed nothing for the
+      title bar). `Mascot.render()` subtracts worldTop at the one point a physics coordinate
+      becomes a DOM offset; physics stays viewport-space everywhere else. The `getWorldTop` dep was
+      also found *unwired* in `Stage.createMascot` — it would have silently defaulted to 0 and made
+      the whole offset a no-op, the same class of silent-no-op that made Pass 14 useless.
+      **Still unconfirmed against a live window**; `shimejiDebug.hideOverlay()` remains the test
+      that would actually prove whether the overlay is the title-bar cause at all.
+    - Verified end-to-end by replaying the user's exact logged release (x=978, y=435, vx=31,
+      vy=-121) through the real integrator: a 30-tick arc that rises, turns over, accelerates down
+      and lands on the actual floor — instead of one tick to x=482.

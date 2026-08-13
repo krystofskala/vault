@@ -3,6 +3,7 @@ import {
 	applyGravityAndLand,
 	clampToCeiling,
 	clampToWalls,
+	findCrossedWall,
 	smoothCursorVelocity,
 	tickDragFootX,
 	tickJump,
@@ -18,6 +19,36 @@ function physicsAt(x: number, y: number): MascotPhysics {
 
 describe("clampToWalls", () => {
 	const ledges = computeLedgesFromRects({ width: 800, height: 600 }, []);
+
+	// THE regression test for the "mascot doesn't fall, it teleports and snaps to a wall" report.
+	// Reproduces the real layout from a live trace: an ordinary side-by-side Obsidian workspace,
+	// where a pane boundary sits partway across the screen. clampToWalls used to take
+	// `min(all right walls)` / `max(all left walls)` across *every* wall ledge — so that middle
+	// pane boundary became a hard global bound for every mascot in the window. A mascot released
+	// to the right of it was yanked onto it on its very first falling tick, then instantly
+	// "caught" the wall it had just been teleported onto. In the user's own log, four independent
+	// releases from x=808, x=978 and two respawns all reported landing at *precisely*
+	// x=482.16668701171875 — one shared pane edge, reached in a single tick, every time.
+	it("does not drag a mascot sideways onto a pane boundary elsewhere on screen (the teleport bug)", () => {
+		const paneLedges = computeLedgesFromRects({ width: 1900, height: 1000 }, [
+			{ rect: { left: 0, top: 100, right: 482, bottom: 1000 }, source: "pane" },
+			{ rect: { left: 482, top: 100, right: 1200, bottom: 1000 }, source: "pane" },
+			{ rect: { left: 1200, top: 100, right: 1900, bottom: 1000 }, source: "pane" },
+		]);
+		const physics = physicsAt(978, 435); // released well clear of every pane boundary
+		physics.vx = 0;
+		clampToWalls(physics, paneLedges);
+		expect(physics.x).toBe(978); // must stay exactly where it was released
+	});
+
+	it("still clamps that same mascot at the real window edges", () => {
+		const paneLedges = computeLedgesFromRects({ width: 1900, height: 1000 }, [
+			{ rect: { left: 482, top: 100, right: 1200, bottom: 1000 }, source: "pane" },
+		]);
+		const physics = physicsAt(2100, 435);
+		clampToWalls(physics, paneLedges);
+		expect(physics.x).toBe(1900);
+	});
 
 	it("stops a mascot drifting past the right edge (e.g. a hard throw) instead of letting it escape", () => {
 		const physics = physicsAt(850, 300);
@@ -416,3 +447,41 @@ describe("applyGravityAndLand grounded check", () => {
 	});
 });
 
+
+describe("findCrossedWall", () => {
+	// Pane walls stopped being position-clamps (see clampToWalls' own regression test above), so
+	// genuinely flying into one has to be caught by a swept test instead: it must trigger when
+	// this tick's movement actually carried the mascot through the wall, and stay silent when the
+	// mascot is merely somewhere else on the same row.
+	const ledges = computeLedgesFromRects({ width: 1900, height: 1000 }, [
+		{ rect: { left: 482, top: 100, right: 1200, bottom: 900 }, source: "pane" },
+	]);
+
+	it("catches a wall the mascot's own movement crossed this tick", () => {
+		const wall = findCrossedWall(ledges, 470, 500, 400); // crossed x=482 moving right
+		expect(wall?.x).toBe(482);
+	});
+
+	it("ignores a wall the mascot never crossed", () => {
+		expect(findCrossedWall(ledges, 900, 1000, 400)).toBeUndefined();
+	});
+
+	it("ignores a crossed wall whose vertical span doesn't contain the mascot", () => {
+		expect(findCrossedWall(ledges, 470, 500, 50)).toBeUndefined(); // above the pane's top
+	});
+
+	it("stops at the nearest wall when a fast move crosses several", () => {
+		const multi = computeLedgesFromRects({ width: 1900, height: 1000 }, [
+			{ rect: { left: 0, top: 0, right: 482, bottom: 1000 }, source: "pane" },
+			{ rect: { left: 482, top: 0, right: 1200, bottom: 1000 }, source: "pane" },
+			{ rect: { left: 1200, top: 0, right: 1900, bottom: 1000 }, source: "pane" },
+		]);
+		expect(findCrossedWall(multi, 400, 1500, 400)?.x).toBe(482);
+		expect(findCrossedWall(multi, 1500, 400, 400)?.x).toBe(1200);
+	});
+
+	it("does not re-trigger for a mascot already resting exactly on a wall", () => {
+		expect(findCrossedWall(ledges, 482, 482, 400)).toBeUndefined();
+		expect(findCrossedWall(ledges, 482, 490, 400)).toBeUndefined();
+	});
+});

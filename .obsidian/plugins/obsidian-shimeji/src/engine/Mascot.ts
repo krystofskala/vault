@@ -50,6 +50,12 @@ export interface MascotDeps {
 	getAmbientPointer: () => AmbientPointer;
 	getViewportSize: () => { width: number; height: number };
 	getTotalMascotCount: () => number;
+	/** Viewport y the stage container's own top edge sits at (see Stage: the container is
+	 * deliberately positioned *below* the title bar rather than covering the whole window).
+	 * `physics.y` stays in plain viewport coordinates everywhere else; render() subtracts this
+	 * once, at the single point where a physics coordinate becomes a DOM offset. Defaults to 0
+	 * for callers with no such offset (tests, a host with no chrome above the stage). */
+	getWorldTop?: () => number;
 	rng: Random;
 	/** Requests a new independent mascot near this one (Breed). Position is an offset from
 	 * this mascot's current position, matching the original's BornX/BornY semantics. `parent`
@@ -426,8 +432,12 @@ export class Mascot {
 	 * source of truth, this never reads back from the DOM. */
 	render(): void {
 		const anchor = this.getCurrentAnchor();
+		// The stage container's own box starts at worldTop, not at the top of the window (see
+		// Stage), so a viewport-space physics.y has to lose that offset exactly once, here, where
+		// it stops being physics and becomes a DOM offset. Everything else — physics, ledges,
+		// drag/pointer positions — stays in plain viewport coordinates.
 		const left = this.physics.x - anchor.x * this.scale;
-		const top = this.physics.y - anchor.y * this.scale;
+		const top = this.physics.y - (this.deps.getWorldTop?.() ?? 0) - anchor.y * this.scale;
 		this.el.style.transform = `translate3d(${left}px, ${top}px, 0) scale(${this.scale})`;
 		this.inner.style.transformOrigin = `${anchor.x}px ${anchor.y}px`;
 		// facing=1 means "facing/moving right" by convention; real Shimeji-ee artwork is
