@@ -1063,3 +1063,52 @@ mascot's life. Worth recording because the fake was *plausible* — it reproduce
 closely enough to have been "fixed" with an invented continuous-chase rewrite of ChaseMouse, which
 would have destroyed a faithful behavior to solve a bug that did not exist. Confirming the harness
 before believing its output is the cheap step that avoided that.
+
+## Pass 23: sticky follow redesigned as a real pursuit (2026-08-14)
+
+Two user follow-ups on the sticky mode added in the previous commit: a hypothesis that it breaks when
+the pointer leaves the window or the mascot's pane, and a requirement — "sticky follow shouldn't be
+timed action. Until it reaches the pointer or i touch mascot to end action."
+
+33. **The pointer tracker listened in the bubble phase.** `window.addEventListener("pointermove", …)`
+    with no capture flag: any handler between the event target and `window` can starve it with a
+    single `stopPropagation()`, and Obsidian's editor surface and various of its UI components do call
+    that on pointer events. That is exactly the reported symptom — chasing that works over some panes
+    and silently freezes over others — and it is invisible from the outside, because the ambient
+    position just stops changing rather than erroring. Moved to `{ capture: true }`, which runs on the
+    way *down* from window to target before anything downstream gets the chance. (The matching
+    `removeEventListener` needs the flag repeated: a capture registration is a *different*
+    registration from the same function without it, so removing the wrong one silently leaks the
+    listener for the life of the window.) Not confirmed as *the* cause of what the user saw — it is a
+    latent starvation bug found while checking the hypothesis, and worth fixing on its own merits.
+
+34. **Re-running ChaseMouse was the wrong mechanism, and the 240px threshold was covering for it.**
+    ChaseMouse cannot close the last stretch by construction: its final Dash targets `cursor.x + Gap`
+    with `Gap = -Math.min(distance, Math.random()*200)`, so once the pointer is inside 200px that
+    target collapses onto the mascot's *own* position and the Dash is a no-op. The previous commit's
+    `FOLLOW_REACQUIRE_PX = 240` existed purely to stay outside that dead zone — which meant the mode
+    could never satisfy "until it reaches the pointer", only "until it is roughly nearby". Replaced
+    with direct pursuit legs: an ordinary pack `Move` (`Dash`, falling back to `Walk`) aimed at the
+    pointer's live x, capped at `FOLLOW_LEG_PX = 160` so a Move committing to its target can't hold a
+    stale aim for long, and terminating at `FOLLOW_ARRIVAL_PX = 32`. Still strictly additive: the only
+    interception point is the moment a behavior ends, substituting a target for the weighted pick.
+
+35. **Arrival must not disarm the mode** — a bug I wrote and then caught in a trace within the same
+    pass. Clearing `followingMouse` on arrival reads as a literal interpretation of "until it reaches
+    the pointer", but it turns "keep following" into a single trip: the trace showed the mascot arrive
+    at t65, stand down, and then completely ignore the pointer being moved 970px away at t120. The two
+    lifetimes are separate — a *pursuit* ends by arriving; the *mode* ends only when cancelled. While
+    arrived it just stops issuing legs and lets the pack's own SitAndFaceMouse chain run, staying
+    armed. Pinned by a test that arrives, then moves the pointer, then asserts it chases again.
+
+36. **Touching the mascot cancels it**, per the request. Placed at the very top of `pointerdown`,
+    ahead of the hotspot scan and every drag check, and unconditional on whether either of those goes
+    on to claim the click: grabbing it, poking a hotspot and plain clicking it are all
+    unambiguously "stop coming after me".
+
+Test note: the "switched off" case is asserted on the *mechanism* (no further pursuit is issued —
+detectable because a pursuit leg is the only thing that can make ChaseMouse current, the pack giving
+it `Frequency="0"` in the general pool) rather than on position, since once following stops the
+ordinary autonomous wandering resumes and can carry the mascot near the pointer by chance. It also has
+to drain the in-flight action first: switching off stops *new* pursuits and deliberately does not
+abort the action already running.

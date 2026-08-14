@@ -75,52 +75,86 @@ describe("ChaseMouse (faithful one-shot)", () => {
 });
 
 describe("sticky follow (invented)", () => {
-	it("re-chases when the pointer moves out of reach", () => {
-		const s = scene(200, 260);
+	// The whole point of the redesign: not a timed action, and not a re-run of ChaseMouse (which
+	// structurally cannot close the last 200px — its final Dash target collapses onto the mascot's
+	// own position once the pointer is that near). It runs until it arrives, however long that takes.
+	it("keeps pursuing until it actually reaches the pointer, not to within ChaseMouse's 200px undershoot", () => {
+		const s = scene(200, 1000);
 		s.ai.setFollowingMouse(true);
 		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
-		s.run(40);
-		s.cursor.x = 1150;
-		// Each ChaseMouse run covers a randomised fraction of the remaining distance and takes ~100
-		// ticks, so arriving from ~900px away legitimately needs several runs — the point is that it
-		// keeps starting new ones, which the faithful one-shot above proves it otherwise would not.
-		s.run(500);
-		expect(s.physics.x).toBeGreaterThan(1150 - 240);
+		s.run(400);
+		expect(Math.abs(s.physics.x - 1000)).toBeLessThanOrEqual(32);
 	});
 
-	it("follows the pointer back the other way too", () => {
-		const s = scene(200, 1100);
+	// Arrival ends the *pursuit*, not the *mode*. Disarming on arrival (which an earlier version of
+	// this did) turns "keep following" into a single trip: it catches up once and then ignores the
+	// pointer forever after.
+	it("settles into the pack's own chain on arrival but stays armed", () => {
+		const s = scene(200, 400);
+		s.ai.setFollowingMouse(true);
+		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
+		s.run(400);
+		expect(Math.abs(s.physics.x - 400)).toBeLessThanOrEqual(32);
+		expect(s.ai.currentBehaviorName).toBe("SitAndFaceMouse");
+		expect(s.ai.isFollowingMouse).toBe(true);
+	});
+
+	it("picks the pursuit back up when the pointer moves away again after arriving", () => {
+		const s = scene(600, 620);
 		s.ai.setFollowingMouse(true);
 		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
 		s.run(200);
-		expect(s.physics.x).toBeGreaterThan(800);
-		s.cursor.x = 100;
-		s.run(300);
-		expect(s.physics.x).toBeLessThan(350);
+		expect(s.ai.currentBehaviorName).toBe("SitAndFaceMouse");
+		s.cursor.x = 150;
+		s.run(400);
+		expect(Math.abs(s.physics.x - 150)).toBeLessThanOrEqual(32);
 	});
 
-	// FOLLOW_REACQUIRE_PX exceeds the pack's own stopping distance on purpose: ChaseMouse can
-	// legitimately end up to 200px short, and re-chasing from there would leave the mascot
-	// permanently mid-dash instead of ever settling.
-	it("settles into the pack's own sit-and-watch chain once the pointer is close", () => {
-		const s = scene(200, 260);
+	it("tracks a pointer that keeps moving, in both directions", () => {
+		const s = scene(600, 1100);
 		s.ai.setFollowingMouse(true);
 		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
-		s.run(300);
-		expect(s.ai.currentBehaviorName).toBe("SitAndFaceMouse");
+		s.run(120);
+		expect(s.physics.x).toBeGreaterThan(700);
+		// Yank it the other way mid-pursuit: the mascot must turn around rather than finish its
+		// original errand. FOLLOW_LEG_PX bounds how stale the aim can be when this happens.
+		s.cursor.x = 120;
+		s.run(500);
+		expect(Math.abs(s.physics.x - 120)).toBeLessThanOrEqual(32);
 	});
 
-	it("stops when switched off, leaving the mascot where it stands", () => {
-		const s = scene(200, 260);
+	// A pointer that leaves the Obsidian window stops producing pointermove events, so the ambient
+	// position simply holds its last in-window value. The pursuit must terminate against that frozen
+	// target rather than hanging forever waiting for an update that isn't coming.
+	it("still completes against a pointer position that stops updating", () => {
+		const s = scene(200, 900);
+		s.ai.setFollowingMouse(true);
+		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
+		s.run(400);
+		expect(Math.abs(s.physics.x - 900)).toBeLessThanOrEqual(32);
+	});
+
+	// Asserted on the mechanism rather than on position: once following stops, ordinary autonomous
+	// wandering resumes and could carry the mascot anywhere, including near the pointer by chance.
+	// What must be true is that no further pursuit is issued — and a pursuit leg is the only thing
+	// that can make ChaseMouse current, since the pack gives it Frequency="0" in the general pool.
+	it("issues no further pursuit once switched off mid-chase", () => {
+		const s = scene(200, 1100);
 		s.ai.setFollowingMouse(true);
 		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
 		s.run(60);
 		s.ai.setFollowingMouse(false);
 		expect(s.ai.isFollowingMouse).toBe(false);
-		s.cursor.x = 1150;
-		s.run(60);
-		const settledX = s.physics.x;
+		// Switching off stops *new* pursuits being issued; it deliberately does not abort the action
+		// already in flight (the initial forced ChaseMouse here), so let that finish before sampling.
 		s.run(200);
-		expect(Math.abs(s.physics.x - settledX)).toBeLessThan(240);
+
+		const seen: string[] = [];
+		for (let i = 0; i < 400; i++) {
+			s.run(1);
+			s.cursor.x = i % 2 === 0 ? 60 : 1140; // yank it about; nothing should react
+			seen.push(s.ai.currentBehaviorName ?? "-");
+		}
+		expect(seen).not.toContain("ChaseMouse");
 	});
 });

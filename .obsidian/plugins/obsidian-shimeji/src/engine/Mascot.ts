@@ -318,8 +318,9 @@ export class Mascot {
 		this.driver?.setDisabledBehaviors?.(names);
 	}
 
-	/** Invented sticky follow. Starting it also kicks off the first chase immediately, so the mascot
-	 * reacts at once even when the pointer is already within the re-acquire radius. */
+	/** Invented sticky follow. Interrupts whatever it is doing so the pursuit starts on this tick
+	 * rather than whenever the current behavior happens to run out — being told to come here should
+	 * not wait out a 10-second nap first. */
 	setFollowingMouse(following: boolean): void {
 		this.driver?.setFollowingMouse?.(following);
 		if (following) this.startNamedBehavior("ChaseMouse");
@@ -327,6 +328,11 @@ export class Mascot {
 
 	private bindPointerHandlers(): void {
 		this.el.addEventListener("pointerdown", (ev) => {
+			// Touching the mascot cancels an in-progress follow-the-mouse pursuit, before any other
+			// consideration — ahead of the hotspot scan and the drag checks, and regardless of
+			// whether either of those goes on to claim the click. Grabbing it, poking a hotspot, or
+			// just clicking it are all unambiguously "stop coming after me".
+			this.driver?.setFollowingMouse?.(false);
 			// Real UserBehavior.mousePressed checks hotspots *first*, before anything drag-related:
 			// a match consumes the click (`handled = true`) and runs its behavior instead of
 			// starting a drag. Deliberately ahead of the `dragEnabled` check below — a hotspot is a

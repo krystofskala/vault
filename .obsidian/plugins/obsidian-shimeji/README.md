@@ -566,12 +566,30 @@ dashes have almost no ground to cover and it looks like it barely moved before s
 
 **"Make all mascots dash to the mouse (once)"** is exactly that behaviour, unchanged.
 
-**"Keep all mascots following the mouse"** is an invented addition: while it's on, a mascot re-runs
-ChaseMouse whenever the pointer drifts more than 240px away horizontally, so it keeps coming after
-you. Inside that radius the pack's own sit-and-watch chain runs untouched, so it still settles and
-looks at you rather than twitching against the cursor. The 240px figure has to be larger than the
-pack's own deliberate 200px undershoot, or the mascot would never stop dashing. End it with **"Stop
-all mascots following the mouse"**, or the matching per-mascot menu items.
+**"Keep all mascots following the mouse"** is an invented addition, and a real pursuit rather than a
+repeat of the above:
+
+- It runs **until it reaches you** — within 32px horizontally. It is not on a timer, never gives up
+  partway, and no number of steps exhausts it.
+- Each step is an ordinary pack `Move` (`Dash` — real physics, real animation) aimed at the
+  pointer's live x, capped at 160px so the aim stays fresh. That's a deliberate choice over
+  re-running ChaseMouse, which *structurally cannot* close the last stretch: its final `Dash` targets
+  `cursor.x + Gap` where `Gap` is `-Math.min(distance, Math.random()*200)`, so once you're inside
+  200px that target collapses onto the mascot's own position and it stops dead.
+- Arriving ends the pursuit, not the mode. It settles into the pack's own sit-and-watch chain but
+  stays armed, so moving the pointer away picks the chase straight back up.
+- **Touching the mascot cancels it** — grabbing it, poking a hotspot, or just clicking it. So does
+  **"Stop all mascots following the mouse"** and the matching per-mascot menu item.
+
+It only ever matches the pointer's x, like the real ChaseMouse: the mascot stays on whatever surface
+it's standing on, so "reached you" means directly below the pointer.
+
+If your pointer leaves the Obsidian window entirely, no more `pointermove` events arrive and the
+tracked position simply holds its last in-window value — the mascot walks to that spot and settles
+there rather than hanging. Relatedly: the pointer tracker listens in the **capture** phase, because
+in the bubble phase any Obsidian or CodeMirror handler calling `stopPropagation()` on a pointer event
+would starve it, which would show up as chasing that silently freezes over one particular pane and
+works fine over others.
 
 ## Grab it by the feet (invented, on by default)
 

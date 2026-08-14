@@ -82,7 +82,14 @@ export class Stage {
 		this.container.style.pointerEvents = "none";
 		document.body.appendChild(this.container);
 		this.recomputeLedges();
-		window.addEventListener("pointermove", this.onPointerMove);
+		// Capture phase, deliberately: this listener is on `window`, so in the bubble phase *any*
+		// handler between the event target and here can starve it with a single
+		// `stopPropagation()` — and Obsidian's editor surface and various of its UI components do
+		// call that on pointer events. The symptom would be an ambient cursor that silently freezes
+		// while the mouse is over one particular pane and works fine over others, which is
+		// indistinguishable from "chasing is broken" and very hard to attribute. Capture runs on the
+		// way *down* from window to target, before anything downstream gets the chance.
+		window.addEventListener("pointermove", this.onPointerMove, { capture: true });
 		window.addEventListener("resize", this.onResize);
 	}
 
@@ -386,7 +393,10 @@ export class Stage {
 
 	destroy(): void {
 		cancelAnimationFrame(this.rafHandle);
-		window.removeEventListener("pointermove", this.onPointerMove);
+		// Must repeat the capture flag — a listener added with capture:true is a *different*
+		// registration from the same function added without it, and removing the wrong one silently
+		// leaves the real listener attached for the life of the window.
+		window.removeEventListener("pointermove", this.onPointerMove, { capture: true });
 		window.removeEventListener("resize", this.onResize);
 		this.removeAllMascots();
 		this.container.remove();

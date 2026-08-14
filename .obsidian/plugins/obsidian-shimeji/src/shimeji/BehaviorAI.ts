@@ -22,18 +22,26 @@ import type { BehaviorDef, MascotPack } from "./types";
  * Mascot.startNamedBehavior for the real, on-demand equivalent. */
 const REQUIRED_BEHAVIOR_NAMES = ["ChaseMouse", "Fall", "Dragged", "Thrown"];
 
+/** Close enough, horizontally, to count as having caught the pointer — at which point the pursuit
+ * is over and the pack's own behavior chain takes back over. Vertical distance is deliberately
+ * ignored: the mascot is bound to whatever surface it is standing on, so directly underneath the
+ * pointer is as close as it can physically get, and the real ChaseMouse only ever targets x too. */
+const FOLLOW_ARRIVAL_PX = 32;
+
 /**
- * How far the cursor has to be, horizontally, before a mascot in sticky-follow mode re-runs
- * ChaseMouse — see setFollowingMouse.
- *
- * Must exceed the standard pack's own stopping distance or the mode would thrash: ChaseMouse's
- * final Dash targets `cursor.x + Gap` where `Gap` is up to `Math.random()*200` *short* of the
- * cursor, so a mascot that just finished chasing can legitimately be sitting 200px away and must
- * not immediately start again. Inside this radius the pack's own SitAndFaceMouse chain runs
- * untouched, which is what makes the mode look like "arrives, then watches you" rather than a
- * mascot vibrating against the pointer.
+ * The longest single leg a pursuit commits to before recomputing against the pointer's live
+ * position. Pursuit is a chain of ordinary pack `Move` actions, and a Move runs to *its* target
+ * before the next one can be issued, so this is what bounds how stale that target can get: at the
+ * standard pack's 8px/tick dash speed, 160px is a fresh aim roughly every 20 ticks (~0.8s). Legs
+ * shorter than this are used verbatim, so the final approach targets the pointer exactly rather
+ * than in fixed hops.
  */
-const FOLLOW_REACQUIRE_PX = 240;
+const FOLLOW_LEG_PX = 160;
+
+/** Actions to pursue with, best first. Real packs all define `Dash`; `Walk` is the fallback for a
+ * custom pack that doesn't, and if neither exists pursuit degrades to re-running the pack's own
+ * ChaseMouse behavior, which is at least always present (it is one of the four required ones). */
+const PURSUIT_ACTIONS = ["Dash", "Walk"];
 
 export class BehaviorAI {
 	private runner: ActionRunner;
@@ -56,11 +64,18 @@ export class BehaviorAI {
 	 * mascot sits watching the pointer indefinitely. That is the real, correct outcome, and
 	 * forceBehavior/the faithful command still do exactly it.
 	 *
-	 * This flag adds the thing people expect that behaviour to be: while set, a finished action
-	 * re-runs ChaseMouse whenever the pointer has moved more than FOLLOW_REACQUIRE_PX away, so the
-	 * mascot keeps coming after it. Kept strictly additive — it only ever intercepts the moment a
-	 * behaviour *ends*, and only to substitute ChaseMouse for the weighted pick, so nothing about
-	 * how actions themselves run is touched.
+	 * This is a genuine pursuit rather than a repeat of that: it runs until the mascot is actually
+	 * within FOLLOW_ARRIVAL_PX of the pointer, or until it is cancelled (any touch on the mascot, or
+	 * the stop command). It deliberately does *not* re-run ChaseMouse to get there, because
+	 * ChaseMouse structurally cannot close the last stretch — its final Dash targets
+	 * `cursor.x + Gap` where `Gap` is `-Math.min(distance, Math.random()*200)`, so once the pointer
+	 * is inside 200px that target collapses onto the mascot's own position and it stops dead. A mode
+	 * built on re-triggering it would either stall short or oscillate forever.
+	 *
+	 * Instead each leg is an ordinary pack `Move` (`Dash`, real physics, real animation) aimed at
+	 * the pointer's live x, capped at FOLLOW_LEG_PX so the aim stays fresh. Still strictly additive:
+	 * it only intercepts the moment a behavior *ends*, substituting its own target for the weighted
+	 * pick, and touches nothing about how actions themselves run.
 	 */
 	setFollowingMouse(following: boolean): void {
 		this.followingMouse = following;
@@ -71,6 +86,31 @@ export class BehaviorAI {
 	}
 
 	private followingMouse = false;
+
+	/** One leg of a pursuit: the pack's own Dash/Walk aimed at the pointer, or ChaseMouse if this
+	 * pack somehow has neither. Returns false if nothing could be started, so the caller can fall
+	 * back to ordinary selection rather than leaving the runner idle. */
+	private startPursuitLeg(env: PushEnv, cursorX: number): boolean {
+		const { physics } = env.mascot;
+		const dx = cursorX - physics.x;
+		const leg = Math.sign(dx) * Math.min(Math.abs(dx), FOLLOW_LEG_PX);
+		const targetX = physics.x + leg;
+
+		for (const name of PURSUIT_ACTIONS) {
+			if (!this.pack.actions.has(name)) continue;
+			// Keep `currentBehavior` pointing at ChaseMouse so that when the pursuit does end, the
+			// pack's own NextBehavior edges from ChaseMouse (SitAndFaceMouse, in the standard pack)
+			// are what it settles into — rather than the general pool, which would look like the
+			// mascot losing interest the instant it caught up.
+			this.currentBehavior = this.pack.behaviors.get("ChaseMouse");
+			debugLog("pursuit leg ->", name, { from: Math.round(physics.x), targetX: Math.round(targetX), cursorX: Math.round(cursorX) });
+			if (this.runner.start(name, env, { TargetX: String(targetX) })) return true;
+		}
+		const chase = this.pack.behaviors.get("ChaseMouse");
+		if (!chase) return false;
+		this.startBehavior(chase, env);
+		return true;
+	}
 
 	/**
 	 * Real `Configuration.isBehaviorEnabled(String name, Mascot)`, reproduced including both of its
@@ -141,12 +181,21 @@ export class BehaviorAI {
 			return;
 		}
 
-		// Sticky follow (invented — see setFollowingMouse) gets first refusal on the reselection,
-		// but only when the pointer is actually out of reach; otherwise the pack's own
-		// SitAndFaceMouse chain runs, so the mascot settles and watches instead of twitching.
-		if (this.followingMouse && Math.abs(ambientPointer.x - mascot.physics.x) > FOLLOW_REACQUIRE_PX) {
-			this.forceBehavior("ChaseMouse", mascot, ambientPointer, config, paneActions);
-			return;
+		// Sticky follow (invented — see setFollowingMouse) gets first refusal on the reselection.
+		// The pursuit ends on arrival and nowhere else: it is not on a timer and does not expire
+		// after some number of legs, so the mascot keeps coming as long as the pointer stays out of
+		// reach — however long that takes, and however the pointer moves in the meantime.
+		// Two separate lifetimes here, and conflating them is a bug I shipped once in this function:
+		//  - a *pursuit* ends only by arriving. It is not on a timer, never gives up partway, and no
+		//    number of legs exhausts it.
+		//  - the *mode* ends only when cancelled — a touch on the mascot, or the stop command.
+		// Arrival must therefore not disarm the mode, or "keep following" would be a single trip:
+		// the mascot would catch up once, stand down, and then ignore the pointer for the rest of
+		// the session. While arrived it simply stops issuing legs and lets the pack's own chain run
+		// (SitAndFaceMouse — it sits and watches), staying armed so that a pointer moving back out of
+		// reach picks the pursuit straight up again.
+		if (this.followingMouse && Math.abs(ambientPointer.x - mascot.physics.x) > FOLLOW_ARRIVAL_PX) {
+			if (this.startPursuitLeg(env, ambientPointer.x)) return;
 		}
 
 		this.startBehavior(this.pickNextBehavior(mascot, env), env);
