@@ -133,32 +133,16 @@ export function updateWallCeilingAdherence(physics: MascotPhysics, ledges: Ledge
 function keepOrFindWall(physics: MascotPhysics, ledges: Ledge[]): WallLedge | undefined {
 	const current = physics.currentWall;
 	if (current && current.kind === "wall") {
-		// Nearest wins, with the current one keeping ties. Holding onto the current wall at *any*
-		// distance within reach is what this used to do, and it leaves a mascot attached to a wall it
-		// is demonstrably not on whenever two walls are both in reach.
-		//
-		// Card-style themes make that the normal case: a pane's wall sits a few pixels inside the
-		// window's own, so a mascot pushed to the window edge by clampToWalls is 0px from one wall and
-		// 3px from another, and stayed bound to the further one. Everything downstream then reasons
-		// about the wrong surface — the router planned a 3px sideways "climb" between the two, which
-		// carries no vertical distance and so completes instantly and re-plans forever. Live, that was
-		// a mascot frozen at the top-right corner for 42 seconds and the bottom-right for nearly three
-		// minutes, with five of eight spot orders timing out.
-		let best: WallLedge | undefined;
-		let bestDx = Infinity;
-		for (const l of ledges) {
-			if (l.kind !== "wall" || l.side !== current.side) continue;
-			if (physics.y < l.y1 || physics.y > l.y2) continue;
-			const dx = Math.abs(l.x - physics.x);
-			if (dx > WALL_CEILING_ADHERENCE_REACH) continue;
-			// Strictly nearer, or the same distance and it *is* the one already held — which keeps the
-			// coincident-faces tie-break this function was written for intact.
-			if (dx < bestDx || (dx === bestDx && l === current)) {
-				best = l;
-				bestDx = dx;
-			}
-		}
-		if (best) return best;
+		const stillThere = ledges.find(
+			(l): l is WallLedge =>
+				l.kind === "wall" &&
+				l.side === current.side &&
+				l.source === current.source &&
+				Math.abs(l.x - physics.x) <= WALL_CEILING_ADHERENCE_REACH &&
+				physics.y >= l.y1 &&
+				physics.y <= l.y2,
+		);
+		if (stillThere) return stillThere;
 	}
 	// No prior attachment (e.g. simply walked into one): the face it met is the one opposing the
 	// way it's heading, so bias by facing rather than by a fixed left-first order.

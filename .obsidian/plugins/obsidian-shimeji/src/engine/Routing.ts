@@ -237,42 +237,25 @@ interface Visit {
 	prev?: { ledge: Ledge; transfer: Transfer };
 }
 
-/** Movement smaller than this along a step's own axis is no movement at all. */
-const NO_OP_STEP_PX = 0.5;
-
 /**
- * Drops steps that ask the mascot to travel where it already is — measured **along the axis that
- * step's action actually moves**, which is the part that took two goes to get right.
+ * Drops steps that ask the mascot to travel to where it already is.
  *
- * A corner transfer legitimately arrives at the very point it departs from, so the raw path contains
- * zero-length steps by construction. They are meaningful as *graph* edges and useless as
- * *instructions*: a caller that turns each into a targeted Move gets one that completes on its first
- * tick, re-plans, produces the same step again, and never progresses. That much was already handled.
+ * A corner transfer legitimately arrives at the very point it departs from — changing which surface
+ * you are attached to does not move you — so the raw path contains zero-length steps by construction.
+ * They are meaningful as *graph* edges and useless as *instructions*: a caller that turns each step
+ * into a targeted Move gets one that completes on its first tick, re-plans, produces the same
+ * zero-length step again, and never progresses. That is not hypothetical — it is what a mascot
+ * routed to a wall did, arriving at the foot of it and then standing there indefinitely instead of
+ * climbing, because every leg was "move to the corner you are already standing on".
  *
- * What was not: a step can be a no-op *for its own action* while still covering ground. Each leg is
- * given only the axis its Move travels along — a climb gets `TargetY`, a walk or traverse gets
- * `TargetX` — because handing a wall climb the x it is already at made it finish on its first tick.
- * So a "climb" between two walls 3px apart at the *same height* has nothing to climb: its TargetY is
- * already satisfied, and it loops exactly as a zero-length step would.
- *
- * That is not a contrived case. Card-style themes inset panes, so a pane's wall sits a few pixels
- * inside the window's own wall, and the corner between them is a short horizontal hop. Observed live:
- * a mascot at the top-right corner reissued `climb → (1745,40)` from (1748,40) every tick for 42
- * seconds, then did the same at the bottom-right corner for nearly three minutes. Five of eight spot
- * orders in that session timed out without moving.
- *
- * Dropping such a step is safe for the same reason dropping a zero-length one is: the surface change
- * is carried by the *next* step, which names the new ledge and a point actually on it.
+ * Removing them is safe because the surface change is still carried by the *next* step, which names
+ * the new ledge and a point actually on it.
  */
 function withoutStandingStill(steps: RouteStep[], from: Vec2): RouteStep[] {
 	const out: RouteStep[] = [];
 	let at = from;
 	for (const step of steps) {
-		const dx = Math.abs(step.x - at.x);
-		const dy = Math.abs(step.y - at.y);
-		// Which axis the leg's action is actually given as its target — see BehaviorAI.startRouteAction.
-		const worthDoing = step.via === "climb" ? dy > NO_OP_STEP_PX : step.via === "walk" || step.via === "traverse" ? dx > NO_OP_STEP_PX : distance(at, step) > NO_OP_STEP_PX;
-		if (!worthDoing) continue;
+		if (distance(at, step) <= 0.5) continue;
 		out.push(step);
 		at = step;
 	}
