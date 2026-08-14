@@ -2,7 +2,7 @@ import { tourTargets } from "./engine/MovementAudit";
 import { findRoute } from "./engine/Routing";
 import type { Mascot } from "./engine/Mascot";
 import type { Stage } from "./engine/Stage";
-import { MovementRecorder } from "./MovementRecorder";
+import { MovementRecorder, type Subject } from "./MovementRecorder";
 
 /**
  * The scripted half of in-Obsidian testing: drive one live mascot through every movement the pack
@@ -63,8 +63,19 @@ export interface SelfTestCallbacks {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export function runMovementSelfTest(stage: Stage, mascot: Mascot, cb: SelfTestCallbacks): SelfTestHandle {
-	const recorder = new MovementRecorder(stage, mascot);
+/**
+ * Runs the script on `mascot` while also recording every mascot in `alsoWatch` — the free ones the
+ * user is playing with.
+ *
+ * Both at once, on *different* mascots, is the combination worth having: the script gives systematic
+ * coverage and the free mascot gives the unpredictable interaction a script cannot invent, and one
+ * report holds both. On the *same* mascot they cancel each other out — touching a mascot cancels its
+ * order by design, so the scripted legs become noise and every phase label describes something that
+ * is not happening.
+ */
+export function runMovementSelfTest(stage: Stage, mascot: Mascot, alsoWatch: Mascot[], cb: SelfTestCallbacks): SelfTestHandle {
+	const subjects: Subject[] = [{ label: "scripted", mascot }, ...alsoWatch.map((m, i) => ({ label: alsoWatch.length > 1 ? `free${i + 1}` : "free", mascot: m }))];
+	const recorder = new MovementRecorder(stage, subjects);
 	let cancelled = false;
 
 	const waitUntil = async (done: () => boolean, timeoutMs: number): Promise<boolean> => {
@@ -76,6 +87,9 @@ export function runMovementSelfTest(stage: Stage, mascot: Mascot, cb: SelfTestCa
 	void (async () => {
 		recorder.start();
 		recorder.note(`pack behaviors available: ${mascot.listBehaviorNames().length}`);
+		if (alsoWatch.length > 0) {
+			recorder.note(`watching ${alsoWatch.length} free mascot(s) alongside — play with those, leave the scripted one alone`);
+		}
 
 		// Every MascotDriver member is optional, so a driver that simply does not implement one of
 		// these reports a cheerful default rather than failing to compile. That is exactly how a whole
@@ -130,8 +144,19 @@ export function runMovementSelfTest(stage: Stage, mascot: Mascot, cb: SelfTestCa
 				recorder.note(`plan: ${plan.length} steps [${plan.map((s) => s.via).join(" → ") || "none"}], ends ${planMiss}px from target`);
 
 				const started = performance.now();
+				let touched = false;
 				mascot.orderToSpot(point);
-				const arrived = await waitUntil(() => !mascot.hasSpotOrder, ORDER_TIMEOUT_MS);
+				const arrived = await waitUntil(() => {
+					if (mascot.isBeingDragged) touched = true;
+					return !mascot.hasSpotOrder;
+				}, ORDER_TIMEOUT_MS);
+				if (touched) {
+					// Touching a mascot cancels its order, so this leg measured nothing. Said plainly
+					// rather than reported as a routing failure.
+					recorder.note(`(skipped) ${name}: the scripted mascot was picked up mid-leg — play with the free one instead`);
+					mascot.cancelSpotOrder();
+					continue;
+				}
 				const took = Math.round((performance.now() - started) / 100) / 10;
 				const miss = Math.round(Math.hypot(mascot.physics.x - point.x, mascot.physics.y - point.y));
 
@@ -187,8 +212,8 @@ export function runMovementSelfTest(stage: Stage, mascot: Mascot, cb: SelfTestCa
 /** The unscripted half: record while the user simply uses Obsidian. Catches the triggers a script
  * cannot think of — resizing a split under a walking mascot, collapsing a sidebar, switching
  * workspaces — which is where the interesting failures have actually come from so far. */
-export function startFreePlayRecording(stage: Stage, mascot: Mascot): { stop(): string } {
-	const recorder = new MovementRecorder(stage, mascot);
+export function startFreePlayRecording(stage: Stage, mascots: Mascot[]): { stop(): string } {
+	const recorder = new MovementRecorder(stage, mascots.map((m, i) => ({ label: mascots.length > 1 ? `mascot${i + 1}` : "mascot", mascot: m })));
 	recorder.setPhase("free play");
 	recorder.start();
 	return {

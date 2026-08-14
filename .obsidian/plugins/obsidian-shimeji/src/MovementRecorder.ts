@@ -18,6 +18,8 @@ import type { Stage } from "./engine/Stage";
  */
 
 export interface Sample {
+	/** Which mascot this row is about — see MovementRecorder's constructor. */
+	who: string;
 	ms: number;
 	x: number;
 	y: number;
@@ -44,20 +46,46 @@ const TELEPORT_PX = 60;
 /** How long the mascot may sit still during a phase that is supposed to be travelling. */
 const STUCK_MS = 4000;
 
+/** One mascot being watched, and the label its rows carry. */
+export interface Subject {
+	label: string;
+	mascot: Mascot;
+}
+
+interface SubjectState {
+	last?: { x: number; y: number };
+	/** The sample before this one, kept whole so an anomaly can report the state it came *from*. */
+	before?: Sample;
+	stillSince: number;
+	stuckReported: boolean;
+}
+
 export class MovementRecorder {
 	private samples: Sample[] = [];
 	private notes: RecorderNote[] = [];
 	private raf = 0;
 	private startedAt = 0;
-	private last?: { x: number; y: number };
-	/** The sample before this one, kept whole so an anomaly can report the state it came *from*. */
-	private before?: Sample;
 	private phase = "free play";
-	private stillSince = 0;
 	private expectMovement = false;
-	private stuckReported = false;
+	private state = new Map<Mascot, SubjectState>();
 
-	constructor(private stage: Stage, private mascot: Mascot) {}
+	/**
+	 * Watches one or more mascots at once.
+	 *
+	 * More than one is the interesting case: a scripted mascot and a free one recorded together give
+	 * systematic coverage and unpredictable interaction in a single run, without the two interfering.
+	 * Running both on the *same* mascot cannot work — grabbing it cancels whatever order the script
+	 * just issued, so the scripted results become noise and every phase label lies about what is
+	 * actually happening.
+	 */
+	constructor(private stage: Stage, private subjects: Subject[]) {
+		for (const s of subjects) this.state.set(s.mascot, { stillSince: 0, stuckReported: false });
+	}
+
+	/** The mascot the script drives — the first subject by convention. */
+	get primary(): Mascot {
+		return this.subjects[0].mascot;
+	}
 
 	get sampleCount(): number {
 		return this.samples.length;
@@ -66,8 +94,10 @@ export class MovementRecorder {
 	setPhase(phase: string, expectMovement = false): void {
 		this.phase = phase;
 		this.expectMovement = expectMovement;
-		this.stillSince = performance.now();
-		this.stuckReported = false;
+		for (const st of this.state.values()) {
+			st.stillSince = performance.now();
+			st.stuckReported = false;
+		}
 		this.note(`— ${phase}`);
 	}
 
@@ -77,8 +107,10 @@ export class MovementRecorder {
 
 	start(): void {
 		this.startedAt = performance.now();
-		this.last = undefined;
-		this.stillSince = this.startedAt;
+		for (const st of this.state.values()) {
+			st.last = undefined;
+			st.stillSince = this.startedAt;
+		}
 		const tick = () => {
 			this.sample();
 			this.raf = requestAnimationFrame(tick);
@@ -93,43 +125,53 @@ export class MovementRecorder {
 
 	private sample(): void {
 		const now = performance.now();
-		const p = this.mascot.physics;
-		const step = this.last ? Math.hypot(p.x - this.last.x, p.y - this.last.y) : 0;
+		for (const subject of this.subjects) this.sampleOne(subject, now);
+	}
+
+	private sampleOne(subject: Subject, now: number): void {
+		const { label, mascot } = subject;
+		const st = this.state.get(mascot)!;
+		const p = mascot.physics;
+		const step = st.last ? Math.hypot(p.x - st.last.x, p.y - st.last.y) : 0;
+		const tag = this.subjects.length > 1 ? `[${label}] ` : "";
 
 		// A respawn is a specific, much more interesting event than "moved a long way": the engine gave
 		// up because nothing was eligible and relocated the mascot above the window. Called out
 		// separately, with the state it left *from*, because that state is the diagnosis — the last
 		// two of these came off a wall, and which way the mascot was facing decides whether the pack's
 		// wall behaviours are eligible at all.
-		const respawned = step > TELEPORT_PX && p.y < this.mascot.getWorldTop() - 100;
+		const respawned = step > TELEPORT_PX && p.y < mascot.getWorldTop() - 100;
 		if (respawned) {
-			const b = this.before;
+			const b = st.before;
 			this.note(
-				`!! RESPAWN — relocated above the window. Left from (${b ? Math.round(b.x) : "?"},${b ? Math.round(b.y) : "?"}) ` +
+				`!! ${tag}RESPAWN — relocated above the window. Left from (${b ? Math.round(b.x) : "?"},${b ? Math.round(b.y) : "?"}) ` +
 					`on ${b?.surface ?? "?"} facing ${b?.facing === 1 ? "right" : "left"}, behavior ${b?.behavior ?? "?"}`,
 			);
-		} else if (step > TELEPORT_PX && this.pointerDriven()) {
+		} else if (step > TELEPORT_PX && this.pointerDriven(mascot)) {
 			// Throws legitimately cover a lot of ground in a frame — release velocity comes straight
 			// from the cursor. Recorded, but not as an anomaly: 96 of 146 "anomalies" in the first real
 			// recording were just the mascot being flung around, which buried the two that mattered.
-			this.note(`(pointer) moved ${Math.round(step)}px in one frame`);
+			this.note(`(pointer) ${tag}moved ${Math.round(step)}px in one frame`);
 		} else if (step > TELEPORT_PX) {
-			this.note(`!! jumped ${Math.round(step)}px in one frame — (${Math.round(this.last!.x)},${Math.round(this.last!.y)}) → (${Math.round(p.x)},${Math.round(p.y)})`);
+			this.note(`!! ${tag}jumped ${Math.round(step)}px in one frame — (${Math.round(st.last!.x)},${Math.round(st.last!.y)}) → (${Math.round(p.x)},${Math.round(p.y)})`);
 		}
-		if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) this.note("!! position is NaN/Infinity");
+		if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) this.note(`!! ${tag}position is NaN/Infinity`);
 
-		const viewport = this.mascot.getViewportSize();
+		const viewport = mascot.getViewportSize();
 		if (p.x < -60 || p.x > viewport.width + 60 || p.y > viewport.height + 60) {
-			this.note(`!! outside the window at (${Math.round(p.x)},${Math.round(p.y)})`);
+			this.note(`!! ${tag}outside the window at (${Math.round(p.x)},${Math.round(p.y)})`);
 		}
 
-		if (step > 1) this.stillSince = now;
-		else if (this.expectMovement && !this.stuckReported && now - this.stillSince > STUCK_MS) {
-			this.stuckReported = true;
-			this.note(`!! stationary for ${Math.round((now - this.stillSince) / 1000)}s during "${this.phase}"`);
+		// Only the scripted mascot is expected to travel on cue; the free one is idle by definition.
+		const scripted = this.subjects.length === 1 || mascot === this.primary;
+		if (step > 1) st.stillSince = now;
+		else if (scripted && this.expectMovement && !st.stuckReported && now - st.stillSince > STUCK_MS) {
+			st.stuckReported = true;
+			this.note(`!! ${tag}stationary for ${Math.round((now - st.stillSince) / 1000)}s during "${this.phase}"`);
 		}
 
 		this.samples.push({
+			who: label,
 			ms: Math.round(now - this.startedAt),
 			x: Math.round(p.x),
 			y: Math.round(p.y),
@@ -137,12 +179,12 @@ export class MovementRecorder {
 			vy: Math.round(p.vy * 10) / 10,
 			facing: p.facing,
 			surface: describeSurface(p),
-			behavior: this.mascot.currentBehaviorName ?? "-",
+			behavior: mascot.currentBehaviorName ?? "-",
 			step: Math.round(step),
 			phase: this.phase,
 		});
-		this.last = { x: p.x, y: p.y };
-		this.before = this.samples[this.samples.length - 1];
+		st.last = { x: p.x, y: p.y };
+		st.before = this.samples[this.samples.length - 1];
 	}
 
 	/** Whether the pointer is what is moving the mascot. Both cover a lot of ground in a frame quite
@@ -151,9 +193,9 @@ export class MovementRecorder {
 	 * `isBeingDragged` rather than the behavior name: during a drag the pack behavior stays whatever
 	 * was running when it was grabbed, so the first version of this check saw "SitOnTheLeftEdgeOfIE"
 	 * and dutifully filed every frame of the drag as an anomaly. */
-	private pointerDriven(): boolean {
-		const b = this.mascot.currentBehaviorName;
-		return this.mascot.isBeingDragged || b === "Thrown" || b === "Dragged";
+	private pointerDriven(mascot: Mascot): boolean {
+		const b = mascot.currentBehaviorName;
+		return mascot.isBeingDragged || b === "Thrown" || b === "Dragged";
 	}
 
 	/**
@@ -163,11 +205,12 @@ export class MovementRecorder {
 	 */
 	report(title: string): string {
 		const out: string[] = [];
-		const viewport = this.mascot.getViewportSize();
+		const viewport = this.primary.getViewportSize();
 		out.push(`# ${title}`, "");
 		out.push(`- when: ${new Date().toISOString()}`);
-		out.push(`- window: ${viewport.width} x ${viewport.height}, worldTop ${Math.round(this.mascot.getWorldTop())}`);
-		out.push(`- duration: ${(this.samples.length ? this.samples[this.samples.length - 1].ms / 1000 : 0).toFixed(1)}s over ${this.samples.length} frames`);
+		out.push(`- window: ${viewport.width} x ${viewport.height}, worldTop ${Math.round(this.primary.getWorldTop())}`);
+		out.push(`- duration: ${(this.samples.length ? this.samples[this.samples.length - 1].ms / 1000 : 0).toFixed(1)}s over ${this.samples.length} samples`);
+		if (this.subjects.length > 1) out.push(`- watching: ${this.subjects.map((x) => x.label).join(", ")}`);
 		out.push("");
 
 		const anomalies = this.notes.filter((n) => n.text.startsWith("!!"));
@@ -186,10 +229,13 @@ export class MovementRecorder {
 		out.push("```", "");
 
 		out.push("## Timeline", "");
-		out.push("| ms | phase | x | y | vx | vy | facing | on | behavior | step |");
-		out.push("|---|---|---|---|---|---|---|---|---|---|");
-		let prev: Sample | undefined;
+		out.push("| ms | who | phase | x | y | vx | vy | facing | on | behavior | step |");
+		out.push("|---|---|---|---|---|---|---|---|---|---|---|");
+		// Per mascot, because the samples interleave: comparing each row against the previous row of a
+		// *different* mascot would mark almost everything as a change and defeat the collapsing.
+		const prevByWho = new Map<string, Sample>();
 		for (const s of this.samples) {
+			const prev = prevByWho.get(s.who);
 			const interesting =
 				!prev ||
 				s.phase !== prev.phase ||
@@ -198,8 +244,8 @@ export class MovementRecorder {
 				s.step > TELEPORT_PX ||
 				s.ms - prev.ms > 500;
 			if (!interesting) continue;
-			out.push(`| ${s.ms} | ${s.phase} | ${s.x} | ${s.y} | ${s.vx} | ${s.vy} | ${s.facing === 1 ? "R" : "L"} | ${s.surface} | ${s.behavior} | ${s.step} |`);
-			prev = s;
+			out.push(`| ${s.ms} | ${s.who} | ${s.phase} | ${s.x} | ${s.y} | ${s.vx} | ${s.vy} | ${s.facing === 1 ? "R" : "L"} | ${s.surface} | ${s.behavior} | ${s.step} |`);
+			prevByWho.set(s.who, s);
 		}
 		out.push("");
 		out.push("## Full note log", "", "```");

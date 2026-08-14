@@ -599,15 +599,22 @@ a real hole, and falling through it is the right answer.
 Two commands, because they catch different things. Both write a Markdown report into the vault and
 open it, so it can be read and pasted straight back.
 
-**"Run movement self-test"** — reduces to a single mascot, forces every movement behavior the pack
-declares one at a time, then sends it on a lap of the real window (both walls, the ceiling, the
-floor, every open pane's top edge). Takes a few minutes at real speed; a status-bar item shows the
-current step, and running the command again cancels and still writes the partial report.
+**"Run movement self-test"** — the one to reach for. It spawns a second mascot and does both jobs at
+once: the first mascot runs the script (every movement behavior the pack declares, one at a time,
+then a lap of the real window — both walls, the ceiling, the floor, every open pane's top edge),
+while **the other one is yours to drag, throw and interfere with**. Everything both of them do goes
+into one report, with a `who` column telling them apart.
 
-**"Start/stop recording movement"** — records while you simply use Obsidian. This is the one more
-likely to find something: a script only exercises what it was told to, whereas resizing a split under
-a walking mascot, collapsing a sidebar or switching workspaces is where the real failures have come
-from. Leave it on, use the app normally, run the command again to stop.
+Two mascots rather than one, deliberately: touching a mascot cancels whatever order it is carrying
+out, so scripting and playing with the *same* one leaves the scripted legs measuring nothing. Pick up
+the wrong one and the report says so rather than reporting a routing failure.
+
+Takes a few minutes at real speed; a status-bar item shows the current step, and running the command
+again cancels and still writes the partial report.
+
+**"Start/stop recording movement"** — the plain recorder, with no script at all, watching every mascot
+on screen. Use it when you want a long unstructured session, or to chase something specific you can
+already reproduce.
 
 Both flag the same anomalies automatically — a frame-to-frame jump over 60px (a teleport), a position
 going NaN, leaving the window, or standing still through a leg that was supposed to be travelling —

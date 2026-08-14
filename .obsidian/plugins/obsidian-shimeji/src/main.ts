@@ -230,17 +230,27 @@ export default class ShimejiPlugin extends Plugin {
 		}
 		const stage = this.stage;
 		if (!stage) return;
-		if (stage.getMascots().length === 0) this.spawnMascot();
-		stage.removeAllButOne();
-		const mascot = stage.getMascots()[0];
+		// Two mascots on purpose. The first runs the script; the rest are yours to drag, throw and
+		// generally interfere with, and everything they do lands in the same report. Running both on
+		// one mascot cannot work — touching it cancels whatever order the script just issued.
+		for (let i = stage.getMascots().length; i < 2; i++) {
+			const before = stage.getMascots().length;
+			this.spawnMascot();
+			if (stage.getMascots().length === before) break; // at the max-mascots limit
+		}
+		const [mascot, ...free] = stage.getMascots();
 		if (!mascot) {
 			new Notice("Shimeji: no mascot to test");
 			return;
 		}
-		new Notice("Shimeji: self-test started. It takes a few minutes — run the command again to cancel.");
+		new Notice(
+			free.length > 0
+				? "Shimeji: self-test started. Play with the OTHER mascot while it runs — both are recorded. Run the command again to cancel."
+				: "Shimeji: self-test started. It takes a few minutes — run the command again to cancel.",
+		);
 		this.selfTestStatus = this.addStatusBarItem();
 		this.selfTestStatus.setText("Shimeji test: starting");
-		this.selfTest = runMovementSelfTest(stage, mascot, {
+		this.selfTest = runMovementSelfTest(stage, mascot, free, {
 			onProgress: (message) => this.selfTestStatus?.setText(`Shimeji test: ${message}`),
 			onDone: (report) => {
 				this.selfTest = undefined;
@@ -262,12 +272,12 @@ export default class ShimejiPlugin extends Plugin {
 			void this.writeReport("recording", report);
 			return;
 		}
-		const mascot = this.stage?.getMascots()[0];
-		if (!this.stage || !mascot) {
+		const mascots = this.stage?.getMascots() ?? [];
+		if (!this.stage || mascots.length === 0) {
 			new Notice("Shimeji: spawn a mascot first");
 			return;
 		}
-		this.recording = startFreePlayRecording(this.stage, mascot);
+		this.recording = startFreePlayRecording(this.stage, [...mascots]);
 		this.recordingStatus = this.addStatusBarItem();
 		this.recordingStatus.setText("● Shimeji recording");
 		new Notice("Shimeji: recording. Use Obsidian normally, then run the command again to stop.");
