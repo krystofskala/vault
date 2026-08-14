@@ -84,13 +84,17 @@ const ROAM_CHANCE = 0.06;
 /** Roaming is not a precision exercise — anywhere near the chosen spot is a destination reached. */
 const ROAM_ARRIVAL_PX = 48;
 
-const ROUTE_ACTIONS: Record<RouteVia, string[]> = {
+/** Pack actions that carry out each kind of route step. `drop` is deliberately absent: falling is not
+ * an action a pack performs, it is the absence of holding on — see startRouteAction. */
+const ROUTE_ACTIONS: Record<Exclude<RouteVia, "drop">, string[]> = {
 	walk: ["Dash", "Walk"],
 	climb: ["ClimbWall"],
 	traverse: ["ClimbCeiling"],
 	jump: ["Jumping"],
-	drop: ["Dash", "Walk"],
 };
+
+/** How far past a ledge's edge to step before letting go — enough to clear the floor being left. */
+const EDGE_STEP_OFF_PX = 3;
 
 export class BehaviorAI {
 	private runner: ActionRunner;
@@ -251,13 +255,7 @@ export class BehaviorAI {
 					this.spotPhase = undefined;
 					this.spotSpentDrops.push(phase.from);
 					debugLog("spot order: letting go to fall through", { from: [Math.round(phase.from.x), Math.round(phase.from.y)], spot });
-					// Releasing is just ceasing to hold on; Fall is one of the four the engine requires,
-					// so this needs no pack-specific action to exist.
-					physics.currentCeiling = undefined;
-					physics.currentWall = undefined;
-					physics.grounded = false;
-					this.startBehavior(this.forceFallBehavior(), env);
-					return true;
+					return this.letGoAndFall(env);
 				}
 				const leg = routeTo(phase.from)[0];
 				if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
@@ -513,6 +511,25 @@ export class BehaviorAI {
 	 * a mascot that was not following anything, and make the mascot appear to chase the mouse
 	 * spontaneously — something real shimeji-ee never does and which this project pins with a test.
 	 */
+	/**
+	 * Stops holding on and lets gravity do the rest — how a mascot gets *down* from anything.
+	 *
+	 * Fall is one of the four behaviors the engine requires of every pack, so this needs no
+	 * pack-specific action to exist. The small nudge past the edge matters: a route's departure point
+	 * is clamped to the ledge it leaves, so letting go exactly there can drop the mascot down the side
+	 * of the very floor it was standing on, or miss a landing floor that only begins past the edge.
+	 */
+	private letGoAndFall(env: PushEnv, towardX?: number): boolean {
+		const { physics } = env.mascot;
+		if (towardX !== undefined && towardX !== physics.x) physics.x += Math.sign(towardX - physics.x) * EDGE_STEP_OFF_PX;
+		physics.currentCeiling = undefined;
+		physics.currentWall = undefined;
+		physics.currentFloor = undefined;
+		physics.grounded = false;
+		this.startBehavior(this.forceFallBehavior(), env);
+		return true;
+	}
+
 	private startRouteAction(
 		env: PushEnv,
 		via: RouteVia,
@@ -522,6 +539,18 @@ export class BehaviorAI {
 		attributeTo?: BehaviorDef,
 	): boolean {
 		const { physics } = env.mascot;
+
+		// A drop is the one step that is not a Move at all. It used to be mapped to Dash/Walk, which
+		// cannot work: those are Floor-bordered, so `stickToFloorIfBordered` pins the mascot to the
+		// ledge it is trying to leave. With the landing point roughly straight below, the supplied
+		// TargetX is the mascot's own x, so it played a walk animation on the edge and never
+		// descended — and only ever got down when some other correction moved it, in a single tick
+		// with no fall. Both of those are exactly what a user reported seeing on a pane edge.
+		if (via === "drop") {
+			debugLog("pursuit leg -> drop (letting go)", { from: [Math.round(physics.x), Math.round(physics.y)], to: [Math.round(targetX), Math.round(targetY ?? 0)], remainingSteps: remaining });
+			this.currentBehavior = attributeTo;
+			return this.letGoAndFall(env, targetX);
+		}
 
 		for (const name of ROUTE_ACTIONS[via]) {
 			if (!this.pack.actions.has(name)) continue;

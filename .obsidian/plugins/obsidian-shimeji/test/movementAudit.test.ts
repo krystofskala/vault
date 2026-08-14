@@ -145,3 +145,62 @@ describe("losing a border always falls, never respawns", () => {
 		expect(physics.x).toBe(0);
 	});
 });
+
+/**
+ * Getting *down* off a ledge — reported from live use: "when he is on a ledge like this he cant jump
+ * down, he either tries to do fall animation but does it on the edge and doesnt fall down, or skips
+ * the animation and slides down in one tick."
+ *
+ * Both symptoms are the same cause. A `drop` route step used to be executed as Dash/Walk, and those
+ * are Floor-bordered — `stickToFloorIfBordered` pins the mascot to the very ledge it is trying to
+ * leave. With the landing point roughly straight below, the TargetX handed to that Move is the
+ * mascot's own x, so it walked on the spot; it only got down when some unrelated correction moved it.
+ */
+describe("dropping off a ledge", () => {
+	const PANE = { left: 502, top: 661, right: 994, bottom: 1227 };
+
+	function onPaneEdge() {
+		const ledges = computeLedgesFromRects({ width: 1748, height: 1392, top: 40 }, [{ rect: PANE, source: "pane" as const, paneRef: PANE }]);
+		const paneTop = ledges.find((l): l is Extract<Ledge, { kind: "floor" }> => l.kind === "floor" && l.y === 661)!;
+		const physics = { x: 990, y: 661, vx: 0, vy: 0, facing: 1 as 1 | -1, grounded: true, currentFloor: paneTop, currentWall: undefined, currentCeiling: undefined };
+		const mascot = {
+			physics, stateElapsedMs: 0, affordances: [], hotspots: [], variables: new Map(),
+			setVisualImage() {}, getViewportSize: () => ({ width: 1748, height: 1392 }),
+			getWorldTop: () => 40, getTotalMascotCount: () => 1, getSameCharacterCount: () => 1,
+		} as unknown as Mascot;
+		const ai = new BehaviorAI(pack, new Random(4));
+		return { ai, mascot, physics, ledges };
+	}
+
+	it("actually leaves the ledge and falls, rather than animating on the edge", () => {
+		const { ai, mascot, physics, ledges } = onPaneEdge();
+		ai.orderToSpot({ x: 1300, y: 1392 }); // the window floor, past the pane's right edge
+
+		let leftTheLedge = false;
+		for (let i = 0; i < 600 && ai.hasSpotOrder; i++) {
+			ai.tick(mascot, 0.04, ledges, { x: 0, y: 0, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
+			mascot.stateElapsedMs += 40;
+			if (!physics.grounded && physics.y > 661) leftTheLedge = true;
+		}
+
+		expect(leftTheLedge).toBe(true);
+		expect(physics.y).toBe(1392);
+	});
+
+	it("descends over several ticks under gravity, not in a single jump", () => {
+		const { ai, mascot, physics, ledges } = onPaneEdge();
+		ai.orderToSpot({ x: 1300, y: 1392 });
+
+		let biggestStep = 0;
+		let prevY = physics.y;
+		for (let i = 0; i < 600 && ai.hasSpotOrder; i++) {
+			ai.tick(mascot, 0.04, ledges, { x: 0, y: 0, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
+			mascot.stateElapsedMs += 40;
+			biggestStep = Math.max(biggestStep, Math.abs(physics.y - prevY));
+			prevY = physics.y;
+		}
+
+		// 731px covered without a single tick doing most of it — the "slides down in one tick" report.
+		expect(biggestStep).toBeLessThan(200);
+	});
+});
