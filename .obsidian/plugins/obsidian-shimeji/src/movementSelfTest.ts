@@ -88,7 +88,10 @@ export function runMovementSelfTest(stage: Stage, mascot: Mascot, alsoWatch: Mas
 		recorder.start();
 		recorder.note(`pack behaviors available: ${mascot.listBehaviorNames().length}`);
 		if (alsoWatch.length > 0) {
-			recorder.note(`watching ${alsoWatch.length} free mascot(s) alongside — play with those, leave the scripted one alone`);
+			// The second mascot needs no input to be worth recording: left alone it runs the pack's own
+			// behaviour chain, which is the ordinary idle wandering nothing else here observes. If the
+			// user does interact, that lands in the same report — but nothing requires them to.
+			recorder.note(`also watching ${alsoWatch.length} unscripted mascot(s) — free-roaming on the pack's own behaviour chain`);
 		}
 
 		// Every MascotDriver member is optional, so a driver that simply does not implement one of

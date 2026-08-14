@@ -245,7 +245,7 @@ export default class ShimejiPlugin extends Plugin {
 		}
 		new Notice(
 			free.length > 0
-				? "Shimeji: self-test started. Play with the OTHER mascot while it runs — both are recorded. Run the command again to cancel."
+				? "Shimeji: self-test started. Just leave it running — both mascots are recorded. Run the command again to cancel."
 				: "Shimeji: self-test started. It takes a few minutes — run the command again to cancel.",
 		);
 		this.selfTestStatus = this.addStatusBarItem();

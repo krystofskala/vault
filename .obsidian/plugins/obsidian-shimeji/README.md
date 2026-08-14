@@ -599,15 +599,19 @@ a real hole, and falling through it is the right answer.
 Two commands, because they catch different things. Both write a Markdown report into the vault and
 open it, so it can be read and pasted straight back.
 
-**"Run movement self-test"** — the one to reach for. It spawns a second mascot and does both jobs at
-once: the first mascot runs the script (every movement behavior the pack declares, one at a time,
-then a lap of the real window — both walls, the ceiling, the floor, every open pane's top edge),
-while **the other one is yours to drag, throw and interfere with**. Everything both of them do goes
-into one report, with a `who` column telling them apart.
+**"Run movement self-test"** — the one to reach for. Start it and leave it alone; it needs no input.
+It spawns a second mascot and records two things at once: the first runs the script (every movement
+behavior the pack declares, one at a time, then a lap of the real window — both walls, the ceiling,
+the floor, every open pane's top edge), while the second is left to its own devices on the pack's own
+behavior chain. Both land in one report, with a `who` column telling them apart.
+
+The second mascot is worth recording precisely because nothing is driving it: ordinary idle wandering
+is what a mascot spends most of its life doing, and no other test here watches it.
 
 Two mascots rather than one, deliberately: touching a mascot cancels whatever order it is carrying
-out, so scripting and playing with the *same* one leaves the scripted legs measuring nothing. Pick up
-the wrong one and the report says so rather than reporting a routing failure.
+out, so scripting and interacting with the *same* one leaves the scripted legs measuring nothing. If
+you do want to drag something mid-run, drag the unscripted one — and if you pick up the scripted one
+by mistake, the report says the leg was skipped rather than reporting a routing failure.
 
 Takes a few minutes at real speed; a status-bar item shows the current step, and running the command
 again cancels and still writes the partial report.
