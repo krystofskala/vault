@@ -11,7 +11,7 @@ import {
 	type TickArgs,
 } from "../src/engine/nativeBehaviors";
 import { computeLedgesFromRects } from "../src/engine/Ledges";
-import { DEFAULT_ENGINE_CONFIG, type MascotPhysics } from "../src/engine/types";
+import { DEFAULT_ENGINE_CONFIG, type Ledge, type MascotPhysics } from "../src/engine/types";
 
 function physicsAt(x: number, y: number): MascotPhysics {
 	return { x, y, vx: 0, vy: 0, facing: 1, grounded: false };
@@ -333,6 +333,34 @@ describe("applyGravityAndLand grounded check", () => {
 		expect(stillGrounded).toBe(true);
 		expect(physics.grounded).toBe(true);
 		expect(physics.y).toBe(400);
+	});
+
+	/**
+	 * From a live 32-minute recording: a mascot sitting perfectly still on a pane edge (vx=0, vy=0)
+	 * appeared 976px lower on the window floor in a single frame, three times, each time a pane was closed
+	 * under it. The re-anchor could not tell "my floor moved" from "my floor is gone and this is the
+	 * next one down", so it snapped to whatever spanned the mascot's x at any distance.
+	 */
+	it("falls instead of snapping down to a distant floor when its pane is closed under it", () => {
+		const paneTop = { kind: "floor", y: 416, x1: 0, x2: 1748, source: "pane" } as Ledge;
+		const windowFloor = { kind: "floor", y: 1392, x1: 0, x2: 1748, source: "window" } as Ledge;
+		const physics = { x: 977, y: 416, vx: 0, vy: 0, facing: 1 as 1 | -1, grounded: true, currentFloor: paneTop, currentWall: undefined, currentCeiling: undefined };
+
+		// The pane is gone; only the window floor remains, 976px below.
+		applyGravityAndLand({ physics, ledges: [windowFloor], dt: 0.04, config: DEFAULT_ENGINE_CONFIG });
+
+		expect(physics.grounded).toBe(false);
+		expect(physics.y).toBeLessThan(500);
+	});
+
+	it("still snaps up any distance when the layout closes up under it (the window-shrink case)", () => {
+		const raised = { kind: "floor", y: 300, x1: 0, x2: 1748, source: "window" } as Ledge;
+		const physics = { x: 900, y: 1300, vx: 0, vy: 0, facing: 1 as 1 | -1, grounded: true, currentFloor: undefined, currentWall: undefined, currentCeiling: undefined };
+
+		applyGravityAndLand({ physics, ledges: [raised], dt: 0.04, config: DEFAULT_ENGINE_CONFIG });
+
+		expect(physics.grounded).toBe(true);
+		expect(physics.y).toBe(300);
 	});
 
 	it("still falls (not stuck) once genuinely nothing spans its x — grounded is cleared, not force-kept", () => {

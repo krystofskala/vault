@@ -50,6 +50,8 @@ export class MovementRecorder {
 	private raf = 0;
 	private startedAt = 0;
 	private last?: { x: number; y: number };
+	/** The sample before this one, kept whole so an anomaly can report the state it came *from*. */
+	private before?: Sample;
 	private phase = "free play";
 	private stillSince = 0;
 	private expectMovement = false;
@@ -94,7 +96,24 @@ export class MovementRecorder {
 		const p = this.mascot.physics;
 		const step = this.last ? Math.hypot(p.x - this.last.x, p.y - this.last.y) : 0;
 
-		if (step > TELEPORT_PX) {
+		// A respawn is a specific, much more interesting event than "moved a long way": the engine gave
+		// up because nothing was eligible and relocated the mascot above the window. Called out
+		// separately, with the state it left *from*, because that state is the diagnosis — the last
+		// two of these came off a wall, and which way the mascot was facing decides whether the pack's
+		// wall behaviours are eligible at all.
+		const respawned = step > TELEPORT_PX && p.y < this.mascot.getWorldTop() - 100;
+		if (respawned) {
+			const b = this.before;
+			this.note(
+				`!! RESPAWN — relocated above the window. Left from (${b ? Math.round(b.x) : "?"},${b ? Math.round(b.y) : "?"}) ` +
+					`on ${b?.surface ?? "?"} facing ${b?.facing === 1 ? "right" : "left"}, behavior ${b?.behavior ?? "?"}`,
+			);
+		} else if (step > TELEPORT_PX && this.thrownRecently()) {
+			// Throws legitimately cover a lot of ground in a frame — release velocity comes straight
+			// from the cursor. Recorded, but not as an anomaly: 96 of 146 "anomalies" in the first real
+			// recording were just the mascot being flung around, which buried the two that mattered.
+			this.note(`(throw) moved ${Math.round(step)}px in one frame`);
+		} else if (step > TELEPORT_PX) {
 			this.note(`!! jumped ${Math.round(step)}px in one frame — (${Math.round(this.last!.x)},${Math.round(this.last!.y)}) → (${Math.round(p.x)},${Math.round(p.y)})`);
 		}
 		if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) this.note("!! position is NaN/Infinity");
@@ -123,6 +142,13 @@ export class MovementRecorder {
 			phase: this.phase,
 		});
 		this.last = { x: p.x, y: p.y };
+		this.before = this.samples[this.samples.length - 1];
+	}
+
+	/** Whether the mascot is being thrown or has just been released. */
+	private thrownRecently(): boolean {
+		const b = this.mascot.currentBehaviorName;
+		return b === "Thrown" || b === "Dragged";
 	}
 
 	/**
@@ -155,8 +181,8 @@ export class MovementRecorder {
 		out.push("```", "");
 
 		out.push("## Timeline", "");
-		out.push("| ms | phase | x | y | vx | vy | on | behavior | step |");
-		out.push("|---|---|---|---|---|---|---|---|---|");
+		out.push("| ms | phase | x | y | vx | vy | facing | on | behavior | step |");
+		out.push("|---|---|---|---|---|---|---|---|---|---|");
 		let prev: Sample | undefined;
 		for (const s of this.samples) {
 			const interesting =
@@ -167,7 +193,7 @@ export class MovementRecorder {
 				s.step > TELEPORT_PX ||
 				s.ms - prev.ms > 500;
 			if (!interesting) continue;
-			out.push(`| ${s.ms} | ${s.phase} | ${s.x} | ${s.y} | ${s.vx} | ${s.vy} | ${s.surface} | ${s.behavior} | ${s.step} |`);
+			out.push(`| ${s.ms} | ${s.phase} | ${s.x} | ${s.y} | ${s.vx} | ${s.vy} | ${s.facing === 1 ? "R" : "L"} | ${s.surface} | ${s.behavior} | ${s.step} |`);
 			prev = s;
 		}
 		out.push("");

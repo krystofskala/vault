@@ -149,6 +149,15 @@ function keepOrFindWall(physics: MascotPhysics, ledges: Ledge[]): WallLedge | un
 	return findClingableWall(ledges, physics, WALL_CEILING_ADHERENCE_REACH, physics.facing === 1 ? "left" : "right");
 }
 
+/**
+ * How far *below* a grounded mascot a floor may be and still count as "the surface I was on, moved"
+ * rather than "my surface is gone". Comfortably above the fastest deliberate edge-ride (pane
+ * wrangling moves 7px/tick) and far below the height of any real pane, so the two cases can't be
+ * confused. There is no upward equivalent: a floor above always means the layout closed up under the
+ * mascot, and snapping to it is correct at any distance.
+ */
+const LOST_FLOOR_DROP_PX = 64;
+
 /** Integrates gravity and snaps to a floor if one is crossed. Shared safety net used by
  * every native behavior so a mascot never gets stuck floating if its platform disappears. */
 export function applyGravityAndLand(args: TickArgs): boolean {
@@ -160,15 +169,28 @@ export function applyGravityAndLand(args: TickArgs): boolean {
 		// nothing "below" that stale position and read as the floor having vanished, when it
 		// really just moved. findNearestFloorAt re-anchors to wherever it is now instead.
 		const stillThere = findNearestFloorAt(ledges, physics.x, physics.y);
-		if (stillThere) {
-			if (Math.abs(stillThere.y - physics.y) > 1) {
+		// ...but only *upwards* without limit, and that asymmetry is the whole point.
+		//
+		// A floor above the mascot means the surface it was standing on moved up to meet it (the
+		// window shrank, a split closed), and snapping to it is right at any distance — the mascot
+		// would otherwise be left below the visible area. A floor far *below* means something else
+		// entirely: the pane it was standing on is gone, and the next surface down is the one that
+		// happened to be underneath. Snapping to that is a teleport.
+		//
+		// Found in a live recording, not by reasoning: a mascot sitting perfectly still on a pane
+		// edge (vx=0, vy=0) appeared 976px lower on the window floor in a single frame, three times
+		// in half an hour, whenever a pane was closed under it. It should fall, which it now does —
+		// gravity takes over below and the drop is animated normally.
+		const drop = stillThere ? stillThere.y - physics.y : 0;
+		if (stillThere && drop <= LOST_FLOOR_DROP_PX) {
+			if (Math.abs(drop) > 1) {
 				debugLog("re-grounded after a ledge change", { x: physics.x, fromY: physics.y, toY: stillThere.y, source: stillThere.source });
 			}
 			physics.y = stillThere.y;
 			physics.currentFloor = stillThere;
 			return true;
 		}
-		debugLog("floor gone out from under a grounded mascot, falling", { x: physics.x, y: physics.y });
+		debugLog("floor gone out from under a grounded mascot, falling", { x: physics.x, y: physics.y, nextFloorBelow: stillThere?.y });
 		physics.grounded = false;
 	}
 
