@@ -11,6 +11,7 @@ import {
 	tickWalk,
 	type WalkState,
 } from "./nativeBehaviors";
+import type { HotspotDef } from "../shimeji/types";
 import { TICKS_PER_SEC, type AmbientPointer, type EngineConfig, type Ledge, type MascotPhysics, type NativeStateName, type PointerState, type Vec2 } from "./types";
 import type { Random } from "./Random";
 
@@ -28,6 +29,21 @@ const LONG_PRESS_MS = 500;
 /** Moving further than this before the timer fires means it's a drag/swipe, not a long
  * press — cancels the pending menu so a touch-drag never also pops up a menu partway through. */
 const LONG_PRESS_MOVE_CANCEL_PX = 10;
+
+/** Real AnimationBuilder builds either a `Rectangle` or an `Ellipse2D` from Origin+Size and then
+ * defers to `Shape.contains` — the ellipse being inscribed in that same box. */
+function hotspotContains(h: HotspotDef, x: number, y: number): boolean {
+	const { origin, size } = h;
+	if (size.x <= 0 || size.y <= 0) return false;
+	if (h.shape === "Rectangle") {
+		return x >= origin.x && x < origin.x + size.x && y >= origin.y && y < origin.y + size.y;
+	}
+	const rx = size.x / 2;
+	const ry = size.y / 2;
+	const dx = (x - (origin.x + rx)) / rx;
+	const dy = (y - (origin.y + ry)) / ry;
+	return dx * dx + dy * dy <= 1;
+}
 
 export interface MascotDriver {
 	/** Advances one frame. Implementations mutate `mascot.physics` and call
@@ -124,6 +140,21 @@ export class Mascot {
 	 * engine clears it in dispose(): a disposed mascot must stop advertising itself as a target.
 	 */
 	affordances: string[] = [];
+	/**
+	 * Real `Mascot.hotspots`, refreshed every tick from the currently effective Animation (see
+	 * ActionBase.refreshHotspots). Each is a clickable region on the sprite that runs a named
+	 * behavior instead of starting a drag. Coordinates are in unscaled pack pixels relative to the
+	 * sprite's own bounds, so hit-testing has to undo both the render scale and the facing flip.
+	 */
+	hotspots: readonly HotspotDef[] = [];
+	/**
+	 * Real `Mascot.getVariables()` (v1.0.22): "a map that can be used by scripts to store and
+	 * access custom variables. This field is not accessed by the program itself." Persists for the
+	 * mascot's whole life, across behavior and action changes — unlike an action's own locals,
+	 * which are rebuilt per action — so a pack can accumulate state (a counter, a mood) instead of
+	 * every behavior starting blank.
+	 */
+	readonly variables = new Map<string, unknown>();
 
 	private driver?: MascotDriver;
 	private walk?: WalkState;
@@ -246,6 +277,15 @@ export class Mascot {
 	private bindPointerHandlers(): void {
 		this.el.addEventListener("pointerdown", (ev) => {
 			if (!this.dragEnabled) return;
+			// Real UserBehavior.mousePressed checks hotspots *first*: a hit consumes the click
+			// (`handled = true`) and runs its behavior instead of starting a drag. A hotspot with
+			// no Behaviour still consumes it — that is the real behavior, not an oversight.
+			const hotspot = this.hotspotAt(ev.clientX, ev.clientY);
+			if (hotspot) {
+				ev.preventDefault();
+				if (hotspot.behavior) this.startNamedBehavior(hotspot.behavior);
+				return;
+			}
 			// Real UserBehavior: `handled = !actionBase.isDraggable()` — the *currently running
 			// action* can refuse the grab outright, independently of the app-level toggle above.
 			if (this.driver?.isDraggable?.(this, this.deps.getAmbientPointer()) === false) return;
@@ -312,6 +352,24 @@ export class Mascot {
 		// the drag would otherwise get stuck forever wherever it last was (reading as the
 		// mascot "vanishing" at the edge). A window blur is a reliable enough signal to let go.
 		window.addEventListener("blur", this.onWindowBlur);
+	}
+
+	/**
+	 * Real `Hotspot.contains(mascot, point)`:
+	 * `int x = mascot.isLookRight() ? mascot.getBounds().width - point.x : point.x;` — the region
+	 * is authored against the *left-facing* art and mirrored when the mascot faces right, exactly
+	 * as the sprite itself is. `point` is relative to the sprite's bounds, so the viewport click
+	 * has to be brought into that space first, undoing the render scale on the way.
+	 */
+	hotspotAt(clientX: number, clientY: number): HotspotDef | undefined {
+		if (this.hotspots.length === 0) return undefined;
+		const rect = this.el.getBoundingClientRect();
+		const scale = this.scale || 1;
+		const localX = (clientX - rect.left) / scale;
+		const localY = (clientY - rect.top) / scale;
+		const x = this.physics.facing === 1 ? this.width - localX : localX;
+		const y = localY;
+		return this.hotspots.find((h) => hotspotContains(h, x, y));
 	}
 
 	private onWindowBlur = (): void => {

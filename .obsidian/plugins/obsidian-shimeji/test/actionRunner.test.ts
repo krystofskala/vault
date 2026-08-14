@@ -61,6 +61,7 @@ function animOf(images: Array<{ image: string; durationMs?: number; velocity?: {
 	return [
 		{
 			condition: undefined,
+			hotspots: [],
 			poses: images.map((i) => ({ image: i.image, anchor: { x: 0, y: 0 }, durationMs: i.durationMs ?? 10, velocity: i.velocity })),
 		},
 	];
@@ -555,8 +556,8 @@ describe("ActionRunner", () => {
 						name: "SitAndLookAtMouse",
 						type: "Stay",
 						animations: [
-							{ condition: parseCondition("#{mascot.anchor.x < 50}"), poses: [{ image: "/near.png", anchor: { x: 0, y: 0 }, durationMs: 250 }] },
-							{ condition: undefined, poses: [{ image: "/far.png", anchor: { x: 0, y: 0 }, durationMs: 250 }] },
+							{ condition: parseCondition("#{mascot.anchor.x < 50}"), hotspots: [], poses: [{ image: "/near.png", anchor: { x: 0, y: 0 }, durationMs: 250 }] },
+							{ condition: undefined, hotspots: [], poses: [{ image: "/far.png", anchor: { x: 0, y: 0 }, durationMs: 250 }] },
 						],
 					}),
 				],

@@ -10,6 +10,11 @@ export type ExprValue = number | string | boolean | undefined;
 export interface ExprContext {
 	resolve(path: string[]): ExprValue;
 	call(name: string, args: ExprValue[]): ExprValue;
+	/** Writes a value back — real packs both read *and* assign Shimeji Variables, because the
+	 * original evaluates these attributes as real JavaScript with the mascot in scope
+	 * (`${mascot.variables['hp'] = 5}`). Optional: a context with no writable state simply
+	 * ignores the assignment and yields the value, rather than failing the expression. */
+	assign?(path: string[], value: ExprValue): void;
 }
 
 export type Node =
@@ -17,12 +22,16 @@ export type Node =
 	| { kind: "str"; value: string }
 	| { kind: "bool"; value: boolean }
 	| { kind: "path"; parts: string[] }
+	/** `a.b['key']` / `a.b[expr]` — real packs use this for Shimeji Variables
+	 * (`mascot.variables['x']`, v1.0.22). The key is itself an expression, evaluated at use. */
+	| { kind: "index"; target: Node; key: Node }
 	| { kind: "call"; name: string; args: Node[] }
 	| { kind: "unary"; op: "-" | "!"; expr: Node }
 	| { kind: "binary"; op: string; left: Node; right: Node }
-	| { kind: "ternary"; cond: Node; then: Node; otherwise: Node };
+	| { kind: "ternary"; cond: Node; then: Node; otherwise: Node }
+	| { kind: "assign"; target: Node; value: Node };
 
-type TokenType = "num" | "str" | "ident" | "op" | "lparen" | "rparen" | "comma" | "dot" | "question" | "colon" | "eof";
+type TokenType = "num" | "str" | "ident" | "op" | "lparen" | "rparen" | "lbracket" | "rbracket" | "comma" | "dot" | "question" | "colon" | "eof";
 interface Token {
 	type: TokenType;
 	value: string;
@@ -46,6 +55,16 @@ function tokenize(src: string): Token[] {
 		}
 		if (c === ")") {
 			tokens.push({ type: "rparen", value: c });
+			i++;
+			continue;
+		}
+		if (c === "[") {
+			tokens.push({ type: "lbracket", value: c });
+			i++;
+			continue;
+		}
+		if (c === "]") {
+			tokens.push({ type: "rbracket", value: c });
 			i++;
 			continue;
 		}
@@ -101,6 +120,13 @@ function tokenize(src: string): Token[] {
 			i += 2;
 			continue;
 		}
+		// Single "=" only reaches here after "==" has already been claimed above, so assignment
+		// can never swallow an equality test.
+		if (c === "=") {
+			tokens.push({ type: "op", value: "=" });
+			i++;
+			continue;
+		}
 		if ("<>+-*/!".includes(c)) {
 			tokens.push({ type: "op", value: c });
 			i++;
@@ -132,9 +158,19 @@ class Parser {
 	}
 
 	parseExpression(): Node {
-		const node = this.parseTernary();
+		const node = this.parseAssignment();
 		this.expect("eof");
 		return node;
+	}
+
+	/** Lowest precedence, and right-associative — `a = b = c` assigns c to both. */
+	private parseAssignment(): Node {
+		const left = this.parseTernary();
+		if (this.peek().type === "op" && this.peek().value === "=") {
+			this.take();
+			return { kind: "assign", target: left, value: this.parseAssignment() };
+		}
+		return left;
 	}
 
 	private parseTernary(): Node {
@@ -211,6 +247,18 @@ class Parser {
 		return this.parsePrimary();
 	}
 
+	/** Consumes any chain of `[...]` subscripts following a primary expression. */
+	private parseIndexSuffix(target: Node): Node {
+		let node = target;
+		while (this.peek().type === "lbracket") {
+			this.take();
+			const key = this.parseTernary();
+			this.expect("rbracket");
+			node = { kind: "index", target: node, key };
+		}
+		return node;
+	}
+
 	private parsePrimary(): Node {
 		const tok = this.peek();
 		if (tok.type === "num") {
@@ -257,6 +305,18 @@ export function parseExpression(source: string): Node {
 	return new Parser(tokenize(source)).parseExpression();
 }
 
+/** Flattens a path or subscript chain into the dotted key list resolve()/assign() speak. */
+function pathOf(node: Node, ctx: ExprContext): string[] | undefined {
+	if (node.kind === "path") return node.parts;
+	if (node.kind === "index") {
+		const base = pathOf(node.target, ctx);
+		const key = evaluate(node.key, ctx);
+		if (!base || key === undefined) return undefined;
+		return [...base, String(key)];
+	}
+	return undefined;
+}
+
 function truthy(v: ExprValue): boolean {
 	if (typeof v === "boolean") return v;
 	if (typeof v === "number") return v !== 0;
@@ -281,6 +341,20 @@ export function evaluate(node: Node, ctx: ExprContext): ExprValue {
 			return node.value;
 		case "path":
 			return ctx.resolve(node.parts);
+		case "assign": {
+			const value = evaluate(node.value, ctx);
+			const path = pathOf(node.target, ctx);
+			if (path) ctx.assign?.(path, value);
+			// Evaluates to the assigned value, as an assignment expression does in the original.
+			return value;
+		}
+		case "index": {
+			// Only a plain path can be subscripted in practice (`mascot.variables['x']`), which is
+			// what the real engine's own script scope exposes; anything else has no addressable
+			// container behind it.
+			const path = pathOf(node, ctx);
+			return path ? ctx.resolve(path) : undefined;
+		}
 		case "call":
 			return ctx.call(node.name, node.args.map((a) => evaluate(a, ctx)));
 		case "unary": {
@@ -391,6 +465,9 @@ export function withLocals(base: ExprContext, locals: Record<string, ExprValue>)
 		},
 		call(name, args) {
 			return base.call(name, args);
+		},
+		assign(path, value) {
+			base.assign?.(path, value);
 		},
 	};
 }

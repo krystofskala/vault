@@ -6,6 +6,7 @@ import { BehaviorAI } from "./BehaviorAI";
 import { evaluateCondition, withLocals, type ExprContext } from "./Expression";
 import { pickLoopingPose } from "./poseUtil";
 import { createRuntimeContext } from "./RuntimeContext";
+import { playPoseSound } from "./SoundPlayer";
 import type { MascotPack, PoseDef } from "./types";
 
 const STATE_TO_ACTION: Partial<Record<NativeStateName, string>> = {
@@ -49,12 +50,17 @@ export class PackDriver implements MascotDriver {
 			},
 			elapsedMs,
 			this.rng,
+			mascot.variables,
 		);
 		const ctx = withLocals(baseCtx, { FootX: mascot.dragFootX });
 		const poses = this.resolveDisplayPoses(actionName, ctx);
 		if (poses.length === 0) return false;
 		const pose = pickLoopingPose(poses, elapsedMs);
 		mascot.setVisualImage(this.pack.resolveImage(pose.image), pose.anchor);
+		// A drag pose carries a Sound like any other. In the original there is no separate
+		// "render only" path at all — Dragged is an ordinary action running through the normal
+		// pipeline, so its poses set the mascot's sound exactly as every other pose does.
+		playPoseSound(this.pack, pose);
 		return true;
 	}
 

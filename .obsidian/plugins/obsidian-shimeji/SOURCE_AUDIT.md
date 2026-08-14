@@ -859,6 +859,62 @@ physics variables, type-specific Count, and the whole Sound subsystem.
     forcing one by name still works, as the real "set behavior" item does. Choices persist per pack
     and apply to every mascot of that character, matching real `Main.setMascotBehaviorEnabled`.
 
-Still outstanding from the inventory: **Hotspot** (v1.0.19), **Shimeji Variables** (v1.0.22 — needs
-bracket-indexing support in the expression parser, which it currently lacks), and the **Sound**
-subsystem (v1.0.9/v1.0.16), which is a genuine subsystem rather than a single feature.
+## Feature port: the "Worth doing" set, part 2 (2026-08-14)
+
+The three that were still outstanding after part 1. With these the whole inventory — both
+"Recommended" and "Worth doing" — is ported.
+
+27. **Hotspot (v1.0.19)** — `animation/Hotspot.java`, a clickable region declared per-`<Animation>`
+    that runs a named behavior instead of starting a drag. Three details that are easy to get
+    wrong and are all reproduced: hotspots are **refreshed every tick** from the *currently
+    effective* Animation (real `ActionBase.refreshHotspots()`), so which regions are live follows
+    whichever condition-gated variant is selected right now, not whichever one was selected when
+    the action started; the x coordinate is **mirrored when the mascot faces right**
+    (`mascot.isLookRight() ? bounds.width - point.x : point.x`), so a pack authors a hotspot once
+    against the unflipped art; and a hit sets `handled = true` **even when `Behaviour` is null**,
+    so a hotspot with no behavior still swallows the click rather than falling through to a drag.
+    UserBehavior checks hotspots *before* the drag path, so this ordering is preserved in Mascot's
+    own pointerdown.
+28. **Shimeji Variables (v1.0.22)** — `mascot.getVariables()`, a `Map<String, Object>` the engine
+    itself never reads ("not accessed by the program itself" in the source's own words), existing
+    purely so a pack can keep arbitrary per-mascot state across actions and behaviors for the
+    mascot's whole life. Reaching it needs bracket indexing and assignment in the expression
+    language, neither of which the evaluator had: added `index`/`assign` node kinds, a `=` token
+    (registered after the multi-char operators so `==` still wins the tokenizer), and
+    `parseAssignment` at the lowest precedence, right-associative. Only `mascot.variables[...]` is
+    writable — every other path in the context is derived state a pack must not be able to poke.
+    Reading an unset variable yields undefined without a warning, since testing a variable before
+    ever assigning it is a legitimate pack idiom.
+29. **Sound (v1.0.9 / v1.0.16)** — a per-`<Pose>` `Sound` file with an optional `Volume`, plus the
+    `Mute` action. The subsystem's real shape, all of which matters:
+    - `Pose.apply()` ends with `mascot.setSound(soundKey)` — run **every tick the pose is
+      active**, not once when it starts. What keeps that from machine-gunning the clip is the
+      guard on the other side, in `Mascot.apply()`: `if (!clip.isRunning()) { clip.stop();
+      clip.setMicrosecondPosition(0); clip.start(); }`. Porting only the first half would have
+      retriggered a sound ~25×/second for a pose held one second.
+    - `Sounds.load` keys a clip by **`fileName + ':' + volume`**, so one file declared at two
+      volumes is genuinely two clips with two independent "is it running" answers, and they can
+      overlap. `SoundPlayer` keys the same way rather than by file alone.
+    - `Mute` (`extends InstantAction` — `hasNext()` is hardcoded false, so it completes on the tick
+      it starts, never held for its animation's duration) uses `Sounds.getAllByFile`, which returns
+      **every volume variant** of a path — hence the `keysByFile` index. Note the original's own
+      asymmetry, kept deliberately: the named-file branch runs regardless of the sound setting,
+      while the stop-everything branch is gated on `Sounds.isEnabled()`.
+    - `Volume` is a Java `FloatControl` MASTER_GAIN value in **decibels**, defaulting to 0 (=
+      unchanged), not a 0-1 fraction. `HTMLAudioElement.volume` is linear, so it is converted as
+      `10^(dB/20)` and clamped. Reading `Volume="-10"` as "10% volume" would have been silently,
+      unfixably wrong for every pack that ships sound.
+    - Sound file lookup follows real `Main.getSoundFilePath`'s three candidate directories in
+      order (`img/<set>/sound/`, `sound/<set>/`, `sound/`). The original resolves these eagerly at
+      parse time; so does `PackLoader`, because vault-adapter existence checks are async and pose
+      display is not.
+    - The clip registry is a module-level singleton because real `Sounds` is a static class, and
+      "is this clip already running" is only a meaningful question if every mascot shares one
+      registry. It is explicitly torn down in `onunload` — a singleton outlives the plugin
+      instance, so a disable/enable cycle would otherwise leave the previous load's clips playing.
+
+    One deliberate divergence: sound is **off by default** here, where the original defaults it on.
+    A note-taking app making noise unprompted is a different proposition from a mascot app you
+    launched specifically to be a mascot. There is also a master-volume slider, which the original
+    has as a global setting too; it scales each clip on top of the pack's own authored `Volume`
+    rather than replacing it.

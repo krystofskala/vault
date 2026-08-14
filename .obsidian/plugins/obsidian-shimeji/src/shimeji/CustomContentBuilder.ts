@@ -19,7 +19,8 @@ function buildPose(spec: CustomPoseSpec): PoseDef {
 }
 
 function buildAnimations(spec: CustomActionSpec): AnimationVariant[] {
-	return spec.animations.map((v) => ({ condition: condition(v.condition), poses: v.poses.map(buildPose) }));
+	// The custom-content editor has no hotspot UI, so a pack authored there simply has none.
+	return spec.animations.map((v) => ({ condition: condition(v.condition), poses: v.poses.map(buildPose), hotspots: [] }));
 }
 
 function buildChildren(spec: CustomActionSpec): ActionRefDef[] {

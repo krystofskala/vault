@@ -1,6 +1,6 @@
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "./constants";
 import { parseCondition } from "./Expression";
-import type { ActionDef, ActionRefDef, ActionType, AnimationVariant, BorderType, PoseDef, Vec2 } from "./types";
+import type { ActionDef, ActionRefDef, ActionType, AnimationVariant, BorderType, HotspotDef, PoseDef, Vec2 } from "./types";
 
 const KNOWN_TYPES: ActionType[] = ["Stay", "Move", "Animate", "Sequence", "Select", "Embedded"];
 function isKnownType(t: string): t is ActionType {
@@ -24,11 +24,18 @@ function parsePair(raw: string | null): Vec2 | undefined {
 function parsePose(el: Element): PoseDef {
 	const rawVelocity = parsePair(el.getAttribute("Velocity"));
 	const durationTicks = Number(el.getAttribute("Duration") ?? "0") || 0;
+	const sound = el.getAttribute("Sound") ?? undefined;
+	// Real AnimationBuilder: Volume is optional and defaults to 0 — decibels of gain adjustment,
+	// not a fraction.
+	const volumeRaw = el.getAttribute("Volume");
+	const volumeDb = volumeRaw !== null && Number.isFinite(Number(volumeRaw)) ? Number(volumeRaw) : undefined;
 	return {
 		image: el.getAttribute("Image") ?? "",
 		anchor: parsePair(el.getAttribute("ImageAnchor")) ?? { x: 0, y: 0 },
 		velocity: rawVelocity ? { x: rawVelocity.x * SHIMEJI_TICKS_PER_SEC, y: rawVelocity.y * SHIMEJI_TICKS_PER_SEC } : undefined,
 		durationMs: durationTicks > 0 ? durationTicks * SHIMEJI_TICK_MS : 100,
+		sound,
+		volumeDb,
 	};
 }
 
@@ -61,6 +68,31 @@ function parseInlineChild(el: Element, registerAnonymous: (def: ActionDef) => st
 	return { name, condition: conditionRaw ? parseCondition(conditionRaw) : undefined, paramOverrides: {} };
 }
 
+/** Real AnimationBuilder.loadHotspot: Shape/Origin/Size are required, Behaviour optional, and an
+ * unsupported Shape is an error rather than a silent default. A malformed hotspot is skipped with
+ * a warning instead of failing the whole pack — the rest of the animation is still usable. */
+function parseHotspot(el: Element): HotspotDef | null {
+	const shapeText = el.getAttribute("Shape");
+	const originText = el.getAttribute("Origin");
+	const sizeText = el.getAttribute("Size");
+	if (!shapeText || !originText || !sizeText) {
+		console.warn("[obsidian-shimeji] skipping <Hotspot> missing a required Shape/Origin/Size attribute");
+		return null;
+	}
+	const shape = shapeText.toLowerCase() === "ellipse" ? "Ellipse" : shapeText.toLowerCase() === "rectangle" ? "Rectangle" : null;
+	if (!shape) {
+		console.warn(`[obsidian-shimeji] skipping <Hotspot> with unsupported Shape="${shapeText}" (expected Rectangle or Ellipse)`);
+		return null;
+	}
+	const [ox, oy] = originText.split(",").map((n) => Number(n.trim()));
+	const [sw, sh] = sizeText.split(",").map((n) => Number(n.trim()));
+	if ([ox, oy, sw, sh].some((n) => !Number.isFinite(n))) {
+		console.warn(`[obsidian-shimeji] skipping <Hotspot> with unparseable Origin="${originText}" / Size="${sizeText}"`);
+		return null;
+	}
+	return { shape, origin: { x: ox, y: oy }, size: { x: sw, y: sh }, behavior: el.getAttribute("Behaviour") ?? el.getAttribute("Behavior") ?? undefined };
+}
+
 function parseAnimations(el: Element): AnimationVariant[] {
 	const animEls = Array.from(el.children).filter((c) => c.tagName === "Animation");
 	if (animEls.length === 0) return [];
@@ -69,6 +101,10 @@ function parseAnimations(el: Element): AnimationVariant[] {
 		return {
 			condition: conditionRaw ? parseCondition(conditionRaw) : undefined,
 			poses: Array.from(animEl.getElementsByTagName("Pose")).map(parsePose),
+			hotspots: Array.from(animEl.children)
+				.filter((c) => c.tagName === "Hotspot")
+				.map(parseHotspot)
+				.filter((h): h is HotspotDef => h !== null),
 		};
 	});
 }

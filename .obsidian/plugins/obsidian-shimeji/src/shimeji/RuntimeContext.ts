@@ -65,7 +65,13 @@ function toNum(v: ExprValue): number {
  * against — its top (as a floor), one of its sides, or its underside — a reasonable analogue,
  * not a literal equivalent.
  */
-export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, elapsedMs: number, rng: Random): ExprContext {
+export function createRuntimeContext(
+	physics: MascotPhysics,
+	env: RuntimeEnv,
+	elapsedMs: number,
+	rng: Random,
+	variables?: Map<string, unknown>,
+): ExprContext {
 	const floor = physics.currentFloor?.kind === "floor" ? physics.currentFloor : undefined;
 	const wall = physics.currentWall?.kind === "wall" ? physics.currentWall : undefined;
 	const ceiling = physics.currentCeiling?.kind === "ceiling" ? physics.currentCeiling : undefined;
@@ -151,6 +157,14 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 
 	function resolveMascot(rest: string[]): ExprValue {
 		const [key, ...tail] = rest;
+		// Real `mascot.variables['name']` (v1.0.22) — arbitrary per-mascot state a pack owns
+		// outright. Unset reads yield undefined rather than warning: a pack legitimately tests a
+		// variable before ever assigning it.
+		if (key === "variables") {
+			if (tail.length === 0 || !variables) return undefined;
+			const v = variables.get(tail.join("."));
+			return typeof v === "number" || typeof v === "string" || typeof v === "boolean" ? v : undefined;
+		}
 		switch (key) {
 			case "anchor":
 				if (tail[0] === "x") return physics.x;
@@ -238,5 +252,12 @@ export function createRuntimeContext(physics: MascotPhysics, env: RuntimeEnv, el
 		return undefined;
 	}
 
-	return { resolve, call };
+	function assign(path: string[], value: ExprValue): void {
+		// Only `mascot.variables[...]` is writable — everything else in this context is derived
+		// state that a pack must not be able to poke directly.
+		if (!variables || path[0] !== "mascot" || path[1] !== "variables" || path.length < 3) return;
+		variables.set(path.slice(2).join("."), value);
+	}
+
+	return { resolve, call, assign };
 }

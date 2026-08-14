@@ -439,6 +439,41 @@ Swing/AWT/JNA GUI plumbing included, not just the core simulation subset.
   thing that needs a real window to tune, so please keep reporting anything that looks or
   feels off.
 
+### Newer engine features (v1.0.13 – v1.0.22)
+
+The audit above was done against
+[`logany20/shimeji-ee`](https://github.com/logany20/shimeji-ee), which is frozen at roughly
+v1.0.12. Ground truth has since moved to
+[`DalekCraft2/Shimeji-Desktop`](https://github.com/DalekCraft2/Shimeji-Desktop) (Kilkakon's line,
+through v1.0.22) — see `SOURCE_AUDIT.md` for the commit table and the per-feature notes. Ported
+from it:
+
+- **`SelfDestruct`** (v1.0.13) — a purely time-based action that removes the mascot when its
+  animation ends. Combined with `BornTransient`, this is the mechanism behind effects like a
+  mascot firing a projectile: the projectile is just another mascot set to self-destruct.
+- **`BornMascot` / `BornTransient` / `BornInterval` / `BornCount`** — `Breed` can spawn a
+  *different* character, mark the clone as transient (gated by its own setting, separate from
+  breeding), spawn on an interval, and spawn several at once.
+- **`BreedMove` / `BreedJump`** (v1.0.18) — ordinary Move/Jump that additionally breed on an
+  interval for as long as they run.
+- **Affordances + `ScanMove`** (v1.0.14) and **`ScanInteract`** (v1.0.21) — mascots advertise an
+  affordance string and can seek out (or interact in place with) whichever other mascot is
+  currently broadcasting the one they're looking for, redirecting both on contact.
+- **`Mascot.getCount()` vs `getTotalCount()`** (v1.0.16) — "how many of *me*" as distinct from
+  "how many mascots at all".
+- **Per-action `Draggable`** (v1.0.13) and **`Toggleable` behaviors** (v1.0.21) — a pack can make
+  specific actions un-grabbable, and mark behaviors the user may switch off permanently from the
+  mascot's own menu.
+- **Exposed physics variables** (v1.0.21) — `VelocityX`/`VelocityY`/`TargetX`/`TargetY`, readable
+  from inside the same action's own Animation conditions.
+- **`Hotspot`** (v1.0.19) — clickable regions on a pose that run a named behavior instead of
+  starting a drag, refreshed every tick from whichever Animation variant is currently effective.
+- **Shimeji Variables** (v1.0.22) — `mascot.variables['name']`, arbitrary per-mascot state a pack
+  owns outright and keeps for the mascot's whole life. Needed bracket indexing and assignment in
+  the expression evaluator, which is now supported.
+- **Sound** (v1.0.9 / v1.0.16) — per-`<Pose>` `Sound`/`Volume` and the `Mute` action. See the
+  "Sound" section under *Using your own artwork*; it's off by default.
+
 ## Using your own artwork
 
 The default pack folder (`Shimeji/`, alongside this README) already has the real, standard
@@ -468,6 +503,28 @@ Every pack must define `ChaseMouse`, `Fall`, `Dragged`, and `Thrown` actions/beh
 (shimeji-ee itself requires this). Missing ones log a console warning but won't crash the
 mascot — `Fall`/`Dragged`/`Thrown` in particular have native physics fallbacks regardless of
 what's declared.
+
+### Sound
+
+If your pack ships sounds, a `<Pose>` can carry `Sound="file.wav"` and an optional
+`Volume="-6"` — the same attributes real shimeji-ee reads, with `Volume` in **decibels of
+adjustment** (0 = unchanged, negative = quieter), not a 0-1 fraction. Sound files are looked
+for in the same three places the real engine checks, in order:
+
+```
+<PackFolder>/img/<Name>/sound/<file>     # this character's own sounds
+<PackFolder>/sound/<Name>/<file>         # shared, per-character
+<PackFolder>/sound/<file>                # shared, global
+```
+
+The `Mute` action is supported too: with a `Sound` parameter it silences that one file, without
+one it silences everything.
+
+Playback is **off by default** — turn it on under **Settings → Shimeji Desktop Mascot → Sound**,
+where there's also a volume slider that scales every sound on top of whatever the pack itself
+authored. (Real shimeji-ee defaults sound on; a note-taking app making noise unprompted felt
+like a different proposition, so this is one of the few deliberate divergences.) A pose that
+names a sound file that isn't there logs a warning at load and simply plays nothing.
 
 ## Custom animations & reactions
 

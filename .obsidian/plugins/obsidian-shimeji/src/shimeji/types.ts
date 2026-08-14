@@ -14,15 +14,34 @@ export interface PoseDef {
 	/** px/second and ms, already converted from Shimeji-ee's tick units at parse time. */
 	velocity?: Vec2;
 	durationMs: number;
+	/** Real per-Pose `Sound` (v1.0.9): a file name played when this pose becomes active. */
+	sound?: string;
+	/** Real per-Pose `Volume`, optional and defaulting to 0. The original is a Java gain control,
+	 * i.e. **decibels of adjustment**, not a 0-1 fraction — 0 means "unchanged/full". */
+	volumeDb?: number;
 }
 
 /** A pack can define several <Animation> blocks on one Action, each gated by its own
  * Condition (e.g. ClimbWall picks "climbing up" vs "climbing down" poses depending on
  * which side of the target it's on). The first block whose condition passes at the moment
  * the action starts is used for its whole run. */
+/** Real `Hotspot` (v1.0.19): a clickable region on the mascot's art that runs a named behavior
+ * instead of starting a drag. Declared per-`<Animation>`, so which regions are live depends on
+ * which animation variant is currently effective. Coordinates are relative to the sprite's own
+ * bounds, in unscaled pack pixels. */
+export interface HotspotDef {
+	shape: "Rectangle" | "Ellipse";
+	origin: Vec2;
+	size: Vec2;
+	/** Optional in the real schema: a hotspot with no Behaviour still *consumes* the click
+	 * (real `handled = true`), it just doesn't start anything. */
+	behavior?: string;
+}
+
 export interface AnimationVariant {
 	condition?: ExprNode;
 	poses: PoseDef[];
+	hotspots: HotspotDef[];
 }
 
 export interface ActionRefDef {
@@ -80,6 +99,9 @@ export interface MascotPack {
 	behaviors: Map<string, BehaviorDef>;
 	/** Resolves a Pose's raw `Image` path (e.g. "/shime1.png") to a src usable in an <img>. */
 	resolveImage: (path: string) => string;
+	/** Resolves a Pose's raw `Sound` file name to a playable src, or undefined when this pack has
+	 * no sound folder. Mirrors resolveImage; real packs keep sounds in a `sound/` sibling. */
+	resolveSound?: (path: string) => string | undefined;
 	/** Vault-relative folder this pack's images live in — set by PackLoader for real loaded
 	 * packs, used by the custom-content editor to offer an image picker. Optional so synthetic
 	 * packs (tests, mergeCustomContent's output) don't need to fabricate one. */

@@ -8,7 +8,8 @@ import { evaluate, evaluateCondition, parseParamValue, withLocals, type ExprCont
 import { applyNativeEmbedded, paramOrDefault } from "./nativeAdapter";
 import { pickLoopingPose } from "./poseUtil";
 import { resolveActivePaneLedge } from "./RuntimeContext";
-import type { ActionDef, MascotPack, PoseDef } from "./types";
+import { playPoseSound, sounds } from "./SoundPlayer";
+import type { ActionDef, AnimationVariant, MascotPack, PoseDef } from "./types";
 
 export interface PushEnv {
 	mascot: Mascot;
@@ -227,6 +228,24 @@ export class ActionRunner {
 				mascot.physics.y += numOrUndefined(frame.locals.Y) ?? 0;
 				frame.instantComplete = true;
 				break;
+			// Real Mute (v1.0.16) `extends InstantAction`: it runs once, entirely inside init(), and
+			// its hasNext() is hardcoded false — so it belongs here with Offset/Look rather than in a
+			// per-tick handler. Its `Sound` parameter is optional: named, it stops every running clip
+			// loaded from that one file (all volume variants — real Sounds.getAllByFile); omitted, it
+			// stops everything. Note the original's own asymmetry, kept here: the named branch runs
+			// regardless of the sound setting, while the stop-everything branch is gated on
+			// Sounds.isEnabled().
+			case "Mute": {
+				const file = strParam(frame, env, "Sound").trim();
+				if (file !== "") {
+					const src = this.pack.resolveSound?.(file);
+					if (src) sounds.stopFile(src);
+				} else if (sounds.isEnabled) {
+					sounds.stopAll();
+				}
+				frame.instantComplete = true;
+				break;
+			}
 			case "Look": {
 				// Real Look.apply(): `eval(PARAMETER_LOOKRIGHT, Boolean.class,
 				// !getMascot().isLookRight())` — when LookRight is omitted, the default isn't
@@ -243,11 +262,18 @@ export class ActionRunner {
 		}
 	}
 
-	private chooseAnimation(def: ActionDef, ctx: ExprContext): PoseDef[] {
+	/** The Animation block currently in effect — the first whose condition passes, else the first
+	 * declared. Shared by pose selection and hotspot refresh so both always describe the same
+	 * variant; real ActionBase drives both from one `getAnimation()` for exactly that reason. */
+	private chooseAnimationVariant(def: ActionDef, ctx: ExprContext): AnimationVariant | undefined {
 		for (const variant of def.animations) {
-			if (evaluateCondition(variant.condition, ctx)) return variant.poses;
+			if (evaluateCondition(variant.condition, ctx)) return variant;
 		}
-		return def.animations[0]?.poses ?? [];
+		return def.animations[0];
+	}
+
+	private chooseAnimation(def: ActionDef, ctx: ExprContext): PoseDef[] {
+		return this.chooseAnimationVariant(def, ctx)?.poses ?? [];
 	}
 
 	/** Real ActionBase.getAnimation() re-walks the Animation list fresh every single tick
@@ -276,6 +302,10 @@ export class ActionRunner {
 			// accumulated history — so a mascot stops being findable the moment it moves on to an
 			// action that doesn't declare one.
 			this.broadcastAffordance(frame, env);
+			// Real ActionBase.tick() also calls refreshHotspots() every tick, publishing the
+			// *currently effective* Animation's hotspots — so which regions are clickable follows
+			// whichever animation variant the action's own conditions select right now.
+			this.refreshHotspots(frame, env);
 			frame.ticks++;
 			const done = this.tickFrame(frame, env, dt, ledges);
 			if (!done) return false;
@@ -284,6 +314,11 @@ export class ActionRunner {
 		console.warn(`[obsidian-shimeji] action chain exceeded iteration guard on "${this.pack.name}", aborting`);
 		this.stack = [];
 		return true;
+	}
+
+	private refreshHotspots(frame: Frame, env: PushEnv): void {
+		const variant = this.chooseAnimationVariant(frame.action, this.frameCtx(frame, env));
+		env.mascot.hotspots = variant ? variant.hotspots : [];
 	}
 
 	private broadcastAffordance(frame: Frame, env: PushEnv): void {
@@ -856,5 +891,6 @@ export class ActionRunner {
 
 	private showPose(mascot: Mascot, pose: PoseDef): void {
 		mascot.setVisualImage(this.pack.resolveImage(pose.image), pose.anchor);
+		playPoseSound(this.pack, pose);
 	}
 }

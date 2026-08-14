@@ -54,7 +54,7 @@ describe("parseActionsXml", () => {
 		expect(stand?.type).toBe("Animate");
 		expect(stand?.borderType).toBe("Floor");
 		expect(stand?.animations).toEqual([
-			{ condition: undefined, poses: [{ image: "/pose1.png", anchor: { x: 32, y: 64 }, velocity: undefined, durationMs: 500 * SHIMEJI_TICK_MS }] },
+			{ condition: undefined, hotspots: [], poses: [{ image: "/pose1.png", anchor: { x: 32, y: 64 }, velocity: undefined, durationMs: 500 * SHIMEJI_TICK_MS }] },
 		]);
 	});
 

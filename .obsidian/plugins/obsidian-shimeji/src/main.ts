@@ -10,6 +10,7 @@ import { ObsidianPaneActions } from "./ObsidianPaneActions";
 import { mergeCustomContent } from "./shimeji/CustomContentBuilder";
 import { PackDriver } from "./shimeji/PackDriver";
 import { loadPacksFromFolder } from "./shimeji/PackLoader";
+import { sounds } from "./shimeji/SoundPlayer";
 import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
 
@@ -97,6 +98,7 @@ export default class ShimejiPlugin extends Plugin {
 		});
 		this.stage.start();
 		installDebugApi(() => this.stage);
+		this.applySoundSettings();
 
 		this.addSettingTab(new ShimejiSettingTab(this.app, this));
 
@@ -129,6 +131,18 @@ export default class ShimejiPlugin extends Plugin {
 	onunload(): void {
 		uninstallDebugApi();
 		this.stage?.destroy();
+		// The clip registry is a module-level singleton (as the real `Sounds` is a static class),
+		// so it outlives this plugin instance unless it's explicitly torn down — without this, a
+		// disable/enable cycle would leave the previous load's clips loaded and possibly playing.
+		sounds.destroy();
+	}
+
+	/** Real `Sounds.isEnabled()` reads a program setting on every playback; here the setting is
+	 * pushed into the registry instead, which additionally lets switching it off stop whatever is
+	 * currently mid-clip (as the original's own settings dialog does via Sounds.stopAll()). */
+	applySoundSettings(): void {
+		sounds.setEnabled(this.settings.soundsEnabled);
+		sounds.setMasterVolume(this.settings.soundVolume / 100);
 	}
 
 	async saveSettings(): Promise<void> {

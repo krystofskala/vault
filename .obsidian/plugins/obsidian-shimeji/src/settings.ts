@@ -23,6 +23,13 @@ export interface ShimejiSettings {
 	 * `Toggleable` behaviors plus `Main.setMascotBehaviorEnabled`'s persisted state. */
 	disabledBehaviors: Record<string, string[]>;
 	chaseMouseEnabled: boolean;
+	/** Real shimeji-ee's own `sounds` setting, read by `Sounds.isEnabled()` and checked before
+	 * every single playback. Off by default here (the original defaults it on) — a note-taking app
+	 * making noise unprompted is a different proposition from a mascot app you launched for it. */
+	soundsEnabled: boolean;
+	/** 0-100. Scales every clip on top of its own authored per-Pose `Volume`, the equivalent of
+	 * the original's global volume setting rather than anything a pack controls. */
+	soundVolume: number;
 	/** Real ThrowIE/WalkWithIE: a mascot that grabs a pane resizes it while "carrying" it, then
 	 * pops it into its own real OS window and throws that. Off by default — unlike every other
 	 * toggle here, this can genuinely resize your layout or spawn/fling a whole separate window
@@ -55,6 +62,8 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowTransients: true,
 	disabledBehaviors: {},
 	chaseMouseEnabled: true,
+	soundsEnabled: false,
+	soundVolume: 70,
 	allowWindowThrow: false,
 	allowNoteMischief: false,
 	customContent: {},
@@ -246,6 +255,36 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 					this.plugin.applyChaseMouseEnabled();
 				}),
+			);
+
+		containerEl.createEl("h3", { text: "Sound" });
+
+		new Setting(containerEl)
+			.setName("Play pack sounds")
+			.setDesc(
+				"Real Shimeji packs can attach a sound file to any individual animation pose. Off by default — turn it on only if your character pack actually ships a sound/ folder and you want to hear it.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.soundsEnabled).onChange(async (value) => {
+					this.plugin.settings.soundsEnabled = value;
+					await this.plugin.saveSettings();
+					this.plugin.applySoundSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Volume")
+			.setDesc("Scales every sound on top of whatever volume the pack itself authored for that pose.")
+			.addSlider((slider) =>
+				slider
+					.setLimits(0, 100, 5)
+					.setValue(this.plugin.settings.soundVolume)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.soundVolume = value;
+						await this.plugin.saveSettings();
+						this.plugin.applySoundSettings();
+					}),
 			);
 
 		new Setting(containerEl)
