@@ -54,6 +54,18 @@ const FOLLOW_LEG_PX = 160;
 /** Chance, each time a behaviour ends, of setting off somewhere new. Low on purpose: the pack's own
  * idling is most of a mascot's character, and a mascot permanently in transit would lose it. At the
  * standard pack's behaviour lengths this works out to an expedition every minute or two. */
+/**
+ * How far the pointer must travel before a pursuit leg planned against its old position is abandoned
+ * and re-planned.
+ *
+ * Small enough that being led around the screen reads as continuous chasing; large enough that
+ * ordinary hand jitter, and the pointer drift of simply using the app, don't restart the mascot's
+ * animation several times a second. It is also what stops a mascot parking at "the closest reachable
+ * point" and staying there: that conclusion is only allowed to stand for as long as the pointer it
+ * was computed against does.
+ */
+const FOLLOW_REAIM_PX = 64;
+
 const ROAM_CHANCE = 0.06;
 
 /** Roaming is not a precision exercise — anywhere near the chosen spot is a destination reached. */
@@ -103,6 +115,7 @@ export class BehaviorAI {
 	 */
 	setFollowingMouse(following: boolean): void {
 		this.followingMouse = following;
+		if (!following) this.pursuitAimedAt = undefined;
 	}
 
 	get isFollowingMouse(): boolean {
@@ -113,6 +126,25 @@ export class BehaviorAI {
 
 	/** Where an autonomous expedition is currently headed, if one is under way — see maybeRoam. */
 	private roamTarget?: Vec2;
+
+	/** The pointer position the current pursuit leg was aimed at, so a leg can be abandoned once that
+	 * aim goes stale. Cleared whenever following stops. */
+	private pursuitAimedAt?: Vec2;
+
+	/**
+	 * Whether the pointer has moved far enough since the current leg was planned to be worth
+	 * abandoning it and re-planning.
+	 *
+	 * Deliberately does *not* interrupt Fall, Thrown or Dragged: those are the engine's own physics
+	 * behaviours, not something the mascot chose, and cutting a fall short to go chasing would leave
+	 * it moving under its own power in mid-air.
+	 */
+	private shouldReaimAt(pointer: Vec2): boolean {
+		if (!this.followingMouse || !this.pursuitAimedAt) return false;
+		const current = this.currentBehavior?.name;
+		if (current === "Fall" || current === "Thrown" || current === "Dragged") return false;
+		return Math.hypot(pointer.x - this.pursuitAimedAt.x, pointer.y - this.pursuitAimedAt.y) > FOLLOW_REAIM_PX;
+	}
 
 	/**
 	 * **Invented.** Occasionally sets off across the window on its own, using the same router the
@@ -172,6 +204,10 @@ export class BehaviorAI {
 	 */
 	private startPursuitLeg(env: PushEnv, cursor: Vec2, ledges: Ledge[]): boolean {
 		const { physics } = env.mascot;
+		// Recorded even when no leg ends up being started: the mascot is then already as near as the
+		// geometry allows, and re-testing that same conclusion on every tick until the pointer happens
+		// to move would be pure churn.
+		this.pursuitAimedAt = { x: cursor.x, y: cursor.y };
 		const attached = physics.currentFloor ?? physics.currentWall ?? physics.currentCeiling;
 		const route = ledges.length > 0 ? findRoute(ledges, { x: physics.x, y: physics.y }, cursor, attached, { arriveWithin: FOLLOW_ARRIVAL_PX }) : [];
 		const next = route[0];
@@ -288,6 +324,24 @@ export class BehaviorAI {
 		// walked into one — see updateWallCeilingAdherence.
 		updateWallCeilingAdherence(mascot.physics, ledges);
 		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);
+
+		// While following, re-aim as soon as the pointer has actually gone somewhere, rather than
+		// waiting for whatever the mascot is currently doing to finish.
+		//
+		// Without this, sticky follow only ever reconsidered at the end of an action — so leading a
+		// mascot around the screen meant it committed to a stale target, arrived where you *had* been,
+		// settled into one of the pack's own idles (which can run for seconds), and only then noticed
+		// you had moved. Fine for "come here"; useless for being led around for minutes, which is the
+		// point of the mode. With it, the mascot re-plans continuously against wherever the pointer is
+		// now, and stops only when you tell it to — by clicking it, or with the stop command.
+		if (this.followingMouse) {
+			// Arm the comparison the first time round. Turning the mode on kicks off the pack's own
+			// ChaseMouse — a scripted sequence several seconds long — and without an aim recorded here
+			// the first re-aim could not happen until that finished, which is precisely the window in
+			// which someone switching the mode on is most likely to be moving the pointer.
+			this.pursuitAimedAt ??= { x: ambientPointer.x, y: ambientPointer.y };
+			if (this.shouldReaimAt(ambientPointer) && this.startPursuitLeg(env, ambientPointer, ledges)) return;
+		}
 
 		if (!this.runner.isRunning) this.startBehavior(this.pickNextBehavior(mascot, env), env);
 

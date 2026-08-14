@@ -1284,3 +1284,42 @@ a one-pixel leg indefinitely.
 Roaming is deliberately built on the same "intercept the moment a behaviour ends" seam as sticky
 follow — it never interrupts an action and never changes how one runs — and is checked *after*
 pursuit, so being asked to follow always outranks a self-chosen expedition.
+
+## Pass 25: sticky follow re-aims continuously (2026-08-14)
+
+Correction to entry 43's design note, from the user: *"It doesn't have to be the closest point.
+That's why on click mascot stops the action. But if I wanna tease it and make it follow my mouse
+round and round the screen for several minutes I want to have the option."*
+
+That is right, and the previous design had the priority backwards. Terminating at the closest
+reachable point solved a problem I had created (an empty route with nothing to run spins), and paid
+for it with the mode's actual purpose. The cancel signal was always meant to be the user — clicking
+the mascot, or the stop command — not the mascot deciding it had got near enough.
+
+46. **Re-aim on pointer movement, not on action completion.** Sticky follow only reconsidered when a
+    behaviour *ended*, so leading a mascot around meant it committed to a stale target, arrived where
+    the pointer had been, settled into one of the pack's own idles (seconds long), and only then
+    noticed. `FOLLOW_REAIM_PX = 64` abandons the current leg once the pointer has genuinely moved —
+    small enough that being led around reads as continuous chasing, large enough that hand jitter
+    doesn't restart the animation several times a second. It is also what stops a mascot parking at
+    the closest reachable point: that answer is only allowed to stand while the pointer it was
+    computed against does.
+
+    Fall, Thrown and Dragged are explicitly exempt. Those are the engine's own physics behaviours
+    rather than something the mascot chose, and interrupting a fall to go chasing would leave it
+    moving under its own power in mid-air.
+
+47. **The re-aim never armed on the first pursuit.** Turning the mode on starts the pack's own
+    ChaseMouse — a scripted sequence several seconds long — and `pursuitAimedAt` was only recorded
+    when a *pursuit leg* started, which cannot happen until that sequence finishes. So the first few
+    seconds after switching the mode on, exactly when someone is most likely to be moving the pointer,
+    ignored it completely. Armed lazily in `tick` instead.
+
+**Testing note.** The first version of the "led around" test asserted total distance travelled, and
+failed at a threshold I had picked by guess. Investigating rather than lowering it was the right call:
+a pointer held in open space sends the mascot up a wall, and this pack's climb is genuinely slow
+(a fraction of a pixel per tick), so a lap spent climbing legitimately covers a fraction of one spent
+dashing. Distance was measuring the pack's animation speed, not the thing under test. The assertion is
+now on pursuit *ticks* per lap — a mascot that stood down shows none at all, since ChaseMouse can only
+be current while a pursuit leg runs — which is both precise and immune to how fast any given pack
+happens to move.

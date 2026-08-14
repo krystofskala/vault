@@ -574,9 +574,11 @@ windows, and every movement behavior is authored per-surface ("walk to a random 
 the original never asks "how do I get *there* from *here*", so there was no algorithm to port.
 
 A target that isn't on any surface — a pointer hovering over the middle of the editor — is handled by
-getting as close as the geometry allows and stopping. That termination is load-bearing: measuring
-arrival against the raw pointer instead of the closest reachable point would leave a mascot
-re-planning forever and never settling.
+getting as close as the geometry allows. That conclusion only stands for as long as the pointer it
+was computed against does: move the pointer more than ~64px and the mascot abandons its current leg
+and re-plans immediately, rather than finishing a walk toward where you used to be. So you can lead
+one around the window for as long as you like, and it keeps coming. It stops when you tell it to —
+click the mascot, or use the stop command — not because it decided it was close enough.
 
 ## Following the mouse
 

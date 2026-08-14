@@ -193,3 +193,90 @@ describe("sticky follow routes vertically", () => {
 		expect(s.ai.currentBehaviorName).not.toBe("ChaseMouse");
 	});
 });
+
+/**
+ * Being led around. The mode's name is "keep following the mouse", and the intended way to end it is
+ * to click the mascot — not for the mascot to decide it has got close enough and stand down.
+ */
+describe("sticky follow can be led around indefinitely", () => {
+	/**
+	 * Per lap: how much ground was covered, and how many ticks the mascot spent actually pursuing.
+	 *
+	 * Distance alone is a poor measure here — a pointer held in open space sends the mascot up a wall,
+	 * and this pack's climb is genuinely slow (a fraction of a pixel a tick), so a lap spent climbing
+	 * covers far less than one spent dashing without meaning anything is wrong. Pursuit ticks are the
+	 * precise question: a mascot that stood down shows none at all, because ChaseMouse is only ever
+	 * current while a pursuit leg is running (the pack gives it Frequency="0" in the general pool).
+	 */
+	function lapStats(lap: Array<{ x: number; y: number }>, laps: number, ticksPerWaypoint: number) {
+		const s = scene(600, 600, 400);
+		s.ai.setFollowingMouse(true);
+		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
+		const perLap: Array<{ travelled: number; pursuing: number }> = [];
+		let last = { x: s.physics.x, y: s.physics.y };
+		for (let l = 0; l < laps; l++) {
+			let travelled = 0;
+			let pursuing = 0;
+			for (const point of lap) {
+				s.cursor.x = point.x;
+				s.cursor.y = point.y;
+				for (let i = 0; i < ticksPerWaypoint; i++) {
+					s.run(1);
+					travelled += Math.hypot(s.physics.x - last.x, s.physics.y - last.y);
+					last = { x: s.physics.x, y: s.physics.y };
+					if (s.ai.currentBehaviorName === "ChaseMouse") pursuing++;
+				}
+			}
+			perLap.push({ travelled, pursuing });
+		}
+		return { perLap, ai: s.ai };
+	}
+
+	// Every waypoint is in open space — nowhere a mascot can stand. Under the previous design it
+	// reached the nearest surface once and settled there for the rest of the run.
+	it("keeps chasing a pointer led round the screen, never standing down on its own", () => {
+		const lap = [
+			{ x: 150, y: 400 },
+			{ x: 1050, y: 400 },
+			{ x: 1050, y: 200 },
+			{ x: 150, y: 200 },
+		];
+		const { perLap, ai } = lapStats(lap, 3, 120);
+
+		// Still working on the final lap, not just the first: the mode does not expire.
+		const finalLap = perLap[perLap.length - 1];
+		expect(finalLap.pursuing).toBeGreaterThan(120);
+		expect(finalLap.travelled).toBeGreaterThan(100);
+		// And it spent the great majority of every lap pursuing rather than idling.
+		for (const lapStat of perLap) expect(lapStat.pursuing).toBeGreaterThan(120);
+		expect(ai.isFollowingMouse).toBe(true);
+	});
+
+	it("re-aims promptly instead of finishing a leg planned against a stale position", () => {
+		const s = scene(600, 1100, 800);
+		s.ai.setFollowingMouse(true);
+		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
+		s.run(40);
+		const headingRight = s.physics.x;
+		expect(headingRight).toBeGreaterThan(600);
+
+		// Yank the pointer to the far side. Within a short window the mascot must be travelling the
+		// other way — not still completing its walk toward where the pointer used to be.
+		s.cursor.x = 100;
+		s.run(40);
+		expect(s.physics.x).toBeLessThan(headingRight);
+	});
+
+	// Physics behaviours are not the mascot's own choices; cutting one short to go chasing would
+	// leave it moving under its own power in mid-air.
+	it("does not interrupt a fall to re-aim", () => {
+		const s = scene(600, 600, 800);
+		s.ai.setFollowingMouse(true);
+		s.ai.forceBehavior("Fall", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
+		s.physics.grounded = false;
+		s.physics.y = 300;
+		s.cursor.x = 50;
+		s.run(1);
+		expect(s.ai.currentBehaviorName).toBe("Fall");
+	});
+});
