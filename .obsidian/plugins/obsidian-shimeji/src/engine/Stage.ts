@@ -132,6 +132,12 @@ export class Stage {
 	 * release velocity. Converting *here* too would double-convert that path. A consumer that
 	 * needs px/second directly (bypassing the expression system entirely) must convert itself —
 	 * see Mascot.finishDrag(). */
+	/** The live ambient cursor reading, exposed for the in-Obsidian self-test's follow-mouse leg —
+	 * which has to compare the mascot against wherever the pointer actually is. */
+	get ambientPointer(): AmbientPointer {
+		return this.getAmbientPointer();
+	}
+
 	private getAmbientPointer = (): AmbientPointer => ({
 		...this.ambientPos,
 		dx: this.ambientDx,

@@ -1,4 +1,5 @@
 import { tourTargets } from "./engine/MovementAudit";
+import { findRoute } from "./engine/Routing";
 import type { Mascot } from "./engine/Mascot";
 import type { Stage } from "./engine/Stage";
 import { MovementRecorder } from "./MovementRecorder";
@@ -45,6 +46,12 @@ const BEHAVIOR_TIMEOUT_MS = 12000;
 /** A spot order gets much longer — crossing the window on a wall is ~0.64px/tick. */
 const ORDER_TIMEOUT_MS = 90000;
 
+/** Must match what BehaviorAI uses for an order, or the plan reported here is not the plan followed. */
+const SPOT_ORDER_ROUTE_OPTS = { arriveWithin: 40, travelTimeWeight: 0.05 };
+
+const FOLLOW_ARRIVED_PX = 48;
+const FOLLOW_TIMEOUT_MS = 60000;
+
 export interface SelfTestHandle {
 	cancel(): void;
 }
@@ -89,21 +96,58 @@ export function runMovementSelfTest(stage: Stage, mascot: Mascot, cb: SelfTestCa
 				if (!finished) recorder.note(`!! ${name} still running after ${BEHAVIOR_TIMEOUT_MS / 1000}s`);
 			}
 
-			// 2. A lap of the real window: the same targets the headless audit uses, but derived from
-			//    the live ledges, so this follows whatever panes are actually open right now.
+			// 2. Spot orders — the same thing shift-triple-click issues. A lap of the real window, with
+			//    targets derived from the live ledges so it follows whatever panes are actually open.
+			//
+			//    The interesting question is not "did it move" but "was the planned path completed",
+			//    so each leg records the route the router planned *before* setting off and compares it
+			//    against where the mascot actually ended up.
 			const viewport = mascot.getViewportSize();
-			const targets = tourTargets(stage.getLedges(), { width: viewport.width, height: viewport.height, worldTop: mascot.getWorldTop() });
+			const world = { width: viewport.width, height: viewport.height, worldTop: mascot.getWorldTop() };
+			const targets = tourTargets(stage.getLedges(), world);
 			for (const { name, point } of targets) {
 				if (cancelled) break;
 				cb.onProgress(`going to ${name}`);
+				const plan = findRoute(stage.getLedges(), { x: mascot.physics.x, y: mascot.physics.y }, point, undefined, SPOT_ORDER_ROUTE_OPTS);
+				const planEnd = plan.length > 0 ? plan[plan.length - 1] : mascot.physics;
+				const planMiss = Math.round(Math.hypot(planEnd.x - point.x, planEnd.y - point.y));
 				recorder.setPhase(`go to ${name} (${Math.round(point.x)},${Math.round(point.y)})`, true);
+				recorder.note(`plan: ${plan.length} steps [${plan.map((s) => s.via).join(" → ") || "none"}], ends ${planMiss}px from target`);
+
+				const started = performance.now();
 				mascot.orderToSpot(point);
 				const arrived = await waitUntil(() => !mascot.hasSpotOrder, ORDER_TIMEOUT_MS);
+				const took = Math.round((performance.now() - started) / 100) / 10;
 				const miss = Math.round(Math.hypot(mascot.physics.x - point.x, mascot.physics.y - point.y));
-				if (!arrived) recorder.note(`!! order to ${name} never finished (${ORDER_TIMEOUT_MS / 1000}s), ${miss}px away`);
-				else if (miss > 64) recorder.note(`!! gave up ${miss}px short of ${name}`);
-				else recorder.note(`reached ${name} (${miss}px)`);
+
+				if (!arrived) recorder.note(`!! order to ${name} never finished (${ORDER_TIMEOUT_MS / 1000}s), still ${miss}px away`);
+				else if (miss > planMiss + 64) recorder.note(`!! reached only ${miss}px from ${name} — the plan said ${planMiss}px, so the path was not completed`);
+				else recorder.note(`reached ${name}: ${miss}px in ${took}s (plan said ${planMiss}px)`);
 				mascot.cancelSpotOrder();
+			}
+
+			// 3. Sticky follow. The pointer cannot be moved from script, so this checks the part that
+			//    can be checked without one: that turning it on makes the mascot converge on wherever
+			//    the pointer actually is, and that it stops rather than orbiting forever.
+			if (!cancelled) {
+				const pointer = stage.ambientPointer;
+				cb.onProgress("following the mouse");
+				recorder.setPhase(`follow mouse → (${Math.round(pointer.x)},${Math.round(pointer.y)})`, true);
+				recorder.note("leave the cursor still for this leg; move it and the mascot should re-aim");
+				const before = Math.hypot(mascot.physics.x - pointer.x, mascot.physics.y - pointer.y);
+				mascot.setFollowingMouse(true);
+				await waitUntil(() => {
+					const p = stage.ambientPointer;
+					return Math.hypot(mascot.physics.x - p.x, mascot.physics.y - p.y) <= FOLLOW_ARRIVED_PX;
+				}, FOLLOW_TIMEOUT_MS);
+				const p = stage.ambientPointer;
+				const after = Math.hypot(mascot.physics.x - p.x, mascot.physics.y - p.y);
+				mascot.setFollowingMouse(false);
+				if (after > FOLLOW_ARRIVED_PX && after >= before - 32) {
+					recorder.note(`!! follow made no progress — ${Math.round(before)}px away at the start, ${Math.round(after)}px at the end`);
+				} else {
+					recorder.note(`follow closed to ${Math.round(after)}px (from ${Math.round(before)}px)`);
+				}
 			}
 		} finally {
 			recorder.setPhase("done");
