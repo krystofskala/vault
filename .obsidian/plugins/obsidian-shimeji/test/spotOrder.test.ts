@@ -10,6 +10,7 @@ import { DEFAULT_ENGINE_CONFIG, type Ledge } from "../src/engine/types";
 import type { PaneActions } from "../src/engine/PaneActions";
 import type { Mascot } from "../src/engine/Mascot";
 import type { MascotPack } from "../src/shimeji/types";
+import { PackDriver } from "../src/shimeji/PackDriver";
 
 /**
  * The "get to that spot" order, driven through the real pack. Its distinguishing feature is that it
@@ -294,5 +295,39 @@ describe("spot order plan choice", () => {
 		const viaDrop = scenario([{ left: 100, top: 300, right: 600, bottom: 780 }], { x: 600, y: 500 }, 200, 300);
 		const { arrived } = viaDrop.runUntilOrderDone(6000);
 		expect(Math.hypot(arrived.x - 600, arrived.y - 500)).toBeLessThanOrEqual(64);
+	});
+});
+
+/**
+ * Every MascotDriver member is optional, so a driver missing one compiles fine and reports a cheerful
+ * default at runtime. `hasSpotOrder` went missing from PackDriver exactly that way, answered `false`
+ * forever, and made an entire in-Obsidian self-test run report eight spot-order legs as "not
+ * completed" within the same millisecond — each leg issued an order, believed it had already
+ * finished, and cancelled it.
+ *
+ * These check the driver actually forwards the order surface, which the optionality hides.
+ */
+describe("PackDriver forwards the whole spot-order surface", () => {
+	function driven() {
+		const ai = new BehaviorAI(pack, new Random(1));
+		const driver = new PackDriver(pack, DEFAULT_ENGINE_CONFIG, new Random(1));
+		// The driver builds its own BehaviorAI; drive it through the public surface only.
+		return { ai, driver };
+	}
+
+	it("reports an outstanding order, so a caller can wait for one", () => {
+		const { driver } = driven();
+		expect(driver.hasSpotOrder()).toBe(false);
+		driver.orderToSpot({ x: 900, y: 800 });
+		expect(driver.hasSpotOrder()).toBe(true);
+		driver.cancelSpotOrder();
+		expect(driver.hasSpotOrder()).toBe(false);
+	});
+
+	it("exposes every order method the Mascot facade calls", () => {
+		const { driver } = driven();
+		for (const method of ["orderToSpot", "cancelSpotOrder", "hasSpotOrder", "currentBehaviorName", "setFollowingMouse"] as const) {
+			expect(typeof driver[method]).toBe("function");
+		}
 	});
 });

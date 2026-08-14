@@ -77,6 +77,18 @@ export function runMovementSelfTest(stage: Stage, mascot: Mascot, cb: SelfTestCa
 		recorder.start();
 		recorder.note(`pack behaviors available: ${mascot.listBehaviorNames().length}`);
 
+		// Every MascotDriver member is optional, so a driver that simply does not implement one of
+		// these reports a cheerful default rather than failing to compile. That is exactly how a whole
+		// run of spot-order legs once came back "not completed" in the same millisecond: hasSpotOrder
+		// was missing from PackDriver, answered false, and each leg issued an order, believed it had
+		// finished, and cancelled it. Check the instruments before trusting the readings.
+		mascot.orderToSpot({ x: mascot.physics.x + 400, y: mascot.physics.y });
+		const canObserveOrders = mascot.hasSpotOrder;
+		mascot.cancelSpotOrder();
+		if (!canObserveOrders) {
+			recorder.note("!! HARNESS: hasSpotOrder is not reported by this driver — spot-order legs below are meaningless");
+		}
+
 		try {
 			// 1. Every movement behavior the pack declares, one at a time, so a single broken one is
 			//    attributable rather than just making some later leg look odd.
@@ -89,10 +101,13 @@ export function runMovementSelfTest(stage: Stage, mascot: Mascot, cb: SelfTestCa
 				}
 				cb.onProgress(`behavior: ${name}`);
 				recorder.setPhase(`behavior: ${name}`);
-				const before = mascot.currentBehaviorName;
 				mascot.startNamedBehavior(name);
-				// Until this behavior hands over to whatever the pack picks next.
-				const finished = await waitUntil(() => mascot.currentBehaviorName !== name && mascot.currentBehaviorName !== before, BEHAVIOR_TIMEOUT_MS);
+				// Until this behavior hands over to whatever the pack picks next. Deliberately *only*
+				// that: an earlier version also required the new name to differ from whatever was
+				// running beforehand, which made every leg time out whenever the pack's own chain
+				// happened to pick that same behavior again — reported as fourteen behaviors "still
+				// running after 12s" when they had all finished normally.
+				const finished = await waitUntil(() => mascot.currentBehaviorName !== name, BEHAVIOR_TIMEOUT_MS);
 				if (!finished) recorder.note(`!! ${name} still running after ${BEHAVIOR_TIMEOUT_MS / 1000}s`);
 			}
 
@@ -134,19 +149,25 @@ export function runMovementSelfTest(stage: Stage, mascot: Mascot, cb: SelfTestCa
 				cb.onProgress("following the mouse");
 				recorder.setPhase(`follow mouse → (${Math.round(pointer.x)},${Math.round(pointer.y)})`, true);
 				recorder.note("leave the cursor still for this leg; move it and the mascot should re-aim");
-				const before = Math.hypot(mascot.physics.x - pointer.x, mascot.physics.y - pointer.y);
+				const gap = () => {
+					const p = stage.ambientPointer;
+					return Math.hypot(mascot.physics.x - p.x, mascot.physics.y - p.y);
+				};
+				const before = gap();
+				// Closest approach, not the gap at the end: the cursor is free to move during the leg
+				// (it is the user's), so a start-vs-end comparison can report a mascot that closed to
+				// within a few pixels as having gone backwards, purely because the pointer left.
+				let closest = before;
 				mascot.setFollowingMouse(true);
 				await waitUntil(() => {
-					const p = stage.ambientPointer;
-					return Math.hypot(mascot.physics.x - p.x, mascot.physics.y - p.y) <= FOLLOW_ARRIVED_PX;
+					closest = Math.min(closest, gap());
+					return closest <= FOLLOW_ARRIVED_PX;
 				}, FOLLOW_TIMEOUT_MS);
-				const p = stage.ambientPointer;
-				const after = Math.hypot(mascot.physics.x - p.x, mascot.physics.y - p.y);
 				mascot.setFollowingMouse(false);
-				if (after > FOLLOW_ARRIVED_PX && after >= before - 32) {
-					recorder.note(`!! follow made no progress — ${Math.round(before)}px away at the start, ${Math.round(after)}px at the end`);
+				if (closest > FOLLOW_ARRIVED_PX && closest >= before - 32) {
+					recorder.note(`!! follow made no progress — ${Math.round(before)}px away at the start, closest approach ${Math.round(closest)}px`);
 				} else {
-					recorder.note(`follow closed to ${Math.round(after)}px (from ${Math.round(before)}px)`);
+					recorder.note(`follow closed to ${Math.round(closest)}px (from ${Math.round(before)}px)`);
 				}
 			}
 		} finally {

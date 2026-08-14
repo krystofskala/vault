@@ -106,6 +106,10 @@ export class PackDriver implements MascotDriver {
 		this.ai.orderToSpot(point);
 	}
 
+	hasSpotOrder(): boolean {
+		return this.ai.hasSpotOrder;
+	}
+
 	cancelSpotOrder(): void {
 		this.ai.cancelSpotOrder();
 	}
