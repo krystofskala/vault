@@ -552,10 +552,20 @@ it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml`
 **Shift + triple-click anywhere** in the window and the nearest mascot goes there. Not near there —
 *there*.
 
-If the point isn't on any surface, the mascot **splits the pane under your cursor** and slides the new
-divider onto your click, creating something to stand on. Combined with the pane resizing it already
-does, that makes any point in the window reachable: if the terrain doesn't reach, it changes the
-terrain.
+If the point isn't on any surface, there are two ways to be there anyway — **fall through it**, or
+**build a surface at it** — and the mascot costs both in ticks and picks the quicker:
+
+- *Fall through*: hang from a ceiling directly above (or walk off the edge of a pane above), let go,
+  and for a moment it is exactly there. Costs nothing but the trip to the departure point.
+- *Build*: split the pane under your cursor and slide the new divider onto your click.
+
+Which wins depends entirely on the layout. A ceiling far overhead makes the drop a 1200-tick climb and
+the split is quicker; standing on a pane whose edge is right above the spot makes the drop nearly free.
+The surgery estimate isn't a guess — it routes against the graph *as it would be* with a floor at the
+spot, which is exactly what the split produces.
+
+Either way, any point in the window is reachable: if the terrain doesn't reach, the mascot either
+falls through it or changes the terrain.
 
 - Bounded to two layout changes per order, so a spot that genuinely can't be reached (inside chrome,
   or a pane too small to split) can't turn into an endless run of new panes.

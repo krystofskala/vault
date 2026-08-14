@@ -328,3 +328,97 @@ export function findRoute(ledges: Ledge[], from: Vec2, target: Vec2, startLedge?
 
 	return withoutStandingStill(steps, from);
 }
+
+/**
+ * How long a route takes, in engine ticks — the same estimate the search itself minimises, exposed so
+ * a caller can compare whole *plans* rather than only pick between surfaces.
+ *
+ * That comparison is the point: "climb up and drop through the spot" and "split a pane and climb the
+ * new divider" both reach a mid-air target, and which is quicker depends entirely on the layout. With
+ * costs in ticks, the two are directly comparable numbers instead of a guess.
+ */
+export function routeDurationTicks(from: Vec2, steps: RouteStep[], options?: Partial<RouteOptions>): number {
+	const opts = { ...DEFAULT_ROUTE_OPTIONS, ...options };
+	let at = from;
+	let total = 0;
+	for (const step of steps) {
+		total += stepCost(step.via, at, step, opts);
+		at = step;
+	}
+	return total;
+}
+
+/** Time for an unassisted fall of `dy` pixels, in ticks. */
+export function fallDurationTicks(dy: number, options?: Partial<RouteOptions>): number {
+	const opts = { ...DEFAULT_ROUTE_OPTIONS, ...options };
+	return Math.sqrt((2 * Math.max(0, dy)) / opts.gravity);
+}
+
+export interface DropThrough {
+	/** Where to let go from. */
+	from: Vec2;
+	/** The surface being let go of, so the caller knows whether it is hanging or walking off an edge. */
+	ledge: Ledge;
+}
+
+/** How near the fall line a spot has to be for a drop to count as passing through it. Falls drift
+ * horizontally very little (real Fall applies RegistanceX to whatever sideways velocity it started
+ * with, and a release has none), so this is tight. */
+const DROP_LINE_TOLERANCE = 28;
+
+/**
+ * Finds somewhere to let go from so that the resulting fall passes straight **through** `spot`.
+ *
+ * This is what makes a mid-air point reachable without touching the layout. A mascot cannot *stand*
+ * in the middle of the editor, but it can fall through it — hang from the ceiling directly above,
+ * let go, and for a moment it is exactly there. Given the pack's real speeds a fall is one of the
+ * cheapest things a mascot can do, so this is very often quicker than splitting a pane and climbing
+ * the new divider.
+ *
+ * Two kinds of departure qualify:
+ *  - a **ceiling** (or pane underside) spanning the spot's x, which the mascot hangs from and releases;
+ *  - the **edge of a floor** directly above, which it simply walks off.
+ * A floor's *middle* never qualifies, for the obvious reason that there is floor underfoot there.
+ *
+ * The fall must also be unobstructed: the first floor below the departure point has to be *below* the
+ * spot, or there is none at all. Otherwise the mascot lands before reaching it.
+ */
+export function planDropThrough(ledges: Ledge[], spot: Vec2, options?: Partial<RouteOptions>): DropThrough | undefined {
+	const opts = { ...DEFAULT_ROUTE_OPTIONS, ...options };
+	let best: DropThrough | undefined;
+	let bestFall = Infinity;
+
+	const unobstructed = (fromY: number): boolean => {
+		const landing = findFloorBelow(ledges, spot.x, fromY + 1);
+		return !landing || landing.y > spot.y + opts.arriveWithin;
+	};
+
+	for (const ledge of ledges) {
+		if (ledge.kind === "wall") continue;
+		if (ledge.y >= spot.y) continue; // must be above the spot to fall onto it
+
+		if (ledge.kind === "ceiling") {
+			if (!spansX(ledge, spot.x)) continue;
+			if (!unobstructed(ledge.y)) continue;
+			const fall = spot.y - ledge.y;
+			if (fall < bestFall) {
+				bestFall = fall;
+				best = { from: { x: spot.x, y: ledge.y }, ledge };
+			}
+			continue;
+		}
+
+		// A floor: only its two ends are departure points, and the spot has to be on that fall line.
+		for (const edgeX of [ledge.x1, ledge.x2]) {
+			if (Math.abs(edgeX - spot.x) > DROP_LINE_TOLERANCE) continue;
+			if (!unobstructed(ledge.y)) continue;
+			const fall = spot.y - ledge.y;
+			if (fall < bestFall) {
+				bestFall = fall;
+				best = { from: { x: edgeX, y: ledge.y }, ledge };
+			}
+		}
+	}
+
+	return best;
+}

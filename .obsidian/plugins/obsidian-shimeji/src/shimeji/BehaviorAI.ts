@@ -3,7 +3,7 @@ import type { Mascot } from "../engine/Mascot";
 import { updateWallCeilingAdherence } from "../engine/nativeBehaviors";
 import type { PaneActions } from "../engine/PaneActions";
 import type { Random } from "../engine/Random";
-import { findRoute, type RouteVia } from "../engine/Routing";
+import { fallDurationTicks, findRoute, planDropThrough, routeDurationTicks, type RouteOptions, type RouteVia } from "../engine/Routing";
 import type { EngineConfig, Ledge, Vec2 } from "../engine/types";
 import { ActionRunner, type PushEnv } from "./ActionRunner";
 import { evaluateCondition } from "./Expression";
@@ -141,6 +141,27 @@ export class BehaviorAI {
 	 * to satisfy it — see goToSpot. */
 	private orderedSpot?: Vec2;
 	private spotSurgeries = 0;
+	/** When the chosen plan is "fall through the spot", where to let go from — see driveSpotOrder. */
+	private dropThroughFrom?: Vec2;
+
+	/** The pointer position the current pursuit leg was aimed at, so a leg can be abandoned once that
+	 * aim goes stale. Cleared whenever following stops. */
+	private pursuitAimedAt?: Vec2;
+
+	/**
+	 * Whether the pointer has moved far enough since the current leg was planned to be worth
+	 * abandoning it and re-planning.
+	 *
+	 * Deliberately does *not* interrupt Fall, Thrown or Dragged: those are the engine's own physics
+	 * behaviours, not something the mascot chose, and cutting a fall short to go chasing would leave
+	 * it moving under its own power in mid-air.
+	 */
+	private shouldReaimAt(pointer: Vec2): boolean {
+		if (!this.followingMouse || !this.pursuitAimedAt) return false;
+		const current = this.currentBehavior?.name;
+		if (current === "Fall" || current === "Thrown" || current === "Dragged") return false;
+		return Math.hypot(pointer.x - this.pursuitAimedAt.x, pointer.y - this.pursuitAimedAt.y) > FOLLOW_REAIM_PX;
+	}
 
 	/**
 	 * **Invented.** An explicit order to reach a specific point, outranking everything else the mascot
@@ -154,12 +175,14 @@ export class BehaviorAI {
 	orderToSpot(point: Vec2): void {
 		this.orderedSpot = { x: point.x, y: point.y };
 		this.spotSurgeries = 0;
+		this.dropThroughFrom = undefined;
 		this.followingMouse = false;
 		this.roamTarget = undefined;
 	}
 
 	cancelSpotOrder(): void {
 		this.orderedSpot = undefined;
+		this.dropThroughFrom = undefined;
 	}
 
 	get hasSpotOrder(): boolean {
@@ -181,37 +204,48 @@ export class BehaviorAI {
 		const spot = this.orderedSpot;
 		if (!spot) return false;
 		const { physics } = env.mascot;
-
-		if (Math.hypot(spot.x - physics.x, spot.y - physics.y) <= SPOT_ARRIVAL_PX) {
-			debugLog("spot order complete", { x: Math.round(physics.x), y: Math.round(physics.y) });
-			this.orderedSpot = undefined;
-			return false;
-		}
-
+		const here = { x: physics.x, y: physics.y };
 		const attached = physics.currentFloor ?? physics.currentWall ?? physics.currentCeiling;
 		// travelTimeWeight near zero: an order's promise is reaching the point, so a surface that gets
 		// there is worth a long climb. Following uses the default, where it is not — see RouteOptions.
-		const route =
-			ledges.length > 0
-				? findRoute(ledges, { x: physics.x, y: physics.y }, spot, attached, { arriveWithin: SPOT_ARRIVAL_PX, travelTimeWeight: 0.05 })
-				: [];
+		const routeOpts = { arriveWithin: SPOT_ARRIVAL_PX, travelTimeWeight: 0.05 };
+		const routeTo = (target: Vec2, graph: Ledge[] = ledges) =>
+			graph.length > 0 ? findRoute(graph, here, target, attached, routeOpts) : [];
+
+		// Already committed to letting go somewhere: get there, then release.
+		if (this.dropThroughFrom) {
+			if (Math.hypot(this.dropThroughFrom.x - physics.x, this.dropThroughFrom.y - physics.y) <= SPOT_ARRIVAL_PX) {
+				const release = this.dropThroughFrom;
+				this.dropThroughFrom = undefined;
+				debugLog("spot order: letting go to fall through", { from: [Math.round(release.x), Math.round(release.y)], spot });
+				// Releasing is just ceasing to hold on; Fall is always defined (one of the four the
+				// engine requires), so this needs no pack-specific action to exist.
+				physics.currentCeiling = undefined;
+				physics.currentWall = undefined;
+				physics.grounded = false;
+				this.startBehavior(this.forceFallBehavior(), env);
+				return true;
+			}
+			const leg = routeTo(this.dropThroughFrom)[0];
+			if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
+			// Can't get there after all; fall back to planning again from scratch.
+			this.dropThroughFrom = undefined;
+		}
+
+		const route = routeTo(spot);
 
 		// Judge the layout by where the route *ends up*, not by whether one exists. The router almost
 		// always finds somewhere to go — a wall, the ceiling — and an earlier version only considered
-		// surgery once the route came back empty, which meant the mascot first climbed all the way to
-		// whatever distant surface happened to be nearest the spot, and only then decided the layout
-		// could not deliver. Checking the shortfall up front makes it split the pane immediately and
-		// walk to the real destination, which is what "get there no matter what" should look like.
+		// doing something about it once the route came back empty, which meant the mascot first climbed
+		// all the way to whatever distant surface happened to be nearest the spot before deciding the
+		// layout could not deliver.
 		const end = route.length > 0 ? route[route.length - 1] : physics;
 		const shortfall = Math.hypot(end.x - spot.x, end.y - spot.y);
 
-		if (shortfall > SPOT_ARRIVAL_PX && this.spotSurgeries < MAX_SPOT_SURGERIES && env.paneActions?.makeSurfaceAt) {
-			this.spotSurgeries++;
-			const created = env.paneActions.makeSurfaceAt(spot);
-			debugLog("spot order: reshaping the layout to reach it", { attempt: this.spotSurgeries, shortfall: Math.round(shortfall) });
-			// The new geometry only reaches this class on the next tick, once Stage has recomputed
-			// ledges from the changed layout — so yield rather than routing against stale ones.
-			if (created !== undefined) return false;
+		if (shortfall > SPOT_ARRIVAL_PX) {
+			const chosen = this.chooseSpotPlan(env, ledges, here, spot, routeOpts);
+			if (chosen === "drop") return this.driveSpotOrder(env, ledges); // re-enter with dropThroughFrom set
+			if (chosen === "surgery") return false; // new geometry arrives next tick
 		}
 
 		const next = route[0];
@@ -224,23 +258,64 @@ export class BehaviorAI {
 		return false;
 	}
 
-	/** The pointer position the current pursuit leg was aimed at, so a leg can be abandoned once that
-	 * aim goes stale. Cleared whenever following stops. */
-	private pursuitAimedAt?: Vec2;
-
 	/**
-	 * Whether the pointer has moved far enough since the current leg was planned to be worth
-	 * abandoning it and re-planning.
+	 * Decides how to reach a spot that walking cannot, by **costing both options in ticks** rather
+	 * than preferring one on principle.
 	 *
-	 * Deliberately does *not* interrupt Fall, Thrown or Dragged: those are the engine's own physics
-	 * behaviours, not something the mascot chose, and cutting a fall short to go chasing would leave
-	 * it moving under its own power in mid-air.
+	 * A mascot cannot stand in the middle of the editor, but there are two ways to be there anyway:
+	 * fall through it, or build a surface at it. Which is quicker depends entirely on the layout — a
+	 * ceiling directly overhead makes the drop nearly free, while a spot with nothing above it leaves
+	 * surgery as the only option. Given the pack's real speeds (a fall of 300px takes ~17 ticks, the
+	 * same climb ~470) the drop usually wins, but "usually" is not a reason to hardcode it.
+	 *
+	 * The surgery estimate is honest rather than notional: it routes against the graph *as it would be*
+	 * with a floor at the spot, which is exactly what splitting the pane produces.
 	 */
-	private shouldReaimAt(pointer: Vec2): boolean {
-		if (!this.followingMouse || !this.pursuitAimedAt) return false;
-		const current = this.currentBehavior?.name;
-		if (current === "Fall" || current === "Thrown" || current === "Dragged") return false;
-		return Math.hypot(pointer.x - this.pursuitAimedAt.x, pointer.y - this.pursuitAimedAt.y) > FOLLOW_REAIM_PX;
+	private chooseSpotPlan(env: PushEnv, ledges: Ledge[], here: Vec2, spot: Vec2, routeOpts: Partial<RouteOptions>): "drop" | "surgery" | "neither" {
+		const attached = env.mascot.physics.currentFloor ?? env.mascot.physics.currentWall ?? env.mascot.physics.currentCeiling;
+
+		let dropTicks = Infinity;
+		const drop = planDropThrough(ledges, spot, routeOpts);
+		if (drop) {
+			const approach = findRoute(ledges, here, drop.from, attached, routeOpts);
+			const endsAtDeparture = approach.length === 0 || Math.hypot(approach[approach.length - 1].x - drop.from.x, approach[approach.length - 1].y - drop.from.y) <= SPOT_ARRIVAL_PX;
+			if (endsAtDeparture) dropTicks = routeDurationTicks(here, approach, routeOpts) + fallDurationTicks(spot.y - drop.from.y, routeOpts);
+		}
+
+		let surgeryTicks = Infinity;
+		const canOperate = this.spotSurgeries < MAX_SPOT_SURGERIES && env.paneActions?.makeSurfaceAt !== undefined;
+		if (canOperate) {
+			// The graph a split would produce: a floor at the spot, spanning whichever pane contains it,
+			// since the split inherits that pane's width.
+			//
+			// The fallback spans the whole window rather than a margin around the spot, and that is
+			// load-bearing rather than tidy-minded. A short synthetic floor touches no wall, so nothing
+			// in the graph connects to it, every route to it costs Infinity, and the comparison silently
+			// concludes surgery is impossible — sending the mascot on a 2000-tick climb to the ceiling
+			// in preference to a 570-tick split it had wrongly ruled out. Spanning the window guarantees
+			// the synthetic floor meets the side walls, which is also what a real split of the only pane
+			// actually produces.
+			const containing = ledges.find((l) => l.rect && spot.x >= l.rect.left && spot.x <= l.rect.right && spot.y >= l.rect.top && spot.y <= l.rect.bottom);
+			const span = containing?.rect ?? { left: 0, right: env.mascot.getViewportSize().width };
+			const hypothetical: Ledge[] = [...ledges, { kind: "floor", y: spot.y, x1: span.left, x2: span.right, source: "pane" }];
+			const after = findRoute(hypothetical, here, spot, attached, routeOpts);
+			const reaches = after.length > 0 && Math.hypot(after[after.length - 1].x - spot.x, after[after.length - 1].y - spot.y) <= SPOT_ARRIVAL_PX;
+			if (reaches) surgeryTicks = routeDurationTicks(here, after, routeOpts);
+		}
+
+		debugLog("spot order: comparing plans", { dropTicks: Math.round(dropTicks), surgeryTicks: Math.round(surgeryTicks) });
+
+		if (dropTicks <= surgeryTicks && Number.isFinite(dropTicks) && drop) {
+			this.dropThroughFrom = drop.from;
+			return "drop";
+		}
+		if (Number.isFinite(surgeryTicks)) {
+			this.spotSurgeries++;
+			const created = env.paneActions?.makeSurfaceAt?.(spot);
+			debugLog("spot order: reshaping the layout to reach it", { attempt: this.spotSurgeries, created: created !== undefined });
+			if (created !== undefined) return "surgery";
+		}
+		return "neither";
 	}
 
 	/**
@@ -420,6 +495,17 @@ export class BehaviorAI {
 		// pane's underside) regardless of what action put it there, most commonly just having
 		// walked into one — see updateWallCeilingAdherence.
 		updateWallCeilingAdherence(mascot.physics, ledges);
+
+		// Checked every tick, not just when a behaviour ends, and that is what makes falling through a
+		// mid-air spot count as reaching it: the mascot is within range for a tick or two on the way
+		// past, which a check that only ran at action boundaries would sail straight through. It also
+		// makes ordinary arrivals crisp rather than waiting out whatever step happened to be running.
+		if (this.orderedSpot && Math.hypot(this.orderedSpot.x - mascot.physics.x, this.orderedSpot.y - mascot.physics.y) <= SPOT_ARRIVAL_PX) {
+			debugLog("spot order complete", { x: Math.round(mascot.physics.x), y: Math.round(mascot.physics.y) });
+			this.orderedSpot = undefined;
+			this.dropThroughFrom = undefined;
+		}
+
 		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);
 
 		// While following, re-aim as soon as the pointer has actually gone somewhere, rather than

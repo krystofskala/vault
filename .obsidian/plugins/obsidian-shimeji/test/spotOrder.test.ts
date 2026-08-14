@@ -23,11 +23,11 @@ const pack: MascotPack = { id: "s", name: "S", actions, behaviors, resolveImage:
 
 const VIEWPORT = { width: 1200, height: 800, top: 40 };
 
-function scene(startX: number, panes: Array<{ left: number; top: number; right: number; bottom: number }> = []) {
+function scene(startX: number, panes: Array<{ left: number; top: number; right: number; bottom: number }> = [], startY = 800) {
 	let livePanes = [...panes];
 	let ledges = computeLedgesFromRects(VIEWPORT, livePanes.map((rect) => ({ rect, source: "pane" as const, paneRef: rect })));
-	const floor = ledges.find((l): l is Extract<Ledge, { kind: "floor" }> => l.kind === "floor" && l.y === 800)!;
-	const physics = { x: startX, y: 800, vx: 0, vy: 0, facing: -1 as 1 | -1, grounded: true, currentFloor: floor, currentWall: undefined, currentCeiling: undefined };
+	const floor = ledges.find((l): l is Extract<Ledge, { kind: "floor" }> => l.kind === "floor" && Math.abs(l.y - startY) < 1)!;
+	const physics = { x: startX, y: startY, vx: 0, vy: 0, facing: -1 as 1 | -1, grounded: true, currentFloor: floor, currentWall: undefined, currentCeiling: undefined };
 	const mascot = {
 		physics, stateElapsedMs: 0, affordances: [] as string[], hotspots: [], variables: new Map(),
 		setVisualImage() {}, getViewportSize: () => ({ width: 1200, height: 800 }),
@@ -125,7 +125,7 @@ describe("spot order", () => {
 		s.ai.orderToSpot({ x: 600, y: 300 });
 		// Generous budget: once its surgeries are spent the mascot still walks to the closest point
 		// the layout offers before standing down, and that approach runs at the pack's own pace.
-		for (let i = 0; i < 3000 && s.ai.hasSpotOrder; i++) {
+		for (let i = 0; i < 8000 && s.ai.hasSpotOrder; i++) {
 			s.ai.tick(s.mascot, 0.04, ledges, { x: 0, y: 0, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG, counting);
 			s.mascot.stateElapsedMs += 40;
 		}
@@ -143,7 +143,7 @@ describe("spot order", () => {
 		// quickly, so with surgery unavailable the mascot commits to the long climb toward the closest
 		// surface the layout does offer before standing down. Trying hard is the specified behaviour;
 		// what is being asserted is that it eventually stops rather than that it stops soon.
-		for (let i = 0; i < 4000 && s.ai.hasSpotOrder; i++) {
+		for (let i = 0; i < 8000 && s.ai.hasSpotOrder; i++) {
 			// No makeSurfaceAt at all — the gated-off case.
 			s.ai.tick(s.mascot, 0.04, ledges, { x: 0, y: 0, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG, {});
 			s.mascot.stateElapsedMs += 40;
@@ -166,5 +166,47 @@ describe("spot order", () => {
 		expect(s.ai.hasSpotOrder).toBe(false);
 		s.run(200);
 		expect(s.surgeries).toHaveLength(0);
+	});
+});
+
+/**
+ * Choosing *how* to reach a mid-air spot. There are two ways to be somewhere nothing can stand:
+ * fall through it, or build a surface at it. Which is quicker depends entirely on the layout, so the
+ * mascot costs both in ticks and picks — rather than either being hardcoded.
+ */
+describe("spot order plan choice", () => {
+	function scenario(panes: Array<{ left: number; top: number; right: number; bottom: number }>, spot: { x: number; y: number }, startX = 200, startY = 800) {
+		const s = scene(startX, panes, startY);
+		s.ai.orderToSpot(spot);
+		return s;
+	}
+
+	// A single full-window pane: the only ceiling is the top of the window, so falling through means
+	// climbing 760px first (~1190 ticks at 0.64px/tick) then dropping. Splitting and climbing to the
+	// new divider is 300px of climb (~570 ticks). Surgery wins, and only a real costing says so —
+	// by distance the drop route looks perfectly reasonable.
+	it("splits a pane when that is quicker than climbing to the ceiling to fall through", () => {
+		const s = scenario([{ left: 0, top: 40, right: 1200, bottom: 800 }], { x: 600, y: 500 });
+		s.runUntilOrderDone(6000);
+		expect(s.surgeries.length).toBeGreaterThan(0);
+	});
+
+	// Now put the mascot on a raised pane whose right edge is directly above the spot. Walking to that
+	// edge is fast (8px/tick) and the fall is short, so dropping through costs a few dozen ticks
+	// against several hundred for splitting and climbing. Same feature, opposite decision — which is
+	// the point of costing rather than picking a favourite.
+	it("walks off an edge and falls through the spot when that is cheaper than splitting", () => {
+		const s = scenario([{ left: 100, top: 300, right: 600, bottom: 780 }], { x: 600, y: 500 }, 200, 300);
+		s.runUntilOrderDone(6000);
+		expect(s.surgeries).toHaveLength(0);
+	});
+
+	it("reaches the spot either way", () => {
+		const viaSurgery = scenario([{ left: 0, top: 40, right: 1200, bottom: 800 }], { x: 600, y: 500 });
+		expect(Math.hypot(viaSurgery.runUntilOrderDone(6000).arrived.y - 500)).toBeLessThanOrEqual(48);
+
+		const viaDrop = scenario([{ left: 100, top: 300, right: 600, bottom: 780 }], { x: 600, y: 500 }, 200, 300);
+		const { arrived } = viaDrop.runUntilOrderDone(6000);
+		expect(Math.hypot(arrived.x - 600, arrived.y - 500)).toBeLessThanOrEqual(64);
 	});
 });

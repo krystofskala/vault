@@ -1417,3 +1417,43 @@ under distance costing it was indistinguishable from a slow climb. What is still
 deliberately *planning* a pass-through — routing to a surface directly above a mid-air spot in order
 to fall through it — and comparing that against layout surgery. Noted as the next step rather than
 claimed.
+
+## Pass 27: planning a fall-through, and costing it against surgery (2026-08-14)
+
+The step left open at the end of Pass 26: deliberately *planning* a pass-through rather than merely
+making one cheap enough for the router to stumble into, and weighing it against layout surgery.
+
+51. **`planDropThrough`** finds somewhere to let go so the resulting fall passes straight through a
+    mid-air point. Two kinds of departure qualify — a **ceiling** spanning the spot's x, which the
+    mascot hangs from and releases, and the **edge of a floor** directly above, which it simply walks
+    off. A floor's middle never qualifies, for the obvious reason that there is floor underfoot there.
+    The fall must also be unobstructed: the first floor below the departure point has to be *below*
+    the spot, or the mascot lands before reaching it.
+
+52. **`routeDurationTicks` / `fallDurationTicks`** expose the same estimate the search minimises, so
+    whole *plans* can be compared rather than only surfaces. That is what turns "which is quicker" from
+    a guess into a number.
+
+53. **`chooseSpotPlan` costs both and picks.** Neither is hardcoded as preferred, because which wins
+    genuinely depends on the layout: a single full-window pane makes the only ceiling 760px of climbing
+    away (~2170 ticks all told) against ~570 for splitting and climbing the new divider, while a mascot
+    standing on a pane whose edge is above the spot drops through for a few dozen. The surgery estimate
+    is honest rather than notional — it routes against the graph *as it would be* with a floor at the
+    spot, which is exactly what the split produces.
+
+54. **Arrival is now checked every tick, not at behaviour boundaries.** A pass-through puts the mascot
+    within range for a tick or two on the way past; the old end-of-action check sailed straight through
+    it, so the order could never be satisfied by falling. It also makes ordinary arrivals crisp instead
+    of waiting out whatever step happened to be running.
+
+**The bug this pass turned on.** The first version of `chooseSpotPlan` reported `surgeryTicks:
+Infinity` for a case where splitting was obviously viable, and therefore chose a 2170-tick climb over
+a 570-tick split. The synthetic floor it routed against spanned only ±400px around the spot — so it
+touched no wall, nothing in the graph connected to it, and every route to it cost Infinity. Spanning
+the containing pane (or, failing that, the whole window) fixes it, and is also what a real split
+actually produces. Worth recording because the failure mode was silent: a plan comparison that
+concludes "impossible" looks identical to one that concludes "worse", and the mascot just quietly did
+the slow thing.
+
+Found by dumping both numbers rather than reasoning about the code — the isolated calculation gave
+569, the live path gave Infinity, and that discrepancy was the whole diagnosis.
