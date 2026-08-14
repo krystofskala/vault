@@ -131,7 +131,10 @@ export default class ShimejiPlugin extends Plugin {
 			onContextMenu: (mascot, ev) => this.showMascotContextMenu(mascot, ev),
 		});
 		this.stage.start();
-		installDebugApi(() => this.stage);
+		installDebugApi(
+			() => this.stage,
+			() => this.paneActionsGate,
+		);
 		this.applySoundSettings();
 
 		this.addSettingTab(new ShimejiSettingTab(this.app, this));

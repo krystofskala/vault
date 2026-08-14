@@ -1,5 +1,7 @@
 import { setVerboseLogging } from "./engine/debugLog";
 import { describeSurface } from "./engine/MovementAudit";
+import type { PaneActions } from "./engine/PaneActions";
+import { findRoute, fallDurationTicks, planDropThrough, routeDurationTicks } from "./engine/Routing";
 import type { Stage } from "./engine/Stage";
 
 export interface ShimejiDebugApi {
@@ -12,6 +14,7 @@ export interface ShimejiDebugApi {
 	dumpLedges(): void;
 	where(): void;
 	watch(seconds?: number): void;
+	explainOrder(x: number, y: number): void;
 }
 
 declare global {
@@ -28,7 +31,7 @@ declare global {
  * Installed once from main.ts's onload; getStage is a thunk (not a captured value) so it keeps
  * working across a settings-triggered Stage recreation, if that's ever added.
  */
-export function installDebugApi(getStage: () => Stage | undefined): void {
+export function installDebugApi(getStage: () => Stage | undefined, getPaneActions: () => PaneActions | undefined = () => undefined): void {
 	window.shimejiDebug = {
 		setVerbose(on) {
 			setVerboseLogging(on);
@@ -82,6 +85,74 @@ export function installDebugApi(getStage: () => Stage | undefined): void {
 				});
 			});
 		},
+		/**
+		 * Works out what a "get to that spot" order at (x, y) would do — the planned route, whether a
+		 * fall-through or a layout change is on the table, and what each would cost — **without
+		 * issuing it**. Same numbers the order itself uses.
+		 *
+		 * Exists because an order that is working and an order that has given up look identical from
+		 * outside: the mascot walks a bit and then climbs at 0.64px/tick, which for a full-height
+		 * window is over a minute of barely-visible movement. This turns "it does nothing" into a
+		 * reason.
+		 */
+		explainOrder(x, y) {
+			const stage = getStage();
+			const mascot = stage?.getMascots()[0];
+			if (!stage || !mascot) {
+				console.info("[obsidian-shimeji] no mascot");
+				return;
+			}
+			const ledges = stage.getLedges();
+			const viewport = mascot.getViewportSize();
+			const from = { x: mascot.physics.x, y: mascot.physics.y };
+			const target = { x, y };
+			const opts = { arriveWithin: 40, travelTimeWeight: 0.05 };
+			const attached = mascot.physics.currentFloor ?? mascot.physics.currentWall ?? mascot.physics.currentCeiling;
+
+			const inWorld = x >= 0 && x <= viewport.width && y >= 0 && y <= viewport.height;
+			console.info(`[obsidian-shimeji] order (${Math.round(x)}, ${Math.round(y)}) — window is ${viewport.width}x${viewport.height}${inWorld ? "" : "  <-- OUTSIDE THE WINDOW, nothing can reach it"}`);
+			console.info(`  mascot at (${Math.round(from.x)}, ${Math.round(from.y)}) on ${describeSurface(mascot.physics)}`);
+
+			const route = findRoute(ledges, from, target, attached, opts);
+			const end = route.length > 0 ? route[route.length - 1] : from;
+			const miss = Math.round(Math.hypot(end.x - target.x, end.y - target.y));
+			const secs = (t: number) => `${Math.round((t * 40) / 100) / 10}s`;
+			console.info(`  route: ${route.length} steps [${route.map((s2) => s2.via).join(" -> ") || "none"}]`);
+			console.info(`         ends at (${Math.round(end.x)}, ${Math.round(end.y)}), ${miss}px short, taking ~${secs(routeDurationTicks(from, route, opts))}`);
+
+            if (miss <= 40) {
+                console.info("  verdict: walkable — the order should just complete. If it looks stopped, it is climbing (0.64px/tick).");
+                return;
+            }
+
+			const drop = planDropThrough(ledges, target, opts);
+			if (!drop) console.info("  fall-through: not possible (no unobstructed surface above this point)");
+			else {
+				const approach = findRoute(ledges, from, drop.from, attached, opts);
+				const total = routeDurationTicks(from, approach, opts) + fallDurationTicks(target.y - drop.from.y, opts);
+				console.info(`  fall-through: let go at (${Math.round(drop.from.x)}, ${Math.round(drop.from.y)}) — ~${secs(total)}`);
+			}
+
+			const pa = getPaneActions();
+			const controls = pa?.listNewPaneControls?.() ?? [];
+			if (!pa?.pressNewPaneControl) console.info("  layout change: unavailable (turn on Behavior -> Open panes to reach a spot)");
+			else if (controls.length === 0) console.info("  layout change: no + buttons found on screen");
+			else {
+				let best = Infinity;
+				let at = "";
+				for (const c of controls) {
+					const r = findRoute(ledges, from, c.point, attached, opts);
+					const e = r.length > 0 ? r[r.length - 1] : from;
+					if (Math.hypot(e.x - c.point.x, e.y - c.point.y) > 40) continue;
+					const t = routeDurationTicks(from, r, opts);
+					if (t < best) { best = t; at = `(${Math.round(c.point.x)}, ${Math.round(c.point.y)})`; }
+				}
+				console.info(best === Infinity
+					? `  layout change: ${controls.length} + button(s), none reachable from here`
+					: `  layout change: nearest reachable + button ${at} — ~${secs(best)} just to walk there, before splitting and shoving`);
+			}
+		},
+
 		/** Where every mascot is right now, and what it is standing on / clinging to. The first thing
 		 * to reach for when movement looks wrong: it names the surface, not just the coordinates. */
 		where() {
@@ -168,7 +239,7 @@ export function installDebugApi(getStage: () => Stage | undefined): void {
 		},
 	};
 	console.info(
-		"[obsidian-shimeji] debug helpers ready in this console: window.shimejiDebug.stageCount() / .hideOverlay() / .showOverlay() / .elementsAtTop() / .mascotRects() / .dumpLedges() / .where() / .watch(5) / .setVerbose(true)",
+		"[obsidian-shimeji] debug helpers ready in this console: window.shimejiDebug.stageCount() / .hideOverlay() / .showOverlay() / .elementsAtTop() / .mascotRects() / .dumpLedges() / .where() / .watch(5) / .explainOrder(x,y) / .setVerbose(true)",
 	);
 }
 
