@@ -50,12 +50,30 @@ describe("Stage.spawnMascot", () => {
 	// BehaviorAI.respawnAndFall already ports for the identical reason. Every real mascot's
 	// first visible moment is falling in from off the top of the screen, never already standing
 	// in view.
-	it("a spawn with no explicit position falls in from above the screen at a random x", () => {
+	it("a spawn with no explicit position falls in from above the screen", () => {
 		const stage = makeStage({ seed: 42 });
 		const mascot = stage.spawnMascot()!;
 		expect(mascot.physics.y).toBe(-256);
-		expect(mascot.physics.x).toBeGreaterThanOrEqual(0);
-		expect(mascot.physics.x).toBeLessThan(800);
+		stage.destroy();
+	});
+
+	/**
+	 * Split from the test above, which used to claim the random x as well and did not check it: its
+	 * assertion was `0 <= x < 800`, which a spawn hardcoded to the middle of the window satisfies
+	 * perfectly. Replacing `rng.range(0, width)` with `width / 2` passed the entire suite.
+	 *
+	 * Checked the same way the facing randomization below is, for the same reason — what matters is
+	 * that the spread is real, not what one particular seed produces.
+	 */
+	it("a spawn with no explicit position lands at a genuinely random x, not a fixed one", () => {
+		const stage = makeStage({ seed: 42, maxMascots: 100 });
+		const xs = new Set<number>();
+		for (let i = 0; i < 30; i++) xs.add(stage.spawnMascot()!.physics.x);
+		expect(xs.size).toBeGreaterThan(20);
+		for (const x of xs) {
+			expect(x).toBeGreaterThanOrEqual(0);
+			expect(x).toBeLessThan(800);
+		}
 		stage.destroy();
 	});
 

@@ -131,6 +131,18 @@ describe("clampToCeiling", () => {
 	});
 });
 
+/**
+ * Two tests, deliberately, for a two-line branchless function.
+ *
+ * The recurrence test pins three successive outputs to five decimals, so *any* change to the formula
+ * must fail it — which makes the properties this port cares about (it lags rather than snapping, it
+ * stays put once the gap closes, it converges on a sustained position with a small underdamped
+ * overshoot) consequences of it rather than independent facts. There were separate tests for each of
+ * those; mutation testing showed none of them could fail on its own, so they were folded into this
+ * note. The second test is the exception that earns its place: the exact values are all positive, so
+ * nothing above would catch a sign bug (an `abs` mutant passes the recurrence test and fails only
+ * that one).
+ */
 describe("tickDragFootX", () => {
 	// Faithful port of the real engine's Dragged.java: footDx = (footDx + (cursorX-footX)*0.1)*0.8;
 	// footX += footDx. Values below are hand-computed from that exact recurrence so a
@@ -151,29 +163,6 @@ describe("tickDragFootX", () => {
 		expect(footX).toBeCloseTo(390.272, 5);
 	});
 
-	it("stays put once footX has caught up to a steady cursor (no gap, no drift)", () => {
-		const { footX, footDx } = tickDragFootX(500, 0, 500);
-		expect(footX).toBe(500);
-		expect(footDx).toBe(0);
-	});
-
-	it("lags behind rather than snapping — never reaches the cursor in a single tick", () => {
-		const { footX } = tickDragFootX(0, 0, 1000);
-		expect(footX).toBeGreaterThan(0);
-		expect(footX).toBeLessThan(1000);
-	});
-
-	it("converges toward a sustained cursor position over many ticks", () => {
-		// The real recurrence is slightly underdamped (a small overshoot before settling, not a
-		// monotonic approach) — a genuine property of the original's own tuning, not something
-		// to round away, so the tolerance here is deliberately loose rather than exact.
-		let footX = 0;
-		let footDx = 0;
-		for (let i = 0; i < 60; i++) ({ footX, footDx } = tickDragFootX(footX, footDx, 1000));
-		expect(footX).toBeGreaterThan(990);
-		expect(footX).toBeLessThan(1010);
-	});
-
 	it("lags in the correct direction on both sides (never leads the cursor)", () => {
 		const movingRight = tickDragFootX(0, 0, 500);
 		expect(movingRight.footX).toBeGreaterThan(0);
@@ -185,6 +174,10 @@ describe("tickDragFootX", () => {
 	});
 });
 
+/** Same two-test shape as tickDragFootX above, and for the same reason: the recurrence test subsumes
+ * "converges on the true per-tick delta" and "decays to zero when the cursor stops", which used to be
+ * separate tests and could not fail without it failing too. The axis test is the one that can: the
+ * exact values only exercise x. */
 describe("smoothCursorVelocity", () => {
 	// Faithful port of the real engine's Location.set(): dx = (dx + (newX-x))/2. Values below are
 	// hand-computed from that exact recurrence so a transcription slip would actually fail the
@@ -202,25 +195,6 @@ describe("smoothCursorVelocity", () => {
 
 		delta = smoothCursorVelocity(delta, pos, { x: 100, y: 0 });
 		expect(delta.x).toBeCloseTo(12.5, 10);
-	});
-
-	it("converges toward the actual per-tick delta under sustained constant motion, never overshooting it", () => {
-		let delta = { x: 0, y: 0 };
-		let pos = { x: 0, y: 0 };
-		for (let i = 0; i < 40; i++) {
-			const next = { x: pos.x + 100, y: pos.y };
-			delta = smoothCursorVelocity(delta, pos, next);
-			pos = next;
-			expect(delta.x).toBeLessThanOrEqual(100);
-		}
-		expect(delta.x).toBeCloseTo(100, 5);
-	});
-
-	it("decays toward zero once the cursor stops moving, halving the gap each tick", () => {
-		let delta = { x: 80, y: 0 };
-		const pos = { x: 500, y: 500 };
-		for (let i = 0; i < 20; i++) delta = smoothCursorVelocity(delta, pos, pos);
-		expect(delta.x).toBeCloseTo(0, 3);
 	});
 
 	it("x and y are computed independently", () => {

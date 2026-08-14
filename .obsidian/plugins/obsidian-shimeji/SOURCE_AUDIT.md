@@ -1549,3 +1549,47 @@ it. Replaced with one where the ceiling is genuinely *nearer* the target (10px a
 therefore wins outright without the preference. Same lesson as the `makeSurfaceAt` fake in Pass 26 and
 the `normalizePath` stub in Pass 24: a test built to agree with the change proves nothing. Every fix
 in this pass was checked by stashing `src/` and confirming the new tests go red.
+
+## Pass 29: auditing the test suite itself (2026-08-14)
+
+324 tests is a lot, so: are they all needed, do any contradict, should any merge?
+
+**No two can contradict.** All 324 passed, and two tests asserting opposite outcomes for the same
+input cannot both pass. The question that *is* answerable is which tests carry independent signal —
+so it was answered by mutation testing rather than by reading: introduce a deliberate bug, run the
+suite, record exactly which tests fire. A test that never fires alone across every mutant aimed at
+its subject is not testing anything the others aren't.
+
+**Removed 5, all subsumed by an exact-recurrence test.** `tickDragFootX` and `smoothCursorVelocity`
+are two-line branchless ports, each with a test pinning three successive outputs to 5–10 decimals.
+Any change to either formula must fail that test, which makes "it lags rather than snapping", "it
+converges on a sustained position", "it decays to zero when the cursor stops" and "it stays put once
+the gap closes" consequences of it, not independent facts. Each had its own test; none could fail on
+its own. Their content is now a comment on the test that does the work — the knowledge was worth
+keeping, the extra execution wasn't.
+
+Two survivors from those blocks earn their place, and mutation testing is what showed it: the exact
+values are all positive and all on x, so an `abs` mutant and a y-copies-x mutant both pass the
+recurrence test and fail only "lags in the correct direction on both sides" and "x and y are computed
+independently" respectively.
+
+**Found a test that overclaimed.** `stage.test.ts`'s *"a spawn with no explicit position falls in
+from above the screen at a random x"* did not test the random x. Its assertion was `0 <= x < 800`,
+which a spawn hardcoded to the middle of the window satisfies perfectly — replacing
+`rng.range(0, viewport.width)` with `viewport.width / 2` passed the entire suite. Split into two
+tests, with the randomness now checked the way the neighbouring facing test checks it (30 spawns,
+assert the spread is real). The suite got smaller and strictly stricter.
+
+**Kept, with evidence.** Several clusters looked redundant and are not — each member caught a mutant
+alone:
+
+- The four `lostGround` tests (Move/Stay × wall-present/wall-gone). The negative controls are what
+  stop a check that always fires: an `if (true)` mutant is caught *only* by them.
+- The `clampToWalls` left/right pair and the `Breed` x/y offset trio — one branch each.
+- The three spot-order surgery tests added in Pass 28. Pressing the button from anywhere fails only
+  the "walks to a real + button" test; never shoving the divider fails only the other two.
+
+**Merge candidates deliberately not merged.** Mirror pairs (left/right, present/absent) could each
+collapse into one test with two assertions. Left alone: they cost one line of setup each and buy a
+failure message that names the broken direction. That is a style preference, not redundancy — unlike
+the five removed above, which bought nothing at all.
