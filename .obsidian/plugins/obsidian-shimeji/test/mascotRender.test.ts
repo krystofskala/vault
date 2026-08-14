@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Mascot, type MascotDeps } from "../src/engine/Mascot";
 import { Random } from "../src/engine/Random";
-import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
+import { DEFAULT_ENGINE_CONFIG, type Ledge } from "../src/engine/types";
 import { PLACEHOLDER_HEIGHT, PLACEHOLDER_WIDTH } from "../src/placeholder/placeholderSprite";
 
 /**
@@ -343,6 +343,34 @@ describe("Mascot upside-down feet drag", () => {
 		Object.assign(ev, { pointerId: 1 });
 		mascot.el.dispatchEvent(ev);
 	}
+
+	/** Dispatched on the mascot's own element, which is where the drag listener lives (pointer
+	 * capture keeps delivering there even once the cursor is well clear of it). */
+	function movePointerTo(mascot: Mascot, clientX: number, clientY: number): void {
+		const ev = new Event("pointermove", { bubbles: true });
+		Object.assign(ev, { clientX, clientY, pointerId: 1, pointerType: "mouse" });
+		mascot.el.dispatchEvent(ev);
+	}
+
+	/**
+	 * From a live recording: picked up one pixel from a pane's left wall at (503,1267), carried to
+	 * (717,729), and still reporting itself attached to that wall 215px away. The drag branch of
+	 * simulate() skips the driver tick, and with it the border refresh, so every wall/ceiling
+	 * attachment froze at whatever it was when the drag began. It matters on release — the pack's own
+	 * environment conditions decide the next behavior, and answering them from a wall the mascot is
+	 * nowhere near either picks something that instantly loses its footing or leaves nothing eligible.
+	 */
+	it("lets go of a wall it is carried away from, instead of staying attached to it all drag", () => {
+		const m = draggableMascot();
+		const wall = { kind: "wall", side: "left", x: 500, y1: 0, y2: 800, source: "pane" } as Ledge;
+		grabAt(m, 501, 400);
+		m.simulate(0.04, [wall]);
+		expect(m.physics.currentWall).toBe(wall);
+
+		movePointerTo(m, 900, 300); // carried well clear of it
+		m.simulate(0.04, [wall]);
+		expect(m.physics.currentWall).toBeUndefined();
+	});
 
 	// Sprite spans client y 172..300. Lower third (FEET_GRAB_FRACTION) is 257..300.
 	it("grabbing the lower third holds it upside down", () => {

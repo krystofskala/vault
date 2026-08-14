@@ -108,11 +108,11 @@ export class MovementRecorder {
 				`!! RESPAWN — relocated above the window. Left from (${b ? Math.round(b.x) : "?"},${b ? Math.round(b.y) : "?"}) ` +
 					`on ${b?.surface ?? "?"} facing ${b?.facing === 1 ? "right" : "left"}, behavior ${b?.behavior ?? "?"}`,
 			);
-		} else if (step > TELEPORT_PX && this.thrownRecently()) {
+		} else if (step > TELEPORT_PX && this.pointerDriven()) {
 			// Throws legitimately cover a lot of ground in a frame — release velocity comes straight
 			// from the cursor. Recorded, but not as an anomaly: 96 of 146 "anomalies" in the first real
 			// recording were just the mascot being flung around, which buried the two that mattered.
-			this.note(`(throw) moved ${Math.round(step)}px in one frame`);
+			this.note(`(pointer) moved ${Math.round(step)}px in one frame`);
 		} else if (step > TELEPORT_PX) {
 			this.note(`!! jumped ${Math.round(step)}px in one frame — (${Math.round(this.last!.x)},${Math.round(this.last!.y)}) → (${Math.round(p.x)},${Math.round(p.y)})`);
 		}
@@ -145,10 +145,15 @@ export class MovementRecorder {
 		this.before = this.samples[this.samples.length - 1];
 	}
 
-	/** Whether the mascot is being thrown or has just been released. */
-	private thrownRecently(): boolean {
+	/** Whether the pointer is what is moving the mascot. Both cover a lot of ground in a frame quite
+	 * legitimately — a drag follows the cursor exactly, and release velocity comes straight from it.
+	 *
+	 * `isBeingDragged` rather than the behavior name: during a drag the pack behavior stays whatever
+	 * was running when it was grabbed, so the first version of this check saw "SitOnTheLeftEdgeOfIE"
+	 * and dutifully filed every frame of the drag as an anomaly. */
+	private pointerDriven(): boolean {
 		const b = this.mascot.currentBehaviorName;
-		return b === "Thrown" || b === "Dragged";
+		return this.mascot.isBeingDragged || b === "Thrown" || b === "Dragged";
 	}
 
 	/**

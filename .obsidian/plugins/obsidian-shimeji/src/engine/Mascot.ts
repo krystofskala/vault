@@ -9,6 +9,7 @@ import {
 	tickDragged,
 	tickFall,
 	tickWalk,
+	updateWallCeilingAdherence,
 	type WalkState,
 } from "./nativeBehaviors";
 import type { HotspotDef } from "../shimeji/types";
@@ -583,6 +584,20 @@ export class Mascot {
 			// tracking *is* that reading here for x/y (unlagged, straight from dragTrack), and
 			// reuses Stage's own smoothed dx/dy (the same value release velocity reads) rather
 			// than sampling it separately.
+			// Keep the border readings honest while being carried around. tickDragged clears
+			// grounded/currentFloor but nothing was refreshing currentWall/currentCeiling, because
+			// the driver tick that normally does it (and with it updateWallCeilingAdherence) is
+			// skipped on this branch — so both froze at whatever they were when the drag started.
+			//
+			// Seen in a live recording: picked up at (503,1267) one pixel from a pane's left wall,
+			// then carried to (717,729), still reporting itself attached to that wall 215px away. It
+			// matters after the release, not during: the pack's own `mascot.environment.*.isOn(...)`
+			// conditions are what decide which behavior comes next, and answering them from a wall
+			// the mascot is nowhere near picks behaviors that immediately lose their footing — or
+			// leaves nothing eligible at all, which ends in the engine's relocate-above-the-window
+			// recovery. Real shimeji has no equivalent gap: Environment.tick() refreshes every
+			// mascot's borders every tick, whatever action is running.
+			updateWallCeilingAdherence(this.physics, ledges);
 			const cursorPointer = { x: this.dragTrack.x, y: this.dragTrack.y, dx: ambient.dx, dy: ambient.dy };
 			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, cursorPointer)) this.setVisualState("dragged");
 		} else if (this.driver) {
