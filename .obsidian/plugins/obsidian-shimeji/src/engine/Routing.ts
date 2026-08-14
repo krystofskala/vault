@@ -36,10 +36,40 @@ export interface RouteOptions {
 	maxJumpDx: number;
 	/** How far *up* a jump can carry. Dropping is unlimited — gravity is free. */
 	maxJumpUp: number;
-	/** Multipliers making the router prefer ordinary walking when routes are otherwise comparable,
-	 * so a mascot doesn't hop across a floor it could simply stroll along. */
-	jumpCost: number;
-	climbCost: number;
+	/**
+	 * How fast each kind of movement actually is, in pixels per engine tick, so routes can be costed
+	 * in **time** rather than distance.
+	 *
+	 * This matters far more than it looks. The standard pack's own animations differ by more than an
+	 * order of magnitude — `Dash` covers 8px a tick, `Jumping` 20, while `ClimbWall` averages 0.64
+	 * (36px of travel spread over 56 ticks, most of them hold frames). An earlier version costed by
+	 * distance with small hand-picked multipliers, which priced a climb at roughly a walk and a jump
+	 * as *more expensive* than one — precisely backwards, and it made the router send mascots up long
+	 * slow walls in preference to routes they could have jumped or dropped in a fraction of the time.
+	 *
+	 * Defaults are measured from the standard pack. A pack whose animations differ can pass its own.
+	 */
+	speeds: { walk: number; climb: number; traverse: number; jump: number };
+	/** px/tick², matching the pack's own `Falling` Gravity, so a drop is costed by how long the fall
+	 * actually takes: distance d under constant acceleration takes sqrt(2d/g) ticks, which is
+	 * sublinear — long drops are proportionally *cheaper*, which is exactly why they are worth
+	 * preferring over climbing back down. */
+	gravity: number;
+	/** Fixed tick overheads: a jump has a windup, and changing surface costs a moment either way.
+	 * Without these the router would happily chain dozens of micro-hops. */
+	jumpOverhead: number;
+	/**
+	 * When picking *which* reachable surface to aim for, how many pixels of extra distance-from-target
+	 * one tick of travel is worth. It is the dial between "get closest" and "get there soonest", and
+	 * the right setting genuinely depends on why you are going.
+	 *
+	 * Following the pointer wants a real number here: chasing a cursor across the window is not worth
+	 * a 400-tick wall climb to close the last 300px, and a mascot that tries looks broken rather than
+	 * diligent. An explicit "go to that spot" order wants it near zero — the whole promise is reaching
+	 * the point, however long it takes. Costed in ticks against a distance in pixels, so the units
+	 * only make sense as an exchange rate; at walking speed a pixel is about an eighth of a tick.
+	 */
+	travelTimeWeight: number;
 	/**
 	 * How close to the best reachable point counts as being there. Load-bearing for callers that use
 	 * an empty route as their "stop" signal: without it, a mascot a pixel off would be handed a
@@ -52,8 +82,10 @@ export interface RouteOptions {
 export const DEFAULT_ROUTE_OPTIONS: RouteOptions = {
 	maxJumpDx: 220,
 	maxJumpUp: 130,
-	jumpCost: 1.6,
-	climbCost: 1.25,
+	speeds: { walk: 8, climb: 0.64, traverse: 0.64, jump: 20 },
+	gravity: 2,
+	jumpOverhead: 6,
+	travelTimeWeight: 2,
 	arriveWithin: 4,
 };
 
@@ -62,6 +94,7 @@ export const DEFAULT_ROUTE_OPTIONS: RouteOptions = {
  * fraction of a device pixel — and a corner that fails to connect silently removes a whole branch
  * of the graph, which is the least debuggable failure this file has. */
 const JOIN_EPS = 6;
+
 
 function clamp(v: number, lo: number, hi: number): number {
 	return v < lo ? lo : v > hi ? hi : v;
@@ -149,14 +182,25 @@ function transfersFrom(ledge: Ledge, at: Vec2, goal: Vec2, ledges: Ledge[], opts
 	return out;
 }
 
+/** Estimated ticks to perform this step — see RouteOptions.speeds for why this is time, not distance. */
 function stepCost(via: RouteVia, from: Vec2, to: Vec2, opts: RouteOptions): number {
 	const d = distance(from, to);
-	if (via === "jump") return d * opts.jumpCost + 24;
-	if (via === "climb") return d * opts.climbCost;
-	// A drop is nearly free in effort terms but should not be preferred to a short walk, hence the
-	// small fixed cost rather than zero.
-	if (via === "drop") return d * 0.5 + 8;
-	return d;
+	switch (via) {
+		case "jump":
+			return d / opts.speeds.jump + opts.jumpOverhead;
+		case "climb":
+			return d / opts.speeds.climb;
+		case "traverse":
+			return d / opts.speeds.traverse;
+		case "drop": {
+			// Free-fall time for the vertical part, walking time for whatever sideways drift remains.
+			const dy = Math.abs(to.y - from.y);
+			const dx = Math.abs(to.x - from.x);
+			return Math.sqrt((2 * dy) / opts.gravity) + dx / opts.speeds.walk;
+		}
+		default:
+			return d / opts.speeds.walk;
+	}
 }
 
 /** Which ledge the mascot is currently attached to, preferring what physics already decided. */
@@ -246,11 +290,13 @@ export function findRoute(ledges: Ledge[], from: Vec2, target: Vec2, startLedge?
 
 	// The goal is whichever reachable surface gets closest to the target, with its own travel cost
 	// counted in — otherwise a distant ledge that happens to pass nearer the cursor would beat the
-	// floor the mascot is already standing on.
+	// floor the mascot is already standing on. Costs are ticks and the other term is pixels, so the
+	// weight converts: at walking speed a pixel is ~1/8 of a tick, and valuing travel time at roughly
+	// a third of that keeps proximity the dominant consideration without ignoring a long slog.
 	let goal: Ledge | undefined;
 	let goalScore = Infinity;
 	for (const [ledge, visit] of visited) {
-		const score = distance(pointOn(ledge, target), target) + visit.cost * 0.25;
+		const score = distance(pointOn(ledge, target), target) + visit.cost * opts.travelTimeWeight;
 		if (score < goalScore) {
 			goalScore = score;
 			goal = ledge;

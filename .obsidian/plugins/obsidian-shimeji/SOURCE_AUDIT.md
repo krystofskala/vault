@@ -1374,3 +1374,46 @@ The gesture itself is deliberately passive: Shift + three clicks within 700ms an
 capture phase (a bubble listener on `window` can be starved by any `stopPropagation` in between — the
 same trap as the ambient pointer tracker), never calling `preventDefault`. Requiring Shift is what
 makes watching every click acceptable at all; a bare triple-click is ordinary text selection.
+
+## Pass 26: route costs are time, not distance (2026-08-14)
+
+From the user, on the spot-order feature: *"Did you consider that mascot can fall through spot by
+climbing the ceiling than dropping or jump to wall is a big animation and if able to calculate before
+he might be quicker reaching point doing one of those than creating new panel and climbing it."*
+
+The underlying observation is right and exposes a real defect in the router: it costed routes by
+**distance**, and the standard pack's movement speeds differ by more than an order of magnitude.
+Measured from actions.xml:
+
+| movement | px per tick |
+| --- | --- |
+| `Jumping` (`VelocityParam="20"`) | 20 |
+| `Dash` | 8 |
+| `Walk` | 2 |
+| `ClimbWall` / `ClimbCeiling` | **0.64** (36px spread over 56 ticks, most of them hold frames) |
+| `Falling` | accelerating at Gravity=2, so a drop of d takes ~sqrt(d) ticks |
+
+Climbing is 12× slower than dashing and 31× slower than jumping. The old multipliers priced a climb
+at ×1.25 (roughly a walk) and a jump at ×1.6 — *more* expensive than walking. Exactly backwards, and
+it made the router send mascots up long slow walls in preference to routes they could have jumped or
+dropped in a fraction of the time.
+
+49. **`stepCost` now returns estimated ticks**, from per-movement speeds on `RouteOptions` (defaults
+    measured from the standard pack; a pack whose animations differ can pass its own). Drops use
+    `sqrt(2d/g)`, which is sublinear — long drops are proportionally *cheaper*, which is precisely why
+    they are worth preferring over climbing back down.
+
+50. **Goal selection needed a caller-supplied weight, and finding that out was the useful part.**
+    Switching to real costs immediately broke the spot-order test: with climbing correctly priced, the
+    router concluded that a 469-tick climb was not worth closing the last 300px and aimed at the
+    window floor instead. Correct for *following* — chasing a pointer across the window really isn't
+    worth that, and a mascot that tries looks broken rather than diligent — and wrong for an explicit
+    order, whose entire promise is reaching the point. So `travelTimeWeight` is a parameter: following
+    uses the default, orders pass ~0.05. Without it one of the two is always wrong.
+
+The user's specific "fall through the spot" idea is now *reachable* by the router rather than
+special-cased: a drop that passes through a mid-air point is a cheap route by this cost model, where
+under distance costing it was indistinguishable from a slow climb. What is still not implemented is
+deliberately *planning* a pass-through — routing to a surface directly above a mid-air spot in order
+to fall through it — and comparing that against layout surgery. Noted as the next step rather than
+claimed.

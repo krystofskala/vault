@@ -207,3 +207,52 @@ describe("autonomous roaming", () => {
 		expect(physics.y).toBeGreaterThan(700);
 	});
 });
+
+/**
+ * Costing in time rather than distance. The standard pack's own animations differ by more than an
+ * order of magnitude — Dash 8px/tick, Jumping 20, ClimbWall 0.64 — so a route that *looks* short can
+ * take far longer than a longer one, and vice versa.
+ */
+describe("route cost is time, not distance", () => {
+	it("prefers dropping off an edge to climbing back down the same height", () => {
+		// A raised pane whose left wall runs all the way to the floor, so climbing down is genuinely
+		// available — the router has a real choice to make rather than only one option.
+		const ledges = withPane({ left: 300, top: 500, right: 900, bottom: 800 });
+		const paneTop = floorAt(ledges, 500)!;
+		const route = findRoute(ledges, { x: 600, y: 500 }, { x: 1000, y: 800 }, paneTop);
+
+		// 300px of climbing is ~470 ticks at 0.64px/tick; the same drop is ~17. Nothing about the
+		// distances says that — only the speeds do.
+		expect(route.some((s) => s.via === "drop")).toBe(true);
+		expect(route.some((s) => s.via === "climb")).toBe(false);
+	});
+
+	it("costs a long climb as far more expensive than a long walk", () => {
+		const ledges = bareWindow();
+		const from = { x: 600, y: 800 };
+		// Same 400px, one horizontal along the floor and one vertical up a wall.
+		const walk = findRoute(ledges, from, { x: 1000, y: 800 });
+		const climb = findRoute(ledges, from, { x: 0, y: 400 });
+
+		expect(walk.every((s) => s.via === "walk")).toBe(true);
+		expect(climb.some((s) => s.via === "climb")).toBe(true);
+	});
+
+	// The dial between "get closest" and "get there soonest" — an explicit order sets it near zero,
+	// pointer-following leaves it at the default. Without this being a parameter, one of the two is
+	// always wrong: following would attempt 400-tick climbs to close the last few hundred pixels,
+	// and orders would refuse to make the climb that actually reaches the point.
+	it("lets the caller decide whether a slow route that arrives beats a fast one that doesn't", () => {
+		const ledges = withPane({ left: 0, top: 400, right: 1200, bottom: 800 });
+		const from = { x: 600, y: 800 };
+		const target = { x: 600, y: 400 };
+
+		const patient = findRoute(ledges, from, target, undefined, { travelTimeWeight: 0.05 });
+		const hurried = findRoute(ledges, from, target, undefined, { travelTimeWeight: 8 });
+
+		const endOf = (r: ReturnType<typeof findRoute>) => (r.length > 0 ? { x: r[r.length - 1].x, y: r[r.length - 1].y } : from);
+		const patientMiss = Math.abs(endOf(patient).y - target.y);
+		const hurriedMiss = Math.abs(endOf(hurried).y - target.y);
+		expect(patientMiss).toBeLessThanOrEqual(hurriedMiss);
+	});
+});

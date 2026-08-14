@@ -189,7 +189,12 @@ export class BehaviorAI {
 		}
 
 		const attached = physics.currentFloor ?? physics.currentWall ?? physics.currentCeiling;
-		const route = ledges.length > 0 ? findRoute(ledges, { x: physics.x, y: physics.y }, spot, attached, { arriveWithin: SPOT_ARRIVAL_PX }) : [];
+		// travelTimeWeight near zero: an order's promise is reaching the point, so a surface that gets
+		// there is worth a long climb. Following uses the default, where it is not — see RouteOptions.
+		const route =
+			ledges.length > 0
+				? findRoute(ledges, { x: physics.x, y: physics.y }, spot, attached, { arriveWithin: SPOT_ARRIVAL_PX, travelTimeWeight: 0.05 })
+				: [];
 
 		// Judge the layout by where the route *ends up*, not by whether one exists. The router almost
 		// always finds somewhere to go — a wall, the ceiling — and an earlier version only considered

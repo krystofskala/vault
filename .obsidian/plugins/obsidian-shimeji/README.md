@@ -577,6 +577,18 @@ they happen to be on. A route is built from five kinds of step — **walk**, **c
 (`Dash`, `ClimbWall`, `ClimbCeiling`, `Jumping`). That mapping is why the set is exactly those five:
 a route the pack cannot animate would be unplayable.
 
+**Routes are costed in time, not distance**, which matters more than it sounds. The standard pack's
+own animations differ by over an order of magnitude — `Dash` covers 8px a tick, `Jumping` 20, while
+`ClimbWall` averages 0.64 (36px of travel spread over 56 ticks, most of them hold frames). So a
+mascot will drop off an edge rather than climb the same height back down, and take a longer jumped
+route over a shorter climbed one — because it genuinely is quicker. Costing by distance instead
+priced a 300px climb as cheaper than a 400px walk, when it actually takes nine times as long.
+
+How much a long journey counts against a surface that gets *closer* is the caller's choice, not a
+property of the geometry. Chasing the pointer isn't worth a 400-tick wall climb to close the last few
+hundred pixels, so following weights travel time heavily; a "get to that spot" order weights it near
+zero, because its whole promise is reaching the point.
+
 The graph is built from the same ledge list the physics uses, so a route can never describe a surface
 the mascot can't actually stand on. Surfaces connect where they physically meet (a floor meeting a
 wall is how a mascot gets off the ground at all), plus jumps up to a nearby higher floor and drops off

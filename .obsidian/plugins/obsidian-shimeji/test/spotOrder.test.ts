@@ -139,7 +139,11 @@ describe("spot order", () => {
 		const s = scene(200);
 		const ledges = computeLedgesFromRects(VIEWPORT, []);
 		s.ai.orderToSpot({ x: 600, y: 300 });
-		for (let i = 0; i < 200; i++) {
+		// Generous budget on purpose: an order weights reaching the point far above reaching it
+		// quickly, so with surgery unavailable the mascot commits to the long climb toward the closest
+		// surface the layout does offer before standing down. Trying hard is the specified behaviour;
+		// what is being asserted is that it eventually stops rather than that it stops soon.
+		for (let i = 0; i < 4000 && s.ai.hasSpotOrder; i++) {
 			// No makeSurfaceAt at all — the gated-off case.
 			s.ai.tick(s.mascot, 0.04, ledges, { x: 0, y: 0, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG, {});
 			s.mascot.stateElapsedMs += 40;
