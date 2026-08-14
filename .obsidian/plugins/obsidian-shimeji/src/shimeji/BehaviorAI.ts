@@ -210,6 +210,13 @@ export class BehaviorAI {
 		return this.orderedSpot !== undefined;
 	}
 
+	/** Whether an action is mid-flight, and which behavior owns it. Exposed for the movement audit,
+	 * which has to watch one forced behavior until *it* ends — not until nothing is running, which
+	 * never happens, because the pack's own chain immediately picks the next one. */
+	get isRunning(): boolean {
+		return this.runner.isRunning;
+	}
+
 	/**
 	 * Drives an outstanding spot order. Routes there like anything else; when the router reports
 	 * there is nowhere nearer to go and the mascot still isn't at the spot, asks for a surface to be
@@ -630,15 +637,32 @@ export class BehaviorAI {
 
 		const done = this.runner.isRunning ? this.runner.tick(env, dt, ledges) : true;
 
+		/*
+		 * Losing your footing goes to Fall, whether or not the action considered itself finished.
+		 *
+		 * In real UserBehavior.next() the LostGroundException catch wraps the *entire* body —
+		 * including the `hasNext()` check and the "completed behavior, pick the next one" branch — so
+		 * an exception thrown anywhere in there lands on `buildBehavior(BEHAVIORNAME_FALL)`. There is
+		 * no path where ground is lost and something else is selected.
+		 *
+		 * This used to sit inside the `!done` branch below, which quietly dropped the commonest case:
+		 * `tickHold`/`tickMove` signal a lost border by `return true` (done), so when the frame that
+		 * lost it was the last one on the stack, the flag was set and never read. The mascot went to
+		 * ordinary reselection while airborne and unattached — nothing was eligible, and the real
+		 * engine's own totalFrequency==0 recovery then teleported it above the screen. Visible as a
+		 * mascot that should have dropped off a vanishing wall instead raining down from the top.
+		 *
+		 * Read unconditionally, and first, because the getter consumes the flag.
+		 */
+		if (this.runner.lostGround) {
+			this.startBehavior(this.forceFallBehavior(), env);
+			return;
+		}
+
 		// Faithful to UserBehavior.next(): the off-screen recovery only applies while an action
 		// is still *continuing* (not on the same tick it just finished, which goes through the
-		// ordinary reselection below instead) and to the real engine's own LostGroundException
-		// path — a Wall/Ceiling-bordered Move whose border vanished mid-climb.
+		// ordinary reselection below instead).
 		if (!done) {
-			if (this.runner.lostGround) {
-				this.startBehavior(this.forceFallBehavior(), env);
-				return;
-			}
 			if (this.isOffScreen(mascot)) {
 				this.startBehavior(this.respawnAndFall(mascot), env);
 				return;

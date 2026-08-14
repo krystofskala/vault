@@ -92,6 +92,8 @@ export interface MascotDriver {
 	/** Jumps straight to a named behavior (e.g. a right-click "Set behavior" menu, or the
 	 * BornBehavior a Breed action starts a new sibling with) instead of the normal weighted pick. */
 	startNamedBehavior?(mascot: Mascot, name: string, ambientPointer: AmbientPointer): void;
+	/** The behavior currently running, for the debug readout (shimejiDebug.where/watch). */
+	currentBehaviorName?(): string | undefined;
 	/** Behavior names this driver can run, for building a "Set behavior" menu generically. */
 	listBehaviorNames?(): string[];
 	/** Behaviors a pack marked `Toggleable`, i.e. offerable as persistent on/off switches. */
@@ -306,6 +308,12 @@ export class Mascot {
 	}
 
 	/** Jumps this mascot straight to a named behavior (right-click menu, Breed's BornBehavior). */
+	/** What the driver is currently running, for the debug readout. Undefined with no pack-backed
+	 * driver attached (the placeholder state machine has no named behaviors). */
+	get currentBehaviorName(): string | undefined {
+		return this.driver?.currentBehaviorName?.();
+	}
+
 	startNamedBehavior(name: string): void {
 		this.driver?.startNamedBehavior?.(this, name, this.deps.getAmbientPointer());
 	}

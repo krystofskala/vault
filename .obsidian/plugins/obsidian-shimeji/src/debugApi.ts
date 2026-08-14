@@ -1,4 +1,5 @@
 import { setVerboseLogging } from "./engine/debugLog";
+import { describeSurface } from "./engine/MovementAudit";
 import type { Stage } from "./engine/Stage";
 
 export interface ShimejiDebugApi {
@@ -9,6 +10,8 @@ export interface ShimejiDebugApi {
 	elementsAtTop(y?: number): void;
 	mascotRects(): void;
 	dumpLedges(): void;
+	where(): void;
+	watch(seconds?: number): void;
 }
 
 declare global {
@@ -79,6 +82,65 @@ export function installDebugApi(getStage: () => Stage | undefined): void {
 				});
 			});
 		},
+		/** Where every mascot is right now, and what it is standing on / clinging to. The first thing
+		 * to reach for when movement looks wrong: it names the surface, not just the coordinates. */
+		where() {
+			const stage = getStage();
+			if (!stage) {
+				console.info("[obsidian-shimeji] no stage");
+				return;
+			}
+			const mascots = stage.getMascots();
+			if (mascots.length === 0) {
+				console.info("[obsidian-shimeji] no live mascots");
+				return;
+			}
+			console.table(
+				mascots.map((m, i) => ({
+					"#": i,
+					x: Math.round(m.physics.x),
+					y: Math.round(m.physics.y),
+					vx: Math.round(m.physics.vx * 10) / 10,
+					vy: Math.round(m.physics.vy * 10) / 10,
+					facing: m.physics.facing === 1 ? "right" : "left",
+					on: describeSurface(m.physics),
+					behavior: m.currentBehaviorName ?? "-",
+				})),
+			);
+		},
+
+		/** Samples position once per animation frame for `seconds`, then prints the track. Use this when
+		 * something looks wrong *while it happens* — `where()` is a snapshot, this is the movie. */
+		watch(seconds = 5) {
+			const stage = getStage();
+			const mascot = stage?.getMascots()[0];
+			if (!mascot) {
+				console.info("[obsidian-shimeji] no live mascots to watch");
+				return;
+			}
+			const rows: Array<Record<string, unknown>> = [];
+			const started = performance.now();
+			let last = { x: mascot.physics.x, y: mascot.physics.y };
+			const sample = () => {
+				const t = performance.now() - started;
+				const p = mascot.physics;
+				const step = Math.hypot(p.x - last.x, p.y - last.y);
+				rows.push({ ms: Math.round(t), x: Math.round(p.x), y: Math.round(p.y), step: Math.round(step), on: describeSurface(p), behavior: mascot.currentBehaviorName ?? "-" });
+				last = { x: p.x, y: p.y };
+				if (t < seconds * 1000) requestAnimationFrame(sample);
+				else {
+					console.info(`[obsidian-shimeji] ${seconds}s track (${rows.length} frames):`);
+					console.table(rows);
+					// A frame-to-frame jump far beyond the pack's fastest animation is the teleport
+					// signature; surfaced explicitly because it is easy to miss scrolling a long table.
+					const jumps = rows.filter((r) => (r.step as number) > 60);
+					if (jumps.length) console.warn(`[obsidian-shimeji] ${jumps.length} frame(s) jumped >60px:`, jumps);
+				}
+			};
+			requestAnimationFrame(sample);
+			console.info(`[obsidian-shimeji] watching mascot#0 for ${seconds}s...`);
+		},
+
 		// For chasing "why did it land/climb/spawn there" reports (pane-heavy layouts producing
 		// unexpected floor/ceiling geometry) without needing a live debugger session — paste this
 		// output straight into a bug report.
@@ -106,7 +168,7 @@ export function installDebugApi(getStage: () => Stage | undefined): void {
 		},
 	};
 	console.info(
-		"[obsidian-shimeji] debug helpers ready in this console: window.shimejiDebug.stageCount() / .hideOverlay() / .showOverlay() / .elementsAtTop() / .mascotRects() / .dumpLedges() / .setVerbose(true)",
+		"[obsidian-shimeji] debug helpers ready in this console: window.shimejiDebug.stageCount() / .hideOverlay() / .showOverlay() / .elementsAtTop() / .mascotRects() / .dumpLedges() / .where() / .watch(5) / .setVerbose(true)",
 	);
 }
 
