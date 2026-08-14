@@ -112,6 +112,10 @@ export interface MascotDriver {
 	 * Invented; see BehaviorAI.orderToSpot. */
 	orderToSpot?(point: Vec2): void;
 	cancelSpotOrder?(): void;
+	/** Whether a "get to that spot" order is still outstanding, so a caller can wait for it. */
+	hasSpotOrder?(): boolean;
+	/** The behavior currently running, for the debug readout (shimejiDebug.where/watch). */
+	currentBehaviorName?(): string | undefined;
 	onDetach?(mascot: Mascot): void;
 }
 
@@ -308,11 +312,6 @@ export class Mascot {
 	}
 
 	/** Jumps this mascot straight to a named behavior (right-click menu, Breed's BornBehavior). */
-	/** What the driver is currently running, for the debug readout. Undefined with no pack-backed
-	 * driver attached (the placeholder state machine has no named behaviors). */
-	get currentBehaviorName(): string | undefined {
-		return this.driver?.currentBehaviorName?.();
-	}
 
 	startNamedBehavior(name: string): void {
 		this.driver?.startNamedBehavior?.(this, name, this.deps.getAmbientPointer());
@@ -341,6 +340,22 @@ export class Mascot {
 	/** Sends this mascot to a specific viewport point — see MascotDriver.orderToSpot. */
 	orderToSpot(point: Vec2): void {
 		this.driver?.orderToSpot?.(point);
+	}
+
+	/** Whether an order is still outstanding. The in-Obsidian self-test waits on this rather than
+	 * guessing how long a leg ought to take — a wall crossing runs at ~0.64px/tick. */
+	get hasSpotOrder(): boolean {
+		return this.driver?.hasSpotOrder?.() ?? false;
+	}
+
+	cancelSpotOrder(): void {
+		this.driver?.cancelSpotOrder?.();
+	}
+
+	/** What the driver is currently running, for the debug readout. Undefined with no pack-backed
+	 * driver attached (the placeholder state machine has no named behaviors). */
+	get currentBehaviorName(): string | undefined {
+		return this.driver?.currentBehaviorName?.();
 	}
 
 	private bindPointerHandlers(): void {

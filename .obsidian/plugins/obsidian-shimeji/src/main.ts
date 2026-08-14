@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Notice, Platform, Plugin } from "obsidian";
+import { MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { ObsidianDomEnvironment } from "./engine/Environment";
 import { Mascot } from "./engine/Mascot";
@@ -10,6 +10,7 @@ import { ObsidianPaneActions } from "./ObsidianPaneActions";
 import { mergeCustomContent } from "./shimeji/CustomContentBuilder";
 import { buildPaneWranglingContent } from "./shimeji/paneWrangling";
 import { PackDriver } from "./shimeji/PackDriver";
+import { runMovementSelfTest, startFreePlayRecording, type SelfTestHandle } from "./movementSelfTest";
 import { loadPacksFromFolder } from "./shimeji/PackLoader";
 import { sounds } from "./shimeji/SoundPlayer";
 import type { MascotPack } from "./shimeji/types";
@@ -166,6 +167,11 @@ export default class ShimejiPlugin extends Plugin {
 			callback: () => this.closeMascotOpenedPanes(),
 		});
 		this.addCommand({ id: "shimeji-rescan", name: "Rescan pack folder", callback: () => this.rescanPacks() });
+		// In-Obsidian movement testing. The headless suite only ever exercises the geometry model;
+		// these two exercise the real stage, real DOM-derived ledges and real frame pacing, which is
+		// where "it feels wrong but the tests pass" lives.
+		this.addCommand({ id: "shimeji-movement-selftest", name: "Run movement self-test (writes a report)", callback: () => this.runMovementSelfTest() });
+		this.addCommand({ id: "shimeji-record-movement", name: "Start/stop recording movement (writes a report)", callback: () => this.toggleMovementRecording() });
 		// Real Main.java's "Restore IE!" tray item — always available regardless of the "Window
 		// mischief" toggle (see paneActionsGate), same reasoning as its real counterpart: turning
 		// throwing off in the future shouldn't strand a window thrown while it was still on.
@@ -204,6 +210,83 @@ export default class ShimejiPlugin extends Plugin {
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+	}
+
+	private selfTest?: SelfTestHandle;
+	private selfTestStatus?: HTMLElement;
+	private recording?: { stop(): string };
+	private recordingStatus?: HTMLElement;
+
+	/**
+	 * Drives one live mascot through every movement the pack has, then a lap of the real window, and
+	 * writes what happened to a note. Reduces to a single mascot first: with several on screen it is
+	 * not clear which one a row in the report describes.
+	 */
+	private runMovementSelfTest(): void {
+		if (this.selfTest) {
+			this.selfTest.cancel();
+			new Notice("Shimeji: cancelling self-test — the partial report will still be written");
+			return;
+		}
+		const stage = this.stage;
+		if (!stage) return;
+		if (stage.getMascots().length === 0) this.spawnMascot();
+		stage.removeAllButOne();
+		const mascot = stage.getMascots()[0];
+		if (!mascot) {
+			new Notice("Shimeji: no mascot to test");
+			return;
+		}
+		new Notice("Shimeji: self-test started. It takes a few minutes — run the command again to cancel.");
+		this.selfTestStatus = this.addStatusBarItem();
+		this.selfTestStatus.setText("Shimeji test: starting");
+		this.selfTest = runMovementSelfTest(stage, mascot, {
+			onProgress: (message) => this.selfTestStatus?.setText(`Shimeji test: ${message}`),
+			onDone: (report) => {
+				this.selfTest = undefined;
+				this.selfTestStatus?.remove();
+				this.selfTestStatus = undefined;
+				void this.writeReport("selftest", report);
+			},
+		});
+	}
+
+	/** The unscripted counterpart: leave it running and use Obsidian normally. A script only exercises
+	 * what it was told to; this catches whatever a real session does to a mascot. */
+	private toggleMovementRecording(): void {
+		if (this.recording) {
+			const report = this.recording.stop();
+			this.recording = undefined;
+			this.recordingStatus?.remove();
+			this.recordingStatus = undefined;
+			void this.writeReport("recording", report);
+			return;
+		}
+		const mascot = this.stage?.getMascots()[0];
+		if (!this.stage || !mascot) {
+			new Notice("Shimeji: spawn a mascot first");
+			return;
+		}
+		this.recording = startFreePlayRecording(this.stage, mascot);
+		this.recordingStatus = this.addStatusBarItem();
+		this.recordingStatus.setText("● Shimeji recording");
+		new Notice("Shimeji: recording. Use Obsidian normally, then run the command again to stop.");
+	}
+
+	/** Into the vault rather than the console, so it survives a reload and can be pasted whole. */
+	private async writeReport(kind: string, body: string): Promise<void> {
+		const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+		const path = `Shimeji ${kind} ${stamp}.md`;
+		try {
+			await this.app.vault.create(path, body);
+			new Notice(`Shimeji: report written to "${path}"`);
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (file instanceof TFile) await this.app.workspace.getLeaf(true).openFile(file);
+		} catch (e) {
+			console.error("[obsidian-shimeji] could not write the report; logging it here instead", e);
+			console.log(body);
+			new Notice("Shimeji: could not write the report — logged to the console instead");
+		}
 	}
 
 	async rescanPacks(): Promise<void> {

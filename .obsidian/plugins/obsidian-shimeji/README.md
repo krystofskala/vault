@@ -586,6 +586,33 @@ Shift is what makes the gesture safe to listen for: a bare triple-click is ordin
 The listener is passive — it never calls `preventDefault`, so the clicks still do whatever Obsidian
 would normally do with them.
 
+## Testing movement inside Obsidian
+
+Two commands, because they catch different things. Both write a Markdown report into the vault and
+open it, so it can be read and pasted straight back.
+
+**"Run movement self-test"** — reduces to a single mascot, forces every movement behavior the pack
+declares one at a time, then sends it on a lap of the real window (both walls, the ceiling, the
+floor, every open pane's top edge). Takes a few minutes at real speed; a status-bar item shows the
+current step, and running the command again cancels and still writes the partial report.
+
+**"Start/stop recording movement"** — records while you simply use Obsidian. This is the one more
+likely to find something: a script only exercises what it was told to, whereas resizing a split under
+a walking mascot, collapsing a sidebar or switching workspaces is where the real failures have come
+from. Leave it on, use the app normally, run the command again to stop.
+
+Both flag the same anomalies automatically — a frame-to-frame jump over 60px (a teleport), a position
+going NaN, leaving the window, or standing still through a leg that was supposed to be travelling —
+and the report lists them at the top before the timeline.
+
+This is deliberately separate from the headless test suite. That suite simulates against synthetic
+geometry, so it only ever checks what the geometry model says should happen; everything downstream is
+invisible to it — the ledge scan over real DOM rects, panes moving underfoot, frame pacing against
+the fixed timestep, rendered position versus physics position.
+
+For a quick look without a full run, the console has `shimejiDebug.where()` (a snapshot of every
+mascot and what it is standing on) and `shimejiDebug.watch(5)` (a five-second frame-by-frame track).
+
 ## Getting around: route-finding
 
 Mascots plan routes across the surfaces that actually exist, rather than only pacing whichever floor
