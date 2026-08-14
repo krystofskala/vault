@@ -1159,3 +1159,71 @@ being the thing that reads the user's actual files. Added `test/stubs/obsidian.t
 `resolve.alias` in vitest.config.ts. The stub implements `normalizePath` faithfully rather than as an
 identity function, because a lazy stub there would have let this exact path bug pass. Three of the
 four new loader tests were confirmed red against the previous commit before being accepted.
+
+## Invented: pane and sidebar wrangling (2026-08-14)
+
+Requested as the Obsidian-native replacement for the original's window throwing: squash a stacked
+pane by landing on it, haul its bottom edge down from underneath, shove side-by-side panes apart,
+collapse a sidebar. Entirely invented — but the constraint that shaped it is a real property of the
+original, and worth recording.
+
+**Why the design is "params on existing actions" rather than new actions.** shimeji-ee animates
+window manipulation by clipping the sprite against the window frame, so the mascot appears to grip
+an edge from behind. A DOM overlay cannot clip against a pane it does not own, so that whole visual
+vocabulary is unavailable and these interactions have to borrow animations the pack already has. A
+new `<Action>` would need its own `<Pose>` list and therefore hardcoded image filenames — fatal for
+a multi-character pack whose sprite sheets differ. A *param* attaches to an action referenced **by
+name**, so `paneWrangling.ts` never mentions a single image. Two params: `PaneResize` (px per tick,
+plus `PaneResizeByFacing`) and `Sidebar` (a one-shot collapse/expand/toggle).
+
+Which pane and which axis are derived from what the mascot is touching (`resolveActivePaneLedge`,
+the same resolution the pack's own `activeIE.*` conditions use, so the two cannot disagree) — never
+from the author. A floor or ceiling is a horizontal edge and therefore resizes **height**; a wall
+resizes **width**. That removes a whole class of "squash resized it sideways" bug by construction.
+
+Three things found while building it, each of which would have shipped broken:
+
+40. **A param read off the top frame would have done nothing for most real actions.** `HoldOntoCeiling`
+    and `HoldOntoWall` are *Sequences* whose only job is to hand a `Duration` to `GrabCeiling`/
+    `GrabWall`; the frame on top of the stack when a per-tick effect fires is therefore the child,
+    not the one carrying the param. `PaneResize` is now resolved at push and **inherited by child
+    frames**, with `hasOwnProperty` rather than a truthiness test so an explicit `PaneResize="0"` on
+    a child still means "stop" instead of falling back to the parent's value.
+
+41. **The mascot has to ride the edge it pushes, or the interaction kills itself.** A mascot hauling
+    at 6px/tick is 12px adrift after two ticks — past `LOST_GROUND_REACH` — and the hold aborts
+    straight into `Fall`. `ridePaneEdge` moves it with the edge, and only when `resizeBy` reports it
+    actually resized: a pane at its clamp, a wrong-axis split, or the feature switched off all
+    return false, and riding an edge that did not move would walk the mascot off it for free.
+    Deliberately limited to floor/ceiling, where `resizeBy`'s neighbour choice makes the edge's
+    direction of travel unambiguous. A vertical edge has no such guarantee, so a shove is left to
+    lose its grip and drop — which reads fine, and is why `PaneShove` is short.
+
+42. **`resizeBy` at a clamp used to keep requesting layout passes forever.** It now returns false
+    when the computed dimension is unchanged, instead of re-setting identical values and calling
+    `requestResize()` on every tick of a mascot leaning on an already-minimum pane.
+
+Also: `resizeBy` gained an optional axis constraint and a boolean return; `splitAxis` derives the
+axis by **comparing sibling rects** rather than reading Obsidian's `mod-vertical`/`mod-horizontal`
+class names, which are a convention with no stability promise and are easy to get backwards.
+`setSidebar` is the one part of this that uses only documented API (`WorkspaceSidedock.collapse/
+expand/toggle`), typed structurally so mobile's `WorkspaceMobileDrawer` satisfies it too.
+
+The overlay is applied *before* the user's own custom content in `refreshAvailablePacks`, so
+authoring an entry of the same name replaces it — it is a default, not a privileged built-in — and
+`Shimeji/conf/actions.xml` remains untouched, as it has throughout.
+
+**Testing note.** The first attempt at these tests asserted absolute positions against a *static*
+fake ledge, and was measuring the floor code rather than this feature: the landing snap pins the
+mascot back to the unmoved edge every tick, hiding any follow bug completely. The fake now models
+what Obsidian actually does — a successful resize moves the pane, and the ledge is recomputed — and
+the assertion is that the mascot and the edge end up in the same place. One test also pins the
+Sequence-inheritance case from entry 40 specifically, since that is the shape that broke first.
+
+### Known gap, requested for later
+
+Authoring genuinely *new* animations from inside Obsidian — importing frames and scripting a pose
+timeline — rather than only recombining a pack's existing actions. `CustomContentBuilder` and the
+settings editor already construct actions/behaviors from specs and `CustomPoseSpec` already carries
+image/anchor/velocity/duration; what is missing is an image-import path into the pack folder and a
+timeline UI over `CustomAnimationVariantSpec.poses`.

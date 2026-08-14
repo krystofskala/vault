@@ -39,6 +39,10 @@ export interface ShimejiSettings {
 	 * toggle here, this can genuinely resize your layout or spawn/fling a whole separate window
 	 * on its own, not just move a mascot around. See PaneActions/ObsidianPaneActions. */
 	allowWindowThrow: boolean;
+	/** Invented, and Obsidian's answer to the original's window throwing: mascots squash, stretch,
+	 * shove and fold your panes and sidebars. Separate from allowWindowThrow because that one spawns
+	 * a real OS window, which is a different order of surprise. See shimeji/paneWrangling.ts. */
+	allowPaneWrangling: boolean;
 	/** Invented — shimeji-ee has no vault/note awareness at all. While a mascot happens to be on
 	 * the pane you're actively working in, occasionally swaps in a random other note from the
 	 * vault. Off by default for the same reason as allowWindowThrow: it changes what you're
@@ -70,6 +74,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	soundsEnabled: false,
 	soundVolume: 70,
 	allowWindowThrow: false,
+	allowPaneWrangling: true,
 	allowNoteMischief: false,
 	customContent: {},
 };
@@ -303,6 +308,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 						this.plugin.applySoundSettings();
 					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Pane wrangling")
+			.setDesc(
+				"Obsidian's stand-in for the original's window throwing. Mascots squash a stacked pane by landing on it, haul its bottom edge down while hanging underneath, shove side-by-side panes apart, and fold a sidebar shut by sitting on it. They use your pack's existing animations, so this works with any character. Turn it off if you would rather they left your layout alone.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.allowPaneWrangling).onChange(async (value) => {
+					this.plugin.settings.allowPaneWrangling = value;
+					await this.plugin.saveSettings();
+					this.plugin.applyCustomContent();
+				}),
 			);
 
 		new Setting(containerEl)

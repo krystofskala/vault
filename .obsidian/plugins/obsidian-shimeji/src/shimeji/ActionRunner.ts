@@ -1,7 +1,7 @@
 import { findCeilingAt } from "../engine/Ledges";
 import type { Mascot } from "../engine/Mascot";
 import { applyGravityAndLand, findClingableWall } from "../engine/nativeBehaviors";
-import type { PaneActions, ThrownWindowHandle } from "../engine/PaneActions";
+import type { PaneActions, ResizeAxis, SidebarMode, ThrownWindowHandle } from "../engine/PaneActions";
 import type { EngineConfig, Ledge, MascotPhysics, PaneRef, Rect } from "../engine/types";
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "./constants";
 import { evaluate, evaluateCondition, parseParamValue, withLocals, type ExprContext, type ExprValue } from "./Expression";
@@ -64,6 +64,28 @@ interface Frame {
 	 * `paneRef` for its own geometry. */
 	grabbedPaneRef?: PaneRef;
 	grabbedPaneRect?: Rect;
+	/**
+	 * Whichever pane this frame is physically touching, and which dimension pushing on *that* edge
+	 * would change — captured once at push time, for the invented `PaneResize`/`Sidebar` side-effect
+	 * params (see applyPaneSideEffects). Distinct from grabbedPaneRef above, which deliberately
+	 * survives a whole jump-carry-throw chain: this one is about the edge under the mascot's feet or
+	 * hands *now*, so a fresh capture per action is exactly right.
+	 *
+	 * The axis follows from which kind of ledge it is, which is what makes the whole thing
+	 * self-consistent without an author-supplied axis: a floor or ceiling is a horizontal edge, so
+	 * leaning on it changes the pane's **height**; a wall is vertical, so pushing it changes **width**.
+	 */
+	paneTouch?: PaneTouch;
+	/**
+	 * `PaneResize`/`PaneResizeByFacing`, resolved once at push and **inherited by child frames**.
+	 * Inheritance is not a nicety: real pack actions like `HoldOntoCeiling` are Sequences whose only
+	 * job is to reference `GrabCeiling` with a Duration, so the frame actually running the animation
+	 * — and therefore the frame on top of the stack when the per-tick side effect fires — is the
+	 * child. A param read only off the top frame's own attributes would silently do nothing for every
+	 * such wrapper, which is most of the interesting ones.
+	 */
+	paneResizePerTick: number;
+	paneResizeByFacing: boolean;
 }
 
 const DEFERRED_PARAMS = new Set(["TargetX", "TargetY", "Duration"]);
@@ -128,6 +150,60 @@ function boolParam(frame: Frame, env: PushEnv, key: string, fallback: boolean): 
 	return fallback;
 }
 
+/**
+ * Which pane edge the mascot is physically leaning on, and which dimension leaning on it changes.
+ * Reuses `resolveActivePaneLedge` so this always agrees with what the pack's own
+ * `activeIE.topBorder.isOn(...)` family of conditions reports — the behaviours that carry these
+ * params are gated on exactly those conditions, so the two must not be able to disagree.
+ */
+interface PaneTouch {
+	paneRef: PaneRef;
+	axis: ResizeAxis;
+	/** Which edge of the pane the mascot is on. Needed beyond `axis` because it decides which way the
+	 * edge travels for a given resize, and therefore which way the mascot has to travel to stay on
+	 * it — see ridePaneEdge. */
+	kind: "floor" | "ceiling" | "wall";
+}
+
+function resolvePaneTouch(physics: MascotPhysics): PaneTouch | undefined {
+	const ledge = resolveActivePaneLedge(physics);
+	if (!ledge || ledge.paneRef === undefined) return undefined;
+	return { paneRef: ledge.paneRef, axis: ledge.kind === "wall" ? "width" : "height", kind: ledge.kind };
+}
+
+/**
+ * Moves the mascot with the edge it just pushed, so it stays attached instead of being left behind.
+ *
+ * Without this the feature cannot work at all: a mascot hauling a pane edge down at 6px/tick is 12px
+ * adrift after two ticks, past LOST_GROUND_REACH, and the Move/hold aborts straight into `Fall` —
+ * the interaction would end almost the instant it began, having moved the pane a few pixels.
+ *
+ * Only floor and ceiling are handled, and deliberately so. For those two the geometry is
+ * unambiguous: `resizeBy` grows a pane into the sibling *after* it for a positive delta and the one
+ * *before* it for a negative one, so a pane the mascot stands on top of has its top edge move down
+ * by exactly `-delta`, and one it hangs beneath has its bottom edge move down by exactly `+delta`.
+ * A vertical edge has no such guarantee — which sibling a horizontal split takes the space from
+ * decides whether the pushed edge moves at all — so a shove is left to detach and drop if it does,
+ * which reads perfectly well as shoving something and losing your grip.
+ */
+function ridePaneEdge(physics: MascotPhysics, touch: PaneTouch, deltaPx: number): void {
+	if (touch.kind === "floor") physics.y -= deltaPx;
+	else if (touch.kind === "ceiling") physics.y += deltaPx;
+}
+
+function parseSidebarMode(raw: string): SidebarMode | undefined {
+	switch (raw.trim().toLowerCase()) {
+		case "collapse":
+			return "collapse";
+		case "expand":
+			return "expand";
+		case "toggle":
+			return "toggle";
+		default:
+			return undefined;
+	}
+}
+
 /** Frame-by-frame interpreter for a single named Action (and whatever it references). See
  * PackDriver/BehaviorAI for how this fits into the overall pack-driven mascot. */
 /** How far from a wall/ceiling ledge still counts as "on" it, for the sole purpose of
@@ -189,10 +265,31 @@ export class ActionRunner {
 			holdElapsedMs: 0,
 			instantComplete: false,
 			bredAlready: false,
+			paneResizePerTick: 0,
+			paneResizeByFacing: false,
 			ticks: 0,
 			grabbedPaneRef: parent?.grabbedPaneRef,
 			grabbedPaneRect: parent?.grabbedPaneRect,
 		};
+
+		// Which pane edge this action is leaning on right now, for the invented pane side effects.
+		// Captured for *every* action, not just specific embedded ones, because the side effects are
+		// params any action can carry rather than actions of their own — see applyPaneSideEffects.
+		// Inherited from the parent when this action declares nothing of its own — see the field
+		// comment. `hasOwnProperty` rather than a truthiness test so an explicit PaneResize="0" on a
+		// child is respected as "stop resizing" rather than falling back to the parent's value.
+		const declaresResize = frame.action.params.PaneResize !== undefined || Object.prototype.hasOwnProperty.call(locals, "PaneResize");
+		frame.paneResizePerTick = declaresResize ? numParam(frame, env, "PaneResize", 0) : (parent?.paneResizePerTick ?? 0);
+		frame.paneResizeByFacing = declaresResize ? boolParam(frame, env, "PaneResizeByFacing", false) : (parent?.paneResizeByFacing ?? false);
+		// The pane under the mascot right now, or the one an enclosing frame already resolved — a
+		// Sequence resolves it while the mascot is still touching the edge, and its children must not
+		// re-resolve to `undefined` a tick later just because the edge has since moved out of reach.
+		frame.paneTouch = parent?.paneTouch ?? resolvePaneTouch(env.mascot.physics);
+
+		// A one-shot, so it belongs at push time alongside Offset/Look rather than in the tick loop:
+		// collapsing a sidebar repeatedly for the duration of an animation would be absurd.
+		const sidebarMode = parseSidebarMode(strParam(frame, env, "Sidebar"));
+		if (sidebarMode && frame.paneTouch) env.paneActions?.setSidebar?.(frame.paneTouch.paneRef, sidebarMode);
 
 		// The one moment a mascot is actually touching the pane it's about to carry off and
 		// throw — see the grabbedPaneRef/grabbedPaneRect field comments on Frame.
@@ -306,6 +403,9 @@ export class ActionRunner {
 			// *currently effective* Animation's hotspots — so which regions are clickable follows
 			// whichever animation variant the action's own conditions select right now.
 			this.refreshHotspots(frame, env);
+			// Invented pane wrangling, applied here for the same reason affordances are: it is a
+			// per-tick property of whatever action is running, readable off any action's own params.
+			this.applyPaneSideEffects(frame, env);
 			frame.ticks++;
 			const done = this.tickFrame(frame, env, dt, ledges);
 			if (!done) return false;
@@ -314,6 +414,31 @@ export class ActionRunner {
 		console.warn(`[obsidian-shimeji] action chain exceeded iteration guard on "${this.pack.name}", aborting`);
 		this.stack = [];
 		return true;
+	}
+
+	/**
+	 * **Invented**, with nothing in shimeji-ee to port: `PaneResize` on any action makes that action
+	 * push the pane edge the mascot is touching, by that many pixels per tick, for as long as it
+	 * runs. Deliberately a *param* rather than an action of its own, for a reason specific to this
+	 * project: the original animates window manipulation by clipping the sprite against the window
+	 * frame, which is impossible here, so these interactions have to borrow existing animations —
+	 * and a param composes onto any pack's own `Bouncing`/`Sit`/`HoldOntoWall` by name, whereas a new
+	 * action would need its own `<Pose>` list and therefore hardcoded image filenames that no two
+	 * packs share.
+	 *
+	 * Which pane and which axis come from what the mascot is actually touching (see resolvePaneTouch),
+	 * never from the author, so a squash can't accidentally resize a pane sideways. `PaneResizeByFacing`
+	 * multiplies by facing, for push/pull against a vertical edge where "away from me" is the whole
+	 * point.
+	 */
+	private applyPaneSideEffects(frame: Frame, env: PushEnv): void {
+		const touch = frame.paneTouch;
+		if (frame.paneResizePerTick === 0 || !touch) return;
+		const signed = frame.paneResizeByFacing ? frame.paneResizePerTick * env.mascot.physics.facing : frame.paneResizePerTick;
+		// Only ride the edge when the resize actually happened. A pane already at its clamp, a split
+		// that doesn't resize along this axis, or the whole feature switched off all report false —
+		// and moving the mascot for a resize that didn't occur would walk it off the edge for free.
+		if (env.paneActions?.resizeBy?.(touch.paneRef, signed, touch.axis)) ridePaneEdge(env.mascot.physics, touch, signed);
 	}
 
 	private refreshHotspots(frame: Frame, env: PushEnv): void {

@@ -8,6 +8,7 @@ import { Stage } from "./engine/Stage";
 import { DEFAULT_ENGINE_CONFIG, type EngineConfig } from "./engine/types";
 import { ObsidianPaneActions } from "./ObsidianPaneActions";
 import { mergeCustomContent } from "./shimeji/CustomContentBuilder";
+import { buildPaneWranglingContent } from "./shimeji/paneWrangling";
 import { PackDriver } from "./shimeji/PackDriver";
 import { loadPacksFromFolder } from "./shimeji/PackLoader";
 import { sounds } from "./shimeji/SoundPlayer";
@@ -47,9 +48,15 @@ export default class ShimejiPlugin extends Plugin {
 	 * restoreThrown is deliberately always allowed through regardless of the toggle — turning
 	 * "throw" off shouldn't strand an already-thrown window with no way back. */
 	private paneActionsGate: PaneActions = {
-		resizeBy: (pane, deltaPx) => {
-			if (this.settings.allowWindowThrow) this.obsidianPaneActions.resizeBy(pane, deltaPx);
-		},
+		// Resizing is gated by *either* toggle, because it is the same physical act in both cases —
+		// a mascot changing the size of one of your panes. "Window mischief" reaches it by carrying a
+		// pane while walking (real WalkWithIE); "pane wrangling" reaches it deliberately. Keeping it
+		// behind only the throw toggle would have meant pane wrangling silently did nothing.
+		resizeBy: (pane, deltaPx, axis) =>
+			this.settings.allowPaneWrangling || this.settings.allowWindowThrow ? this.obsidianPaneActions.resizeBy(pane, deltaPx, axis) : false,
+		setSidebar: (pane, mode) => (this.settings.allowPaneWrangling ? this.obsidianPaneActions.setSidebar(pane, mode) : false),
+		// Throwing stays behind its own toggle alone: it is the only one that spawns a separate OS
+		// window, which is a different order of surprise from resizing a split.
 		beginThrow: (pane) => (this.settings.allowWindowThrow ? this.obsidianPaneActions.beginThrow(pane) : undefined),
 		restoreThrown: () => this.obsidianPaneActions.restoreThrown(),
 	};
@@ -199,7 +206,14 @@ export default class ShimejiPlugin extends Plugin {
 	}
 
 	private refreshAvailablePacks(): void {
-		this.availablePacks = this.basePacks.map((p) => mergeCustomContent(p, this.settings.customContent[p.id]));
+		// Two overlays, in this order deliberately: the invented pane-wrangling set first, then the
+		// user's own on top. mergeCustomContent replaces by name, so anyone who wants to retune or
+		// disable one of these can simply author an action or behavior of the same name in the
+		// custom-content editor — the built-in one loses, exactly as if it had been a pack default.
+		const paneWrangling = this.settings.allowPaneWrangling ? buildPaneWranglingContent() : undefined;
+		this.availablePacks = this.basePacks.map((p) =>
+			mergeCustomContent(mergeCustomContent(p, paneWrangling), this.settings.customContent[p.id]),
+		);
 	}
 
 	/** Re-derives availablePacks from the current custom content and rebinds every live

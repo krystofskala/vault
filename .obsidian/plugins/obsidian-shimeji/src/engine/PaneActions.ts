@@ -16,6 +16,17 @@ import type { PaneRef } from "./types";
  * original performs, just reached through Obsidian's own popout-window API instead of a native
  * bridge.
  */
+/**
+ * Which dimension a resize is allowed to change. A pane only resizes along its own split's axis —
+ * side-by-side siblings resize width, stacked ones resize height — so an action with a specific
+ * physical intent has to be able to say which it meant. "Squash the pane I'm standing on" is only
+ * meaningful against a stacked split; run unconstrained on a side-by-side one it would silently
+ * change the pane's *width* instead, which looks like a bug rather than a mascot.
+ */
+export type ResizeAxis = "width" | "height";
+
+export type SidebarMode = "collapse" | "expand" | "toggle";
+
 export interface PaneActions {
 	/** Real WalkWithIE/RunWithIE (the "carry it along while walking" phase before a throw):
 	 * change this pane's size by deltaPx, growing in the direction the mascot is currently
@@ -23,8 +34,20 @@ export interface PaneActions {
 	 * real split orientation, not by which action fired — a pane living in a side-by-side split
 	 * resizes left/right, one in a stacked split resizes up/down. Uses Obsidian's own
 	 * WorkspaceItem.setDimension()-equivalent internals, which aren't part of the public plugin
-	 * API — see the implementation's own comment for the real precedent this is based on. */
-	resizeBy?(pane: PaneRef, deltaPx: number): void;
+	 * API — see the implementation's own comment for the real precedent this is based on.
+	 *
+	 * `axis`, when given, makes the call a no-op unless the pane's own split actually resizes along
+	 * that dimension — see ResizeAxis. Omitted (the WalkWithIE case) means "whichever axis this
+	 * pane resizes along", the original behaviour. Returns whether anything actually changed, so a
+	 * caller can tell "not applicable here" from "done". */
+	resizeBy?(pane: PaneRef, deltaPx: number, axis?: ResizeAxis): boolean;
+
+	/** Invented, with no counterpart in shimeji-ee at all: collapse/expand the sidebar `pane` lives
+	 * in. Obsidian's sidebars are the one part of its layout that has a real open/shut state, which
+	 * makes them the closest thing here to the original's "this window can be minimised". Unlike
+	 * resizeBy this uses only documented API (`WorkspaceSidedock.collapse/expand/toggle`). Returns
+	 * false when the pane isn't in a sidebar at all, so a behaviour can fire harmlessly anywhere. */
+	setSidebar?(pane: PaneRef, mode: SidebarMode): boolean;
 
 	/** Real ThrowIE: pop this pane into its own OS window (if not already popped this throw) and
 	 * return a handle for the caller to drive with per-tick position updates using the same

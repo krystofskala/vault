@@ -616,6 +616,49 @@ Two notes on how it fits with the real mechanisms:
   be unable to pick the mascot up. Where the mascot is held is a property of the grab, so it lives
   on the grab path.
 
+## Pane wrangling (invented, on by default)
+
+Obsidian's replacement for the original engine's window throwing, and the more useful half of it in
+practice. Mascots interact with your actual layout:
+
+- **Squash** a stacked pane by landing on its top edge and leaning on it — the pane shrinks and the
+  mascot rides the edge down.
+- **Haul** a pane's bottom edge downward while hanging underneath it, making it taller.
+- **Shove** side-by-side panes apart by bracing against one's side.
+- **Fold** a sidebar shut by sitting on it.
+
+Turn it off under **Settings → Shimeji Desktop Mascot → Behavior → Pane wrangling** if you would
+rather they left your layout alone. Resizing is clamped to 10–90% of a split, so a mascot can't
+squash a pane out of existence.
+
+### Why it borrows your pack's existing animations
+
+The original animates window manipulation with a trick that isn't available here: it clips the
+sprite against the window frame, so the mascot looks like it's gripping an edge from behind. A DOM
+overlay can't clip against a pane it doesn't own. So these interactions reuse animations your pack
+*already has* — a hard landing to squash, a ceiling hang to haul, a wall grip to shove — referenced
+**by name**, never by image filename. That's what makes it work across a multi-character pack whose
+sprite sheets differ.
+
+Mechanically it's two attributes any action can carry, rather than four new actions:
+
+| Attribute | Effect |
+| --- | --- |
+| `PaneResize="-7"` | Push the touched pane's edge by that many pixels *per tick* while this action runs |
+| `PaneResizeByFacing="true"` | Multiply by facing, so it always pushes away from the mascot |
+| `Sidebar="collapse"` | One-shot when the action starts (`collapse` / `expand` / `toggle`) |
+
+Which pane, and which dimension, come from what the mascot is physically touching — never from the
+attribute — so a squash can't accidentally resize a pane sideways. The whole set is layered in
+through the same custom-content merge your own edits use, and is applied *first*, so **an action or
+behavior you author with the same name replaces it outright**. The names are `PaneSquash`,
+`PaneHaulDown`, `PaneShove` and `PaneFoldSidebar`.
+
+Still to come: authoring genuinely new animations — importing your own frames and scripting them
+from inside Obsidian — rather than only recombining a pack's existing ones. The custom-content
+editor already builds actions and behaviors; what it lacks is an image-import path and a pose
+timeline.
+
 ## Window mischief (experimental, off by default)
 
 Real shimeji-ee mascots can grab the OS window they're standing next to, carry it along while

@@ -1,5 +1,13 @@
-import { MarkdownView, WorkspaceWindow, type App, type WorkspaceItem, type WorkspaceLeaf, type WorkspaceParent, type WorkspaceSplit } from "obsidian";
-import type { PaneActions, ThrownWindowHandle } from "./engine/PaneActions";
+import {
+	MarkdownView,
+	WorkspaceWindow,
+	type App,
+	type WorkspaceItem,
+	type WorkspaceLeaf,
+	type WorkspaceParent,
+	type WorkspaceSplit,
+} from "obsidian";
+import type { PaneActions, ResizeAxis, SidebarMode, ThrownWindowHandle } from "./engine/PaneActions";
 import type { PaneRef } from "./engine/types";
 
 /**
@@ -39,6 +47,14 @@ declare module "obsidian" {
 	}
 }
 
+/** The subset of WorkspaceSidedock / WorkspaceMobileDrawer this actually needs. */
+interface CollapsibleDock {
+	containerEl: HTMLElement;
+	collapse(): void;
+	expand(): void;
+	toggle(): void;
+}
+
 const MIN_DIMENSION_PERCENT = 10;
 const MAX_DIMENSION_PERCENT = 90;
 
@@ -73,21 +89,47 @@ export class ObsidianPaneActions implements PaneActions {
 		return undefined;
 	}
 
-	resizeBy(pane: PaneRef, deltaPx: number): void {
+	/**
+	 * Which dimension this split actually resizes, derived from where the two siblings *are* rather
+	 * than from an internal class name. Obsidian marks splits `mod-vertical`/`mod-horizontal`, but
+	 * which of those means "children side by side" is a naming convention with no stability promise
+	 * and is easy to get backwards; comparing the rects is self-evidently correct and stays correct
+	 * if the convention ever changes. Siblings separated more horizontally than vertically sit side
+	 * by side, so the split resizes width.
+	 */
+	private splitAxis(childEl: HTMLElement, neighborEl: HTMLElement): ResizeAxis {
+		const a = childEl.getBoundingClientRect();
+		const b = neighborEl.getBoundingClientRect();
+		const dx = Math.abs(a.left - b.left);
+		const dy = Math.abs(a.top - b.top);
+		return dx >= dy ? "width" : "height";
+	}
+
+	resizeBy(pane: PaneRef, deltaPx: number, axis?: ResizeAxis): boolean {
 		try {
 			const leaf = this.resolveLeaf(pane);
-			if (!leaf) return;
+			if (!leaf) return false;
 			const found = this.findResizableAncestor(leaf);
-			if (!found) return;
+			if (!found) return false;
 			const { split, child } = found;
 
 			const index = split.children.indexOf(child);
-			if (index < 0) return;
+			if (index < 0) return false;
 			// Prefer growing into the neighbor in the direction of travel; fall back to the only
 			// neighbor available if there's just the one (a 2-child split, the common case).
+			//
+			// This sign convention is also exactly what the invented squash/stretch behaviours need,
+			// which is worth spelling out because it looks like a coincidence: a mascot standing on a
+			// pane's top edge squashes it with a *negative* delta, which takes from `index - 1` (the
+			// sibling above), so this pane's top edge moves down — the mascot rides it down. A mascot
+			// hanging under a pane stretches it with a *positive* delta, taking from `index + 1`
+			// (below), so this pane's bottom edge moves down — the mascot is dragging it. Both read
+			// as the mascot pushing the edge it is physically touching.
 			const neighborIndex = deltaPx >= 0 ? (index + 1 < split.children.length ? index + 1 : index - 1) : index - 1 >= 0 ? index - 1 : index + 1;
 			const neighbor = split.children[neighborIndex];
-			if (!neighbor) return;
+			if (!neighbor) return false;
+
+			if (axis && this.splitAxis(child.containerEl, neighbor.containerEl) !== axis) return false;
 
 			// getElSize/setDimension are already axis-transparent: a mod-vertical split (panes
 			// side by side) measures/sets width, a mod-horizontal one (panes stacked) measures/
@@ -97,12 +139,16 @@ export class ObsidianPaneActions implements PaneActions {
 			// split resizes along is exactly the axis this already resizes.
 			const childSize = split.getElSize(child.containerEl);
 			const neighborSize = split.getElSize(neighbor.containerEl);
-			if (typeof childSize !== "number" || typeof neighborSize !== "number" || childSize + neighborSize <= 0) return;
+			if (typeof childSize !== "number" || typeof neighborSize !== "number" || childSize + neighborSize <= 0) return false;
 
 			const total = childSize + neighborSize;
 			const clip = (v: number) => Math.max(Math.min(v, MAX_DIMENSION_PERCENT), MIN_DIMENSION_PERCENT);
 			const currentChildPercent = (childSize / total) * 100;
 			const newChildPercent = clip(currentChildPercent + (deltaPx / total) * 100);
+			// Already at the clamp in the requested direction: report "nothing happened" rather than
+			// re-setting the same dimensions and asking for a layout pass every tick. Without this a
+			// mascot squashing an already-minimum pane keeps calling requestResize() forever.
+			if (Math.abs(newChildPercent - currentChildPercent) < 0.01) return false;
 			const newNeighborPercent = 100 - newChildPercent;
 
 			child.setDimension(newChildPercent);
@@ -110,8 +156,35 @@ export class ObsidianPaneActions implements PaneActions {
 
 			this.app.workspace.requestSaveLayout();
 			this.app.workspace.requestResize();
+			return true;
 		} catch (e) {
 			console.warn("[obsidian-shimeji] pane resize failed, skipping", e);
+			return false;
+		}
+	}
+
+	/** Invented — see PaneActions.setSidebar. Uses only documented API. */
+	setSidebar(pane: PaneRef, mode: SidebarMode): boolean {
+		try {
+			if (!(pane instanceof HTMLElement)) return false;
+			// Typed structurally rather than as WorkspaceSidedock: on mobile these are
+			// WorkspaceMobileDrawer instead, which has the same collapse/expand/toggle surface but is
+			// a different declared type. Naming only what is actually used keeps both platforms valid
+			// without a cast that would also hide a genuine API change.
+			const docks: Array<CollapsibleDock | undefined> = [this.app.workspace.leftSplit, this.app.workspace.rightSplit];
+			for (const dock of docks) {
+				// `contains` rather than an identity check: the PaneRef is the *leaf's* container, and
+				// a sidebar leaf sits several levels below the sidedock's own element.
+				if (!dock?.containerEl?.contains(pane)) continue;
+				if (mode === "toggle") dock.toggle();
+				else if (mode === "expand") dock.expand();
+				else dock.collapse();
+				return true;
+			}
+			return false;
+		} catch (e) {
+			console.warn("[obsidian-shimeji] sidebar toggle failed, skipping", e);
+			return false;
 		}
 	}
 

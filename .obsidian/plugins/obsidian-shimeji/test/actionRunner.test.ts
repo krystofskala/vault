@@ -749,7 +749,12 @@ describe("ActionRunner: WalkWithIE/ThrowIE real pane actions", () => {
 		const mascot = mascotOnPane();
 		const env = envFor(pack, mascot);
 		const resized: Array<{ pane: unknown; deltaPx: number }> = [];
-		env.paneActions = { resizeBy: (pane, deltaPx) => resized.push({ pane, deltaPx }) };
+		env.paneActions = {
+			resizeBy: (pane, deltaPx) => {
+				resized.push({ pane, deltaPx });
+				return true;
+			},
+		};
 		runner.start("WalkWithIe", env, { TargetX: "9999" });
 
 		runner.tick(env, 0.04, []);
@@ -779,7 +784,12 @@ describe("ActionRunner: WalkWithIE/ThrowIE real pane actions", () => {
 		mascot.physics.grounded = true;
 		const env = envFor(pack, mascot);
 		const resized: unknown[] = [];
-		env.paneActions = { resizeBy: (...args) => resized.push(args) };
+		env.paneActions = {
+			resizeBy: (...args) => {
+				resized.push(args);
+				return true;
+			},
+		};
 		runner.start("WalkWithIe", env, { TargetX: "9999" });
 
 		runner.tick(env, 0.04, []);
