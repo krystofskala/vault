@@ -8,7 +8,7 @@ import {
 	type WorkspaceSplit,
 } from "obsidian";
 import type { PaneActions, ResizeAxis, SidebarMode, ThrownWindowHandle } from "./engine/PaneActions";
-import type { PaneRef } from "./engine/types";
+import type { PaneRef, Vec2 } from "./engine/types";
 
 /**
  * The real (Obsidian-specific) implementation of PaneActions. Unlike everything else this
@@ -161,6 +161,71 @@ export class ObsidianPaneActions implements PaneActions {
 			console.warn("[obsidian-shimeji] pane resize failed, skipping", e);
 			return false;
 		}
+	}
+
+	/** How near an existing edge counts as "there is already a surface here", so the mascot doesn't
+	 * split a pane to reach somewhere it could simply walk to. */
+	private static readonly SURFACE_EXISTS_PX = 24;
+
+	/**
+	 * Invented — see PaneActions.makeSurfaceAt. Uses documented API for the split
+	 * (`Workspace.createLeafBySplit`) and the existing resize path to place the boundary.
+	 */
+	makeSurfaceAt(point: Vec2): PaneRef | undefined {
+		try {
+			const leaf = this.leafContaining(point);
+			if (!leaf) return undefined;
+
+			const rect = leaf.containerEl.getBoundingClientRect();
+			// Already a horizontal edge within reach: nothing worth doing to the user's layout.
+			if (Math.abs(point.y - rect.top) < ObsidianPaneActions.SURFACE_EXISTS_PX) return undefined;
+			if (Math.abs(point.y - rect.bottom) < ObsidianPaneActions.SURFACE_EXISTS_PX) return undefined;
+
+			// "horizontal" here is Obsidian's own name for the split, and which way it actually lays
+			// the panes out is a naming convention rather than a promise — so the result is *measured*
+			// below rather than assumed, the same reasoning as splitAxis().
+			const created = this.app.workspace.createLeafBySplit(leaf, "horizontal");
+			if (!created) return undefined;
+
+			// Whichever of the pair ended up lower owns the boundary as its top edge. Shrinking it
+			// pushes that boundary down; growing it pulls the boundary up.
+			const createdRect = created.containerEl.getBoundingClientRect();
+			const originalRect = leaf.containerEl.getBoundingClientRect();
+			const lower = createdRect.top >= originalRect.top ? created : leaf;
+			const boundaryY = lower.containerEl.getBoundingClientRect().top;
+			this.resizeBy(lower.containerEl, boundaryY - point.y, "height");
+
+			return created.containerEl;
+		} catch (e) {
+			console.warn("[obsidian-shimeji] could not open a pane to reach that spot, skipping", e);
+			return undefined;
+		}
+	}
+
+	closePane(pane: PaneRef): void {
+		try {
+			this.resolveLeaf(pane)?.detach();
+		} catch (e) {
+			console.warn("[obsidian-shimeji] could not close a mascot-opened pane, skipping", e);
+		}
+	}
+
+	/** The innermost leaf whose box contains `point`. Smallest-first so a leaf wins over any
+	 * container that also happens to contain the point. */
+	private leafContaining(point: Vec2): WorkspaceLeaf | undefined {
+		let best: WorkspaceLeaf | undefined;
+		let bestArea = Infinity;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			const r = leaf.containerEl.getBoundingClientRect();
+			if (r.width <= 0 || r.height <= 0) return;
+			if (point.x < r.left || point.x > r.right || point.y < r.top || point.y > r.bottom) return;
+			const area = r.width * r.height;
+			if (area < bestArea) {
+				bestArea = area;
+				best = leaf;
+			}
+		});
+		return best;
 	}
 
 	/** Invented — see PaneActions.setSidebar. Uses only documented API. */

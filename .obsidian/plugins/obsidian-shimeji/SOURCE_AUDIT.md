@@ -1323,3 +1323,54 @@ dashing. Distance was measuring the pack's animation speed, not the thing under 
 now on pursuit *ticks* per lap — a mascot that stood down shows none at all, since ChaseMouse can only
 be current while a pursuit leg runs — which is both precise and immune to how fast any given pack
 happens to move.
+
+## Invented: "get to that spot" orders, with layout surgery (2026-08-14)
+
+Requested as the answer to a limitation I had described as inherent: *"A pointer hovering over the
+middle of the editor isn't somewhere a mascot can stand. Mascot can manipulate panes. Let's add him
+option to open new panes. This combined will allow the mascot to reach any point on screen. If not
+reachable in current layout, make layout to reach it."*
+
+That is right, and it closes the gap properly rather than working around it. A pane divider *is*
+somewhere a mascot can stand, and one can be created at any coordinate: split the pane containing the
+point, then slide the resulting boundary onto it with the resize path that already exists. Any point
+becomes reachable.
+
+Deliberately scoped to an **explicit order**, not to following or roaming. A pointer sweeping across
+the editor is not a request to rearrange someone's workspace; a shift-triple-click at one specific
+place is. So following still stops at the nearest surface, and only `orderToSpot` reshapes anything.
+
+- `PaneActions.makeSurfaceAt(point)` / `closePane(pane)` — the split uses documented API
+  (`Workspace.createLeafBySplit`, `WorkspaceLeaf.detach`); placing the divider reuses `resizeBy`.
+  Which of the two resulting panes ended up lower is *measured*, not inferred from Obsidian's
+  `'horizontal'`/`'vertical'` naming, for the same reason `splitAxis` measures.
+- Bounded at two surgeries per order (`MAX_SPOT_SURGERIES`). Each one splits a real pane, so a spot
+  that can never be reached must not become an endless run of new panes.
+- The created pane is left standing — closing it the instant the mascot arrived would drop it — so
+  cleanup is an explicit command.
+- Gated by `allowLayoutSurgery`; with it off the order still works, limited to existing surfaces.
+
+48. **Judge the layout by where the route *ends*, not by whether one exists.** The first version only
+    considered surgery once `findRoute` came back empty. But the router nearly always finds
+    *somewhere* — a wall, the ceiling — so the mascot first climbed all the way to whatever distant
+    surface happened to be nearest the spot, and only then concluded the layout could not deliver.
+    Checking the shortfall between the route's endpoint and the spot up front makes it split the pane
+    immediately and walk to the real destination, which is what "get there no matter what" should look
+    like. Found because the bounded-surgery test never triggered a single surgery.
+
+**Two test-fidelity failures worth recording, both of which reported working code as broken.**
+
+- The first version asserted the mascot's position a fixed number of ticks *after* issuing the order.
+  But an order completes and then the pack's own behaviours resume and wander the mascot off, so that
+  assertion was measuring the pack's idling. It reported a perfectly executed order as a 134px miss.
+  Tests now run only until the order is discharged, and assert the position at that moment.
+- The fake `makeSurfaceAt` appended a bare floor ledge at the requested y. A real split does not add a
+  floating line — it *replaces* a pane with two panes meeting at that boundary, and the resulting
+  walls are what a mascot actually climbs to get up there. The floating floor was unreachable by
+  construction, so the test could only ever prove the order gave up. The fake now splits a rect and
+  re-derives ledges through the real `computeLedgesFromRects`.
+
+The gesture itself is deliberately passive: Shift + three clicks within 700ms and 24px, watched in the
+capture phase (a bubble listener on `window` can be starved by any `stopPropagation` in between — the
+same trap as the ambient pointer tracker), never calling `preventDefault`. Requiring Shift is what
+makes watching every click acceptable at all; a bare triple-click is ordinary text selection.

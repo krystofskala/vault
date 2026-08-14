@@ -66,6 +66,15 @@ const FOLLOW_LEG_PX = 160;
  */
 const FOLLOW_REAIM_PX = 64;
 
+/** Close enough to count as having carried out a spot order. Looser than a pixel-perfect landing —
+ * the mascot stands *on* surfaces, and a divider placed at the requested y puts its feet there. */
+const SPOT_ARRIVAL_PX = 40;
+
+/** How many times a single order may reshape the layout. Each attempt splits a real pane, so a spot
+ * that can never be reached (inside chrome, or in a pane too small to split usefully) must not turn
+ * into an endless run of new panes. */
+const MAX_SPOT_SURGERIES = 2;
+
 const ROAM_CHANCE = 0.06;
 
 /** Roaming is not a precision exercise — anywhere near the chosen spot is a destination reached. */
@@ -116,6 +125,7 @@ export class BehaviorAI {
 	setFollowingMouse(following: boolean): void {
 		this.followingMouse = following;
 		if (!following) this.pursuitAimedAt = undefined;
+		if (following) this.orderedSpot = undefined;
 	}
 
 	get isFollowingMouse(): boolean {
@@ -126,6 +136,88 @@ export class BehaviorAI {
 
 	/** Where an autonomous expedition is currently headed, if one is under way — see maybeRoam. */
 	private roamTarget?: Vec2;
+
+	/** An explicit "get to this spot" order, and how many times the layout has been reshaped trying
+	 * to satisfy it — see goToSpot. */
+	private orderedSpot?: Vec2;
+	private spotSurgeries = 0;
+
+	/**
+	 * **Invented.** An explicit order to reach a specific point, outranking everything else the mascot
+	 * might be doing and — unlike following or roaming — willing to *change the layout* to succeed.
+	 *
+	 * Following deliberately stops at the nearest surface, because a pointer sweeping across the
+	 * editor is not a request to rearrange anyone's workspace. An order is: it is given deliberately,
+	 * at one specific spot, so "there is nothing to stand on there" becomes a problem to solve rather
+	 * than a reason to stop. See PaneActions.makeSurfaceAt.
+	 */
+	orderToSpot(point: Vec2): void {
+		this.orderedSpot = { x: point.x, y: point.y };
+		this.spotSurgeries = 0;
+		this.followingMouse = false;
+		this.roamTarget = undefined;
+	}
+
+	cancelSpotOrder(): void {
+		this.orderedSpot = undefined;
+	}
+
+	get hasSpotOrder(): boolean {
+		return this.orderedSpot !== undefined;
+	}
+
+	/**
+	 * Drives an outstanding spot order. Routes there like anything else; when the router reports
+	 * there is nowhere nearer to go and the mascot still isn't at the spot, asks for a surface to be
+	 * built and tries again.
+	 *
+	 * `spotSurgeries` bounds that: each attempt splits a real pane in the user's layout, and a spot
+	 * that stays unreachable — inside chrome the mascot can never occupy, or a pane too small to
+	 * split usefully — must not turn into an endless sequence of new panes. Two attempts is enough
+	 * for the realistic case (split the pane, then place the divider) while making a runaway
+	 * impossible.
+	 */
+	private driveSpotOrder(env: PushEnv, ledges: Ledge[]): boolean {
+		const spot = this.orderedSpot;
+		if (!spot) return false;
+		const { physics } = env.mascot;
+
+		if (Math.hypot(spot.x - physics.x, spot.y - physics.y) <= SPOT_ARRIVAL_PX) {
+			debugLog("spot order complete", { x: Math.round(physics.x), y: Math.round(physics.y) });
+			this.orderedSpot = undefined;
+			return false;
+		}
+
+		const attached = physics.currentFloor ?? physics.currentWall ?? physics.currentCeiling;
+		const route = ledges.length > 0 ? findRoute(ledges, { x: physics.x, y: physics.y }, spot, attached, { arriveWithin: SPOT_ARRIVAL_PX }) : [];
+
+		// Judge the layout by where the route *ends up*, not by whether one exists. The router almost
+		// always finds somewhere to go — a wall, the ceiling — and an earlier version only considered
+		// surgery once the route came back empty, which meant the mascot first climbed all the way to
+		// whatever distant surface happened to be nearest the spot, and only then decided the layout
+		// could not deliver. Checking the shortfall up front makes it split the pane immediately and
+		// walk to the real destination, which is what "get there no matter what" should look like.
+		const end = route.length > 0 ? route[route.length - 1] : physics;
+		const shortfall = Math.hypot(end.x - spot.x, end.y - spot.y);
+
+		if (shortfall > SPOT_ARRIVAL_PX && this.spotSurgeries < MAX_SPOT_SURGERIES && env.paneActions?.makeSurfaceAt) {
+			this.spotSurgeries++;
+			const created = env.paneActions.makeSurfaceAt(spot);
+			debugLog("spot order: reshaping the layout to reach it", { attempt: this.spotSurgeries, shortfall: Math.round(shortfall) });
+			// The new geometry only reaches this class on the next tick, once Stage has recomputed
+			// ledges from the changed layout — so yield rather than routing against stale ones.
+			if (created !== undefined) return false;
+		}
+
+		const next = route[0];
+		if (next) return this.startRouteAction(env, next.via, next.x, next.y, route.length);
+
+		// Standing at the closest the layout can be persuaded to get. Give the order up rather than
+		// holding the mascot hostage to a spot it will never reach.
+		debugLog("spot order abandoned (unreachable)", spot);
+		this.orderedSpot = undefined;
+		return false;
+	}
 
 	/** The pointer position the current pursuit leg was aimed at, so a leg can be abandoned once that
 	 * aim goes stale. Cleared whenever following stops. */
@@ -334,6 +426,9 @@ export class BehaviorAI {
 		// you had moved. Fine for "come here"; useless for being led around for minutes, which is the
 		// point of the mode. With it, the mascot re-plans continuously against wherever the pointer is
 		// now, and stops only when you tell it to — by clicking it, or with the stop command.
+		// An explicit order outranks everything: it was given deliberately, at one specific place.
+		if (this.orderedSpot && !this.runner.isRunning && this.driveSpotOrder(env, ledges)) return;
+
 		if (this.followingMouse) {
 			// Arm the comparison the first time round. Turning the mode on kicks off the pack's own
 			// ChaseMouse — a scripted sequence several seconds long — and without an aim recorded here
@@ -385,8 +480,10 @@ export class BehaviorAI {
 		// reach picks the pursuit straight up again.
 		if (this.followingMouse && this.startPursuitLeg(env, ambientPointer, ledges)) return;
 
+		if (this.orderedSpot && this.driveSpotOrder(env, ledges)) return;
+
 		// Autonomous wandering, only ever considered when nothing more important is happening.
-		if (!this.followingMouse && this.maybeRoam(env, ledges)) return;
+		if (!this.followingMouse && !this.orderedSpot && this.maybeRoam(env, ledges)) return;
 
 		this.startBehavior(this.pickNextBehavior(mascot, env), env);
 	}

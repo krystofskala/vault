@@ -101,6 +101,15 @@ export class PackDriver implements MascotDriver {
 		this.ai.setFollowingMouse(following);
 	}
 
+	/** Invented "get to this spot" order — see BehaviorAI.orderToSpot. */
+	orderToSpot(point: { x: number; y: number }): void {
+		this.ai.orderToSpot(point);
+	}
+
+	cancelSpotOrder(): void {
+		this.ai.cancelSpotOrder();
+	}
+
 	/** Real `Configuration.isBehaviorToggleable(name)` — which behaviors may be shown as
 	 * user-switchable checkboxes. Real Mascot.showPopup also skips composite names containing
 	 * "/", which never appear as standalone entries. */

@@ -1,4 +1,4 @@
-import type { PaneRef } from "./types";
+import type { PaneRef, Vec2 } from "./types";
 
 /**
  * The real, mutating counterpart to Environment's read-only pane geometry — everything a mascot
@@ -59,6 +59,25 @@ export interface PaneActions {
 	 * there's no real behavior this ports. Swaps whatever note is showing in `pane` for a
 	 * randomly chosen other note in the vault. */
 	openRandomNote?(pane: PaneRef): void;
+
+	/**
+	 * **Invented, and the most invasive thing in this interface**: reshape the layout so that a
+	 * walkable surface exists at `point`, by splitting whichever pane contains it and then sliding the
+	 * resulting boundary onto that exact coordinate.
+	 *
+	 * This is what makes "go to that spot" answerable for *any* spot. A pointer hovering in the middle
+	 * of the editor is not somewhere a mascot can stand — but a pane divider is, and one can be put
+	 * there. It is the logical end of treating Obsidian's layout as the mascot's terrain rather than
+	 * its backdrop: if the terrain doesn't reach, the mascot changes the terrain.
+	 *
+	 * Returns the pane it created, so the caller can offer to close it again. Returns undefined when
+	 * the point isn't inside any pane, when splitting failed, or when the layout is already close
+	 * enough that no surgery is warranted.
+	 */
+	makeSurfaceAt?(point: Vec2): PaneRef | undefined;
+
+	/** Closes a pane — only ever used to tidy up ones `makeSurfaceAt` created. */
+	closePane?(pane: PaneRef): void;
 
 	/** Real Main.java's "Restore IE!" tray item (`NativeFactory.getInstance().getEnvironment().
 	 * restoreIE()`) — brings back every real OS window a mascot has popped out and thrown,

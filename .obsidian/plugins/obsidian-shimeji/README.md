@@ -547,6 +547,28 @@ its editor.
 A custom action/behavior with the same name as a standard one (or another custom one) replaces
 it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml` directly.
 
+## "Get to that spot" — Shift + triple-click
+
+**Shift + triple-click anywhere** in the window and the nearest mascot goes there. Not near there —
+*there*.
+
+If the point isn't on any surface, the mascot **splits the pane under your cursor** and slides the new
+divider onto your click, creating something to stand on. Combined with the pane resizing it already
+does, that makes any point in the window reachable: if the terrain doesn't reach, it changes the
+terrain.
+
+- Bounded to two layout changes per order, so a spot that genuinely can't be reached (inside chrome,
+  or a pane too small to split) can't turn into an endless run of new panes.
+- The pane it opens is **left standing** — closing it the moment the mascot arrived would pull the
+  floor out from under it. Tidy up with the **"Close panes opened by mascots"** command.
+- Clicking the mascot cancels the order, same as it cancels following.
+- Turn the layout-changing part off under **Behavior → Open panes to reach a spot**; the order still
+  works, but limited to surfaces that already exist.
+
+Shift is what makes the gesture safe to listen for: a bare triple-click is ordinary text selection.
+The listener is passive — it never calls `preventDefault`, so the clicks still do whatever Obsidian
+would normally do with them.
+
 ## Getting around: route-finding
 
 Mascots plan routes across the surfaces that actually exist, rather than only pacing whichever floor

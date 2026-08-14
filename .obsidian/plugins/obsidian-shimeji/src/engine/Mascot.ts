@@ -106,6 +106,10 @@ export interface MascotDriver {
 	/** Keeps re-running ChaseMouse as the pointer moves away, rather than the real engine's
 	 * one-shot. Invented; see BehaviorAI.setFollowingMouse. */
 	setFollowingMouse?(following: boolean): void;
+	/** An explicit order to reach one specific point, reshaping the layout if that is what it takes.
+	 * Invented; see BehaviorAI.orderToSpot. */
+	orderToSpot?(point: Vec2): void;
+	cancelSpotOrder?(): void;
 	onDetach?(mascot: Mascot): void;
 }
 
@@ -326,13 +330,19 @@ export class Mascot {
 		if (following) this.startNamedBehavior("ChaseMouse");
 	}
 
+	/** Sends this mascot to a specific viewport point — see MascotDriver.orderToSpot. */
+	orderToSpot(point: Vec2): void {
+		this.driver?.orderToSpot?.(point);
+	}
+
 	private bindPointerHandlers(): void {
 		this.el.addEventListener("pointerdown", (ev) => {
-			// Touching the mascot cancels an in-progress follow-the-mouse pursuit, before any other
+			// Touching the mascot cancels an in-progress follow-the-mouse pursuit or spot order, before any other
 			// consideration — ahead of the hotspot scan and the drag checks, and regardless of
 			// whether either of those goes on to claim the click. Grabbing it, poking a hotspot, or
 			// just clicking it are all unambiguously "stop coming after me".
 			this.driver?.setFollowingMouse?.(false);
+			this.driver?.cancelSpotOrder?.();
 			// Real UserBehavior.mousePressed checks hotspots *first*, before anything drag-related:
 			// a match consumes the click (`handled = true`) and runs its behavior instead of
 			// starting a drag. Deliberately ahead of the `dragEnabled` check below — a hotspot is a

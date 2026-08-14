@@ -46,6 +46,10 @@ export interface ShimejiSettings {
 	/** Invented: mascots occasionally pick a destination anywhere in the layout and route to it over
 	 * the ledge graph, climbing walls and hopping between panes to get there. See engine/Routing.ts. */
 	roamEnabled: boolean;
+	/** Invented, and the most invasive thing here: a spot order may *split a pane* to create a surface
+	 * where none exists, so the mascot can reach any point at all. Only ever reached from the explicit
+	 * shift-triple-click gesture, never autonomously. See PaneActions.makeSurfaceAt. */
+	allowLayoutSurgery: boolean;
 	/** Invented — shimeji-ee has no vault/note awareness at all. While a mascot happens to be on
 	 * the pane you're actively working in, occasionally swaps in a random other note from the
 	 * vault. Off by default for the same reason as allowWindowThrow: it changes what you're
@@ -79,6 +83,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowWindowThrow: false,
 	allowPaneWrangling: true,
 	roamEnabled: true,
+	allowLayoutSurgery: true,
 	allowNoteMischief: false,
 	customContent: {},
 };
@@ -324,6 +329,18 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					this.plugin.settings.roamEnabled = value;
 					await this.plugin.saveSettings();
 					this.plugin.applyRoamEnabled();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Open panes to reach a spot")
+			.setDesc(
+				"Shift + triple-click anywhere to order the nearest mascot to that exact point. If nothing there can be stood on, it splits the pane under your cursor and slides the new divider to your click — so any point is reachable. Turn this off to keep the order but limit it to surfaces that already exist. Use the \u201cClose panes opened by mascots\u201d command to tidy up afterwards.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.allowLayoutSurgery).onChange(async (value) => {
+					this.plugin.settings.allowLayoutSurgery = value;
+					await this.plugin.saveSettings();
 				}),
 			);
 

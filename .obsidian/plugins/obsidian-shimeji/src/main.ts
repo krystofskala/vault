@@ -23,6 +23,14 @@ const NOTE_MISCHIEF_CHECK_MS = 15_000;
  * surprise (roughly once every several minutes of continuous editing) rather than a nuisance. */
 const NOTE_MISCHIEF_CHANCE = 0.03;
 
+/** Shift + three clicks in roughly the same place within this window orders the nearest mascot to
+ * that spot. Shift is what makes the gesture safe to listen for passively: a plain triple-click is
+ * ordinary text selection, whereas nobody shift-triple-clicks by accident. The listener never
+ * preventDefaults, so whatever Obsidian does with those clicks still happens. */
+const SPOT_ORDER_CLICK_WINDOW_MS = 700;
+const SPOT_ORDER_CLICK_SLOP_PX = 24;
+const SPOT_ORDER_CLICKS = 3;
+
 export default class ShimejiPlugin extends Plugin {
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
 	stage?: Stage;
@@ -42,6 +50,11 @@ export default class ShimejiPlugin extends Plugin {
 	 * why resizing/throwing lean on undocumented internals more than anything else this plugin
 	 * does. */
 	private obsidianPaneActions!: ObsidianPaneActions;
+	/** Panes opened by a spot order, so they can be tidied up again on request — the mascot leaves
+	 * the layout it built standing, since closing it would drop the mascot the instant it arrived. */
+	private mascotOpenedPanes: unknown[] = [];
+	/** Rolling shift-click tally behind the spot-order gesture. */
+	private spotClicks: { x: number; y: number; at: number; count: number } = { x: 0, y: 0, at: 0, count: 0 };
 	/** What every PackDriver actually receives: gates obsidianPaneActions' resize/throw methods
 	 * behind the "Window mischief" setting live (read fresh on every call, not captured once),
 	 * so flipping the toggle takes effect immediately without reattaching every mascot's driver.
@@ -55,6 +68,15 @@ export default class ShimejiPlugin extends Plugin {
 		resizeBy: (pane, deltaPx, axis) =>
 			this.settings.allowPaneWrangling || this.settings.allowWindowThrow ? this.obsidianPaneActions.resizeBy(pane, deltaPx, axis) : false,
 		setSidebar: (pane, mode) => (this.settings.allowPaneWrangling ? this.obsidianPaneActions.setSidebar(pane, mode) : false),
+		// Behind its own toggle: this one *creates* a pane in the user's layout, which is a bigger
+		// intrusion than resizing an existing one. Only ever reached from an explicit spot order.
+		makeSurfaceAt: (point) => {
+			if (!this.settings.allowLayoutSurgery) return undefined;
+			const created = this.obsidianPaneActions.makeSurfaceAt(point);
+			if (created !== undefined) this.mascotOpenedPanes.push(created);
+			return created;
+		},
+		closePane: (pane) => this.obsidianPaneActions.closePane(pane),
 		// Throwing stays behind its own toggle alone: it is the only one that spawns a separate OS
 		// window, which is a different order of surprise from resizing a split.
 		beginThrow: (pane) => (this.settings.allowWindowThrow ? this.obsidianPaneActions.beginThrow(pane) : undefined),
@@ -136,11 +158,20 @@ export default class ShimejiPlugin extends Plugin {
 			name: "Stop all mascots following the mouse",
 			callback: () => this.keepFollowingMouseAllMascots(false),
 		});
+		this.addCommand({
+			id: "shimeji-close-opened-panes",
+			name: "Close panes opened by mascots",
+			callback: () => this.closeMascotOpenedPanes(),
+		});
 		this.addCommand({ id: "shimeji-rescan", name: "Rescan pack folder", callback: () => this.rescanPacks() });
 		// Real Main.java's "Restore IE!" tray item — always available regardless of the "Window
 		// mischief" toggle (see paneActionsGate), same reasoning as its real counterpart: turning
 		// throwing off in the future shouldn't strand a window thrown while it was still on.
 		this.addCommand({ id: "shimeji-restore-windows", name: "Restore thrown windows", callback: () => this.restoreThrownWindows() });
+
+		// Capture phase, for the same reason the ambient pointer tracker uses it: a bubble-phase
+		// listener on window can be starved by any handler in between calling stopPropagation.
+		this.registerDomEvent(window, "click", (ev) => this.onPossibleSpotOrder(ev), { capture: true });
 
 		this.registerEvent(this.app.workspace.on("resize", () => this.stage?.notifyLayoutChanged()));
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.stage?.notifyLayoutChanged()));
@@ -312,6 +343,61 @@ export default class ShimejiPlugin extends Plugin {
 
 	applyRoamEnabled(): void {
 		this.engineConfig.roamEnabled = this.settings.roamEnabled;
+	}
+
+	/**
+	 * Shift + triple-click anywhere: order the nearest mascot to that exact spot, reshaping the
+	 * layout if it can't be reached otherwise.
+	 *
+	 * Deliberately passive — no preventDefault, no stopPropagation — so the clicks still do whatever
+	 * Obsidian would normally do with them. Shift-clicking in the editor extends a selection, which
+	 * is harmless, and requiring Shift is what makes it safe to watch every click in the first place:
+	 * a bare triple-click is ordinary text selection and would fire this constantly.
+	 */
+	private onPossibleSpotOrder(ev: MouseEvent): void {
+		if (!ev.shiftKey || ev.button !== 0) {
+			this.spotClicks.count = 0;
+			return;
+		}
+		const now = Date.now();
+		const sameSpot = Math.hypot(ev.clientX - this.spotClicks.x, ev.clientY - this.spotClicks.y) <= SPOT_ORDER_CLICK_SLOP_PX;
+		const inTime = now - this.spotClicks.at <= SPOT_ORDER_CLICK_WINDOW_MS;
+		this.spotClicks = {
+			x: ev.clientX,
+			y: ev.clientY,
+			at: now,
+			count: sameSpot && inTime ? this.spotClicks.count + 1 : 1,
+		};
+		if (this.spotClicks.count < SPOT_ORDER_CLICKS) return;
+		this.spotClicks.count = 0;
+		this.orderNearestMascotToSpot({ x: ev.clientX, y: ev.clientY });
+	}
+
+	/** Sends whichever mascot is closest — "that one, go there" is the natural reading of pointing at
+	 * a spot, and having every mascot pile onto it would be chaos with more than one on screen. */
+	orderNearestMascotToSpot(point: { x: number; y: number }): void {
+		const mascots = this.stage?.getMascots() ?? [];
+		if (mascots.length === 0) return;
+		let nearest = mascots[0];
+		let bestD = Infinity;
+		for (const mascot of mascots) {
+			const d = Math.hypot(mascot.physics.x - point.x, mascot.physics.y - point.y);
+			if (d < bestD) {
+				bestD = d;
+				nearest = mascot;
+			}
+		}
+		nearest.orderToSpot(point);
+		new Notice(`On my way to (${Math.round(point.x)}, ${Math.round(point.y)})`);
+	}
+
+	/** The panes a spot order opened are left in place on purpose — closing one the moment the mascot
+	 * arrived would pull the floor out from under it — so tidying up is an explicit action. */
+	closeMascotOpenedPanes(): void {
+		const count = this.mascotOpenedPanes.length;
+		for (const pane of this.mascotOpenedPanes) this.obsidianPaneActions.closePane(pane);
+		this.mascotOpenedPanes = [];
+		new Notice(count > 0 ? `Closed ${count} pane${count === 1 ? "" : "s"} opened by mascots` : "No mascot-opened panes to close");
 	}
 
 	/** No ambient pointer exists on a touch-only device between touches, so ChaseMouse would
