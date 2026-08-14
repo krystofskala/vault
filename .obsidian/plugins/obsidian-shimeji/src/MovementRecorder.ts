@@ -46,6 +46,26 @@ const TELEPORT_PX = 60;
 /** How long the mascot may sit still during a phase that is supposed to be travelling. */
 const STUCK_MS = 4000;
 
+/**
+ * Hard cap on timeline rows in the written note.
+ *
+ * Without one, a long run produces a markdown table of several thousand rows — a 14-minute two-mascot
+ * self-test made one around 3,300 rows long. Obsidian renders that slowly enough to stall, and since
+ * the report used to open itself it stayed in the workspace and was re-rendered on *every* reload,
+ * turning one heavy note into a permanently unusable vault. Anomalies and notes are never sampled
+ * away; only the routine rows between them are.
+ */
+const MAX_TIMELINE_ROWS = 400;
+
+/** Evenly spaced subset, always keeping the first and last. */
+function sampleEvenly<T>(items: T[], max: number): T[] {
+	if (items.length <= max) return items;
+	const step = (items.length - 1) / (max - 1);
+	const out: T[] = [];
+	for (let i = 0; i < max; i++) out.push(items[Math.round(i * step)]);
+	return out;
+}
+
 /** One mascot being watched, and the label its rows carry. */
 export interface Subject {
 	label: string;
@@ -228,11 +248,7 @@ export class MovementRecorder {
 		}
 		out.push("```", "");
 
-		out.push("## Timeline", "");
-		out.push("| ms | who | phase | x | y | vx | vy | facing | on | behavior | step |");
-		out.push("|---|---|---|---|---|---|---|---|---|---|---|");
-		// Per mascot, because the samples interleave: comparing each row against the previous row of a
-		// *different* mascot would mark almost everything as a change and defeat the collapsing.
+		const rows: Sample[] = [];
 		const prevByWho = new Map<string, Sample>();
 		for (const s of this.samples) {
 			const prev = prevByWho.get(s.who);
@@ -244,8 +260,20 @@ export class MovementRecorder {
 				s.step > TELEPORT_PX ||
 				s.ms - prev.ms > 500;
 			if (!interesting) continue;
-			out.push(`| ${s.ms} | ${s.who} | ${s.phase} | ${s.x} | ${s.y} | ${s.vx} | ${s.vy} | ${s.facing === 1 ? "R" : "L"} | ${s.surface} | ${s.behavior} | ${s.step} |`);
+			rows.push(s);
 			prevByWho.set(s.who, s);
+		}
+
+		out.push("## Timeline", "");
+		if (rows.length > MAX_TIMELINE_ROWS) {
+			out.push(`_Showing ${MAX_TIMELINE_ROWS} of ${rows.length} rows, evenly sampled._`, "");
+		}
+		out.push("| ms | who | phase | x | y | vx | vy | facing | on | behavior | step |");
+		out.push("|---|---|---|---|---|---|---|---|---|---|---|");
+		// Per mascot, because the samples interleave: comparing each row against the previous row of a
+		// *different* mascot would mark almost everything as a change and defeat the collapsing.
+		for (const s of sampleEvenly(rows, MAX_TIMELINE_ROWS)) {
+			out.push(`| ${s.ms} | ${s.who} | ${s.phase} | ${s.x} | ${s.y} | ${s.vx} | ${s.vy} | ${s.facing === 1 ? "R" : "L"} | ${s.surface} | ${s.behavior} | ${s.step} |`);
 		}
 		out.push("");
 		out.push("## Full note log", "", "```");

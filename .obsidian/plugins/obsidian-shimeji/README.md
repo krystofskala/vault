@@ -616,6 +616,11 @@ by mistake, the report says the leg was skipped rather than reporting a routing 
 Takes a few minutes at real speed; a status-bar item shows the current step, and running the command
 again cancels and still writes the partial report.
 
+Reports land in a `Shimeji reports/` folder and are **not** opened automatically — a long run makes a
+big note, and Obsidian re-renders open notes on every reload, so auto-opening one was enough to stall
+the app until it was deleted. Timelines are capped at 400 evenly-sampled rows; anomalies are never
+sampled away.
+
 **"Start/stop recording movement"** — the plain recorder, with no script at all, watching every mascot
 on screen. Use it when you want a long unstructured session, or to chase something specific you can
 already reproduce.

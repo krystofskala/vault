@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
+import { MarkdownView, Menu, Notice, Platform, Plugin } from "obsidian";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { ObsidianDomEnvironment } from "./engine/Environment";
 import { Mascot } from "./engine/Mascot";
@@ -283,15 +283,23 @@ export default class ShimejiPlugin extends Plugin {
 		new Notice("Shimeji: recording. Use Obsidian normally, then run the command again to stop.");
 	}
 
-	/** Into the vault rather than the console, so it survives a reload and can be pasted whole. */
+	/**
+	 * Into the vault rather than the console, so it survives a reload and can be pasted whole.
+	 *
+	 * Deliberately **not** opened afterwards, and filed in its own folder. Opening it seemed helpful
+	 * and was the opposite: Obsidian restores open notes on reload, so a heavy generated report was
+	 * re-rendered every single launch, and a long enough run made the vault unusable until the note
+	 * was deleted from outside the app. A notice with the path is enough — the folder also makes the
+	 * whole lot easy to clear out in one go.
+	 */
 	private async writeReport(kind: string, body: string): Promise<void> {
 		const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-		const path = `Shimeji ${kind} ${stamp}.md`;
+		const folder = "Shimeji reports";
+		const path = `${folder}/${kind} ${stamp}.md`;
 		try {
+			if (!this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
 			await this.app.vault.create(path, body);
-			new Notice(`Shimeji: report written to "${path}"`);
-			const file = this.app.vault.getAbstractFileByPath(path);
-			if (file instanceof TFile) await this.app.workspace.getLeaf(true).openFile(file);
+			new Notice(`Shimeji: report written to "${path}" (not opened — it can be a large note)`, 8000);
 		} catch (e) {
 			console.error("[obsidian-shimeji] could not write the report; logging it here instead", e);
 			console.log(body);
