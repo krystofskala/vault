@@ -133,16 +133,44 @@ export function updateWallCeilingAdherence(physics: MascotPhysics, ledges: Ledge
 function keepOrFindWall(physics: MascotPhysics, ledges: Ledge[]): WallLedge | undefined {
 	const current = physics.currentWall;
 	if (current && current.kind === "wall") {
-		const stillThere = ledges.find(
-			(l): l is WallLedge =>
-				l.kind === "wall" &&
-				l.side === current.side &&
-				l.source === current.source &&
-				Math.abs(l.x - physics.x) <= WALL_CEILING_ADHERENCE_REACH &&
-				physics.y >= l.y1 &&
-				physics.y <= l.y2,
-		);
-		if (stillThere) return stillThere;
+		// Nearest wins, with the current one keeping ties. Holding onto the current wall at *any*
+		// distance within reach is what this used to do, and it leaves a mascot attached to a wall it
+		// is demonstrably not on whenever two walls are both in reach.
+		//
+		// Card-style themes make that the normal case: a pane's wall sits a few pixels inside the
+		// window's own, so a mascot pushed to the window edge by clampToWalls is 0px from one wall and
+		// 3px from another, and stayed bound to the further one. Everything downstream then reasons
+		// about the wrong surface — the router planned a 3px sideways "climb" between the two, which
+		// carries no vertical distance and so completes instantly and re-plans forever. Live, that was
+		// a mascot frozen at the top-right corner for 42 seconds and the bottom-right for nearly three
+		// minutes, with five of eight spot orders timing out.
+		// Two different jobs, and conflating them is what made this wrong in both directions.
+		//
+		// Re-*identifying* the wall the mascot is already on: ledges are rebuilt into fresh objects on
+		// every recompute, so the same wall has to be recognised by side + source + proximity rather
+		// than by reference. That is why `source` is part of the match and must stay.
+		//
+		// Deciding it should be on a *different* wall: a genuinely nearer face means the mascot has
+		// moved onto it, whatever its source. Requiring the same source there left a mascot bound to a
+		// pane wall while standing flat against the window's own — 3px away under a card theme, which
+		// insets every pane. Everything downstream then reasoned about a surface it was not on.
+		//
+		// So: nearest wins outright, and among equals the one that still looks like the wall already
+		// held. That keeps the coincident-faces tie-break this function was written for.
+		const sameWall = (l: WallLedge) => l === current || (l.side === current.side && l.source === current.source);
+		let best: WallLedge | undefined;
+		let bestDx = Infinity;
+		for (const l of ledges) {
+			if (l.kind !== "wall" || l.side !== current.side) continue;
+			if (physics.y < l.y1 || physics.y > l.y2) continue;
+			const dx = Math.abs(l.x - physics.x);
+			if (dx > WALL_CEILING_ADHERENCE_REACH) continue;
+			if (dx < bestDx || (dx === bestDx && best && !sameWall(best) && sameWall(l))) {
+				best = l;
+				bestDx = dx;
+			}
+		}
+		if (best) return best;
 	}
 	// No prior attachment (e.g. simply walked into one): the face it met is the one opposing the
 	// way it's heading, so bias by facing rather than by a fixed left-first order.
