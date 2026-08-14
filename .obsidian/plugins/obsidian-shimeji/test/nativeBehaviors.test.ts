@@ -592,3 +592,27 @@ describe("clampToCeiling with a horizontal pane split", () => {
 		expect(physics.y).toBeGreaterThanOrEqual(40); // worldTop, not off the top of the window
 	});
 });
+
+/**
+ * Card themes put a pane's wall a few pixels inside the window's own, so a mascot pushed to the window
+ * edge by clampToWalls is 0px from one wall and 3px from another. Keeping whichever was already held —
+ * at any distance within reach — left it bound to the further one, and every downstream decision then
+ * reasoned about a surface it was not on.
+ */
+describe("wall adherence prefers the nearest face", () => {
+	const windowWall = { kind: "wall", side: "right", x: 1748, y1: 40, y2: 1392, source: "window" } as Ledge;
+	const paneWall = { kind: "wall", side: "right", x: 1745, y1: 40, y2: 1392, source: "pane" } as Ledge;
+
+	it("switches to the window wall once the mascot is standing on it", () => {
+		const physics: MascotPhysics = { x: 1748, y: 400, vx: 0, vy: 0, facing: 1, grounded: false, currentWall: paneWall };
+		updateWallCeilingAdherence(physics, [windowWall, paneWall]);
+		expect(physics.currentWall).toBe(windowWall);
+	});
+
+	it("keeps the wall it already had when both are equally close", () => {
+		const coincident = { kind: "wall", side: "right", x: 1748, y1: 40, y2: 1392, source: "pane" } as Ledge;
+		const physics: MascotPhysics = { x: 1748, y: 400, vx: 0, vy: 0, facing: 1, grounded: false, currentWall: coincident };
+		updateWallCeilingAdherence(physics, [windowWall, coincident]);
+		expect(physics.currentWall).toBe(coincident);
+	});
+});
