@@ -35,6 +35,31 @@ export class BehaviorAI {
 		this.disabledBehaviors = names;
 	}
 
+	/**
+	 * Real `Configuration.isBehaviorEnabled(String name, Mascot)`, reproduced including both of its
+	 * quirks:
+	 *
+	 *     if (behaviorBuilders.containsKey(name)) return isBehaviorEnabled(builders.get(name), mascot);
+	 *     else return false;
+	 *
+	 *     isBehaviorEnabled(builder, mascot):
+	 *         if (builder.isToggleable() && disabledBehaviors.containsKey(imageSet))
+	 *             return !disabledBehaviors.get(imageSet).contains(builder.getName());
+	 *         return true;
+	 *
+	 * So: an unknown name (including no name at all) is **false**, not true — the String overload
+	 * is a "known and available" test, not just "not switched off". And a behavior that isn't
+	 * `Toggleable` is always enabled regardless of the disabled list, which is why this can't just
+	 * be `!disabled.has(name)`. Both matter on the hotspot path — see Mascot.hotspotAt.
+	 */
+	isBehaviorEnabled(name: string | undefined): boolean {
+		if (name === undefined) return false;
+		const behavior = this.pack.behaviors.get(name);
+		if (!behavior) return false;
+		if (behavior.toggleable) return !this.disabledBehaviors.has(name);
+		return true;
+	}
+
 	constructor(private pack: MascotPack, private rng: Random) {
 		this.runner = new ActionRunner(pack);
 		this.warnIfIncomplete();

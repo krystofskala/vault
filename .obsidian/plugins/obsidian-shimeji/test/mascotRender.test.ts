@@ -189,3 +189,127 @@ describe("Mascot.requestSibling (Breed)", () => {
 		expect(seen).toEqual([50, 50]);
 	});
 });
+
+/**
+ * The hotspot click path (real UserBehavior.mousePressed's own first branch). Shipped untested,
+ * which is how all three bugs below survived a green suite; these pin each one.
+ */
+describe("Mascot hotspot clicks", () => {
+	/** A driver that records behavior starts and answers the real
+	 * `Configuration.isBehaviorEnabled(String, Mascot)` question over a fixed known/disabled set. */
+	function driverWith(known: string[], disabled: string[] = []) {
+		const started: string[] = [];
+		return {
+			started,
+			driver: {
+				tick() {},
+				startNamedBehavior: (_m: Mascot, name: string) => started.push(name),
+				isBehaviorEnabled: (name: string | undefined) => name !== undefined && known.includes(name) && !disabled.includes(name),
+			},
+		};
+	}
+
+	/** jsdom gives every element a 0x0 rect, so hotspotAt's client->local mapping needs a real one. */
+	function mascotAt(deps = makeDeps(), known = ["Poke"], disabled: string[] = []) {
+		const mascot = new Mascot(deps, 0, 0);
+		const { started, driver } = driverWith(known, disabled);
+		mascot.attachDriver(driver);
+		mascot.width = 100;
+		mascot.el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 }) as DOMRect;
+		// Faces left, so hotspotAt uses the local x directly rather than mirroring it.
+		mascot.physics.facing = -1;
+		return { mascot, started };
+	}
+
+	function clickAt(mascot: Mascot, x: number, y: number): boolean {
+		mascot.el.setPointerCapture = () => {};
+		mascot.el.releasePointerCapture = () => {};
+		const ev = new Event("pointerdown", { bubbles: true, cancelable: true });
+		Object.assign(ev, { clientX: x, clientY: y, pointerId: 1, pointerType: "mouse" });
+		mascot.el.dispatchEvent(ev);
+		return ev.defaultPrevented;
+	}
+
+	it("runs a hotspot's behavior instead of starting a drag", () => {
+		const { mascot, started } = mascotAt();
+		mascot.hotspots = [{ shape: "Rectangle", origin: { x: 10, y: 10 }, size: { x: 20, y: 20 }, behavior: "Poke" }];
+		expect(clickAt(mascot, 15, 15)).toBe(true);
+		expect(started).toEqual(["Poke"]);
+		expect(mascot.el.classList.contains("is-dragging")).toBe(false);
+	});
+
+	it("lets a click outside every hotspot fall through to the drag", () => {
+		const { mascot, started } = mascotAt();
+		mascot.hotspots = [{ shape: "Rectangle", origin: { x: 10, y: 10 }, size: { x: 20, y: 20 }, behavior: "Poke" }];
+		clickAt(mascot, 80, 80);
+		expect(started).toEqual([]);
+		expect(mascot.el.classList.contains("is-dragging")).toBe(true);
+	});
+
+	// Bug 1: the hotspot scan used to sit *below* the `dragEnabled` early-return, so switching off
+	// the app-level "allow dragging" setting silently disabled every hotspot a pack declared. The
+	// real engine has no such toggle at all, and checks hotspots before anything drag-related.
+	it("still fires with dragging switched off — a hotspot is a click, not a grab", () => {
+		const { mascot, started } = mascotAt();
+		mascot.dragEnabled = false;
+		mascot.hotspots = [{ shape: "Rectangle", origin: { x: 10, y: 10 }, size: { x: 20, y: 20 }, behavior: "Poke" }];
+		expect(clickAt(mascot, 15, 15)).toBe(true);
+		expect(started).toEqual(["Poke"]);
+	});
+
+	// Bug 2: real UserBehavior ANDs `isBehaviorEnabled(hotspot.getBehaviour(), mascot)` into the
+	// match itself, so a hotspot whose behavior the user switched off is transparent rather than a
+	// dead zone that swallows clicks.
+	it("ignores a hotspot whose behavior the user disabled, falling through to the drag", () => {
+		const { mascot, started } = mascotAt(makeDeps(), ["Poke"], ["Poke"]);
+		mascot.hotspots = [{ shape: "Rectangle", origin: { x: 10, y: 10 }, size: { x: 20, y: 20 }, behavior: "Poke" }];
+		clickAt(mascot, 15, 15);
+		expect(started).toEqual([]);
+		expect(mascot.el.classList.contains("is-dragging")).toBe(true);
+	});
+
+	// ...and because the check lives inside the loop before the `break`, a disabled hotspot does not
+	// end the scan — a later overlapping one can still match.
+	it("continues scanning past a disabled hotspot to a later overlapping one", () => {
+		const { mascot, started } = mascotAt(makeDeps(), ["Poke", "Pat"], ["Poke"]);
+		mascot.hotspots = [
+			{ shape: "Rectangle", origin: { x: 0, y: 0 }, size: { x: 50, y: 50 }, behavior: "Poke" },
+			{ shape: "Rectangle", origin: { x: 10, y: 10 }, size: { x: 20, y: 20 }, behavior: "Pat" },
+		];
+		clickAt(mascot, 15, 15);
+		expect(started).toEqual(["Pat"]);
+	});
+
+	// Bug 3: `Hotspot.java` alone reads as though a behaviour-less hotspot still consumes the click,
+	// and it did before v1.0.21 — but the String overload of isBehaviorEnabled returns false for any
+	// name absent from `behaviorBuilders`, and null is one of those. Against current ground truth a
+	// hotspot with no Behaviour (or one naming a behavior the pack doesn't define) is transparent.
+	it("treats a hotspot with no Behaviour as transparent, not as a click-swallowing dead zone", () => {
+		const { mascot, started } = mascotAt();
+		mascot.hotspots = [{ shape: "Rectangle", origin: { x: 10, y: 10 }, size: { x: 20, y: 20 } }];
+		clickAt(mascot, 15, 15);
+		expect(started).toEqual([]);
+		expect(mascot.el.classList.contains("is-dragging")).toBe(true);
+	});
+
+	it("treats a hotspot naming a behavior the pack does not define as transparent", () => {
+		const { mascot, started } = mascotAt(makeDeps(), ["Poke"]);
+		mascot.hotspots = [{ shape: "Rectangle", origin: { x: 10, y: 10 }, size: { x: 20, y: 20 }, behavior: "Nonexistent" }];
+		clickAt(mascot, 15, 15);
+		expect(started).toEqual([]);
+		expect(mascot.el.classList.contains("is-dragging")).toBe(true);
+	});
+
+	// Real Hotspot.contains: `mascot.isLookRight() ? bounds.width - point.x : point.x` — the region
+	// is authored against the left-facing art and mirrored with the sprite.
+	it("mirrors the hotspot's x when the mascot faces right", () => {
+		const { mascot, started } = mascotAt();
+		mascot.physics.facing = 1;
+		mascot.hotspots = [{ shape: "Rectangle", origin: { x: 10, y: 10 }, size: { x: 20, y: 20 }, behavior: "Poke" }];
+		// width 100, so a region at local x 10..30 is clickable at client x 70..90 when facing right.
+		clickAt(mascot, 15, 15);
+		expect(started).toEqual([]);
+		clickAt(mascot, 85, 15);
+		expect(started).toEqual(["Poke"]);
+	});
+});

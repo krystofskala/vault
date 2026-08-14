@@ -89,6 +89,12 @@ export class PackDriver implements MascotDriver {
 		this.ai.setDisabledBehaviors(names);
 	}
 
+	/** Real `Configuration.isBehaviorEnabled(String, Mascot)` — see BehaviorAI's own note for the
+	 * two non-obvious parts of that predicate. */
+	isBehaviorEnabled(name: string | undefined): boolean {
+		return this.ai.isBehaviorEnabled(name);
+	}
+
 	/** Real `Configuration.isBehaviorToggleable(name)` — which behaviors may be shown as
 	 * user-switchable checkboxes. Real Mascot.showPopup also skips composite names containing
 	 * "/", which never appear as standalone entries. */

@@ -865,16 +865,20 @@ The three that were still outstanding after part 1. With these the whole invento
 "Recommended" and "Worth doing" — is ported.
 
 27. **Hotspot (v1.0.19)** — `animation/Hotspot.java`, a clickable region declared per-`<Animation>`
-    that runs a named behavior instead of starting a drag. Three details that are easy to get
-    wrong and are all reproduced: hotspots are **refreshed every tick** from the *currently
-    effective* Animation (real `ActionBase.refreshHotspots()`), so which regions are live follows
-    whichever condition-gated variant is selected right now, not whichever one was selected when
-    the action started; the x coordinate is **mirrored when the mascot faces right**
-    (`mascot.isLookRight() ? bounds.width - point.x : point.x`), so a pack authors a hotspot once
-    against the unflipped art; and a hit sets `handled = true` **even when `Behaviour` is null**,
-    so a hotspot with no behavior still swallows the click rather than falling through to a drag.
-    UserBehavior checks hotspots *before* the drag path, so this ordering is preserved in Mascot's
-    own pointerdown.
+    that runs a named behavior instead of starting a drag. Hotspots are **refreshed every tick**
+    from the *currently effective* Animation (real `ActionBase.refreshHotspots()`), so which regions
+    are live follows whichever condition-gated variant is selected right now, not whichever one was
+    selected when the action started; and the x coordinate is **mirrored when the mascot faces
+    right** (`mascot.isLookRight() ? bounds.width - point.x : point.x`), so a pack authors a hotspot
+    once against the unflipped art.
+
+    ⚠️ **Shipped wrong first, corrected in pass 22 — see entry 30.** The initial port read
+    `Hotspot.java` in isolation and concluded a hit consumes the click even with a null `Behaviour`.
+    It does not, in the current source: `UserBehavior.mousePressed` ANDs
+    `configuration.isBehaviorEnabled(hotspot.getBehaviour(), mascot)` into the *match* itself, and
+    the `String` overload of that method returns `false` for any name absent from
+    `behaviorBuilders` — `null` included. That reading was correct for v1.0.19-v1.0.20, before
+    v1.0.21 added the conjunct.
 28. **Shimeji Variables (v1.0.22)** — `mascot.getVariables()`, a `Map<String, Object>` the engine
     itself never reads ("not accessed by the program itself" in the source's own words), existing
     purely so a pack can keep arbitrary per-mascot state across actions and behaviors for the
@@ -918,3 +922,50 @@ The three that were still outstanding after part 1. With these the whole invento
     launched specifically to be a mascot. There is also a master-volume slider, which the original
     has as a global setting too; it scales each clip on top of the pack's own authored `Volume`
     rather than replacing it.
+
+## Pass 22: the hotspot click path (2026-08-14)
+
+Three bugs in the Hotspot port from the previous commit, all in `Mascot`'s `pointerdown`, all found
+by re-reading `UserBehavior.mousePressed` line by line rather than trusting the summary of it. Root
+cause of all three is the same: the port was built from `animation/Hotspot.java` (the geometry) plus
+a remembered paraphrase of the call site, instead of from the call site itself.
+
+The real predicate is a **conjunction**, evaluated inside the loop, before the `break`:
+
+```java
+if (hotspot.contains(mascot, event.getPoint()) &&
+        Main.getInstance().getConfiguration(mascot.getImageSet()).isBehaviorEnabled(hotspot.getBehaviour(), mascot)) {
+    handled = true;
+    ...
+    break;
+}
+```
+
+30. **Hotspots were dead whenever "Allow dragging" was off.** The scan sat *below* this file's own
+    `if (!this.dragEnabled) return;` early-return. The real engine has no app-level dragging toggle
+    at all, and checks hotspots before anything drag-related — a hotspot is a click target, not a
+    grab, so the setting has no business gating it. Moved above the check.
+31. **A hotspot whose behavior the user had switched off still fired.** The `isBehaviorEnabled`
+    conjunct was missing entirely, so the `Toggleable` mechanism ported one commit earlier (entry 26)
+    was silently bypassed on this path. Because the check is *inside* the loop rather than after it,
+    getting this right also means a disabled hotspot is **transparent** — it doesn't consume the
+    click, and the scan continues to the next overlapping hotspot, falling through to the drag path
+    if nothing else matches. Both properties are now pinned by tests.
+32. **A hotspot with no `Behaviour` wrongly swallowed the click** (and so did one naming a behavior
+    the pack never defines). See the correction on entry 27: the `String` overload of
+    `isBehaviorEnabled` is a "known *and* available" test — `behaviorBuilders.containsKey(name)`
+    else `false` — and `behaviorBuilders` is a `LinkedHashMap`, so a `null` lookup returns false
+    cleanly rather than throwing. Such a hotspot is therefore transparent.
+
+Also ported for these: `Configuration.isBehaviorEnabled(String, Mascot)` itself, on `BehaviorAI`/
+`PackDriver`. It is *not* simply `!disabled.has(name)` — a behavior that isn't `Toggleable` is
+always enabled regardless of the disabled list, and an unknown name is false rather than true.
+
+**Process note, and the actual lesson.** These bugs shipped in a commit whose suite was green at 235
+tests, because the hotspot *click path had no test at all* — only the parser and the per-tick
+refresh were covered. The feature was reported complete on the strength of coverage that never
+touched its main behavior. Before claiming a user-facing interaction is ported, there must be a test
+that exercises *that interaction*, not just the data it reads. All five of the new tests were
+confirmed red against the previous commit's `Mascot.ts` before being accepted — the same
+revert-and-verify step that Passes 12-14 established after three consecutive no-op "fixes", now
+applied to feature work rather than only to bug reports.

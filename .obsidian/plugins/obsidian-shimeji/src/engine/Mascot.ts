@@ -65,6 +65,11 @@ export interface MascotDriver {
 	listToggleableBehaviorNames?(): string[];
 	/** Applies the user's on/off choices; excluded from autonomous selection only. */
 	setDisabledBehaviors?(names: ReadonlySet<string>): void;
+	/** Real `Configuration.isBehaviorEnabled(String name, Mascot)`: whether a behavior *by name* is
+	 * both known to the pack and not switched off. Note the real String overload returns **false for
+	 * a name the pack doesn't define at all** (`behaviorBuilders.containsKey(name)` else `false`),
+	 * which is load-bearing on the hotspot path — see hotspotAt. */
+	isBehaviorEnabled?(name: string | undefined): boolean;
 	onDetach?(mascot: Mascot): void;
 }
 
@@ -276,16 +281,20 @@ export class Mascot {
 
 	private bindPointerHandlers(): void {
 		this.el.addEventListener("pointerdown", (ev) => {
-			if (!this.dragEnabled) return;
-			// Real UserBehavior.mousePressed checks hotspots *first*: a hit consumes the click
-			// (`handled = true`) and runs its behavior instead of starting a drag. A hotspot with
-			// no Behaviour still consumes it — that is the real behavior, not an oversight.
+			// Real UserBehavior.mousePressed checks hotspots *first*, before anything drag-related:
+			// a match consumes the click (`handled = true`) and runs its behavior instead of
+			// starting a drag. Deliberately ahead of the `dragEnabled` check below — a hotspot is a
+			// click target, not a grab, and the original has no app-level "allow dragging" toggle to
+			// gate it behind in the first place. (It used to sit *after* that check, so switching
+			// dragging off silently disabled every hotspot a pack declared.)
 			const hotspot = this.hotspotAt(ev.clientX, ev.clientY);
 			if (hotspot) {
 				ev.preventDefault();
+				// Guaranteed non-null and enabled: hotspotAt's own predicate already required it.
 				if (hotspot.behavior) this.startNamedBehavior(hotspot.behavior);
 				return;
 			}
+			if (!this.dragEnabled) return;
 			// Real UserBehavior: `handled = !actionBase.isDraggable()` — the *currently running
 			// action* can refuse the grab outright, independently of the app-level toggle above.
 			if (this.driver?.isDraggable?.(this, this.deps.getAmbientPointer()) === false) return;
@@ -360,6 +369,22 @@ export class Mascot {
 	 * is authored against the *left-facing* art and mirrored when the mascot faces right, exactly
 	 * as the sprite itself is. `point` is relative to the sprite's bounds, so the viewport click
 	 * has to be brought into that space first, undoing the render scale on the way.
+	 *
+	 * The match predicate is real UserBehavior.mousePressed's, both halves of it:
+	 *
+	 *     hotspot.contains(mascot, event.getPoint()) && configuration.isBehaviorEnabled(hotspot.getBehaviour(), mascot)
+	 *
+	 * That second conjunct sits *inside* the loop, before the `break`, so a geometric hit whose
+	 * behavior is unavailable does not merely fail to run — it doesn't count as a hit at all: the
+	 * scan continues to the next hotspot, and if nothing else matches, the click falls through to
+	 * the ordinary drag path. Two consequences, both of them the real engine's:
+	 *  - a hotspot naming a behavior the user has switched off is transparent, not a dead zone;
+	 *  - a hotspot with **no `Behaviour` at all** is also transparent, because the real String
+	 *    overload of isBehaviorEnabled returns false for any name it can't find in
+	 *    `behaviorBuilders` — and `null` is one of those. (`Hotspot.java` alone reads as though a
+	 *    behaviour-less hotspot still swallows the click, and it did before v1.0.21 added this
+	 *    conjunct; against the current source it does not. An earlier version of this method
+	 *    implemented that older reading.)
 	 */
 	hotspotAt(clientX: number, clientY: number): HotspotDef | undefined {
 		if (this.hotspots.length === 0) return undefined;
@@ -369,7 +394,13 @@ export class Mascot {
 		const localY = (clientY - rect.top) / scale;
 		const x = this.physics.facing === 1 ? this.width - localX : localX;
 		const y = localY;
-		return this.hotspots.find((h) => hotspotContains(h, x, y));
+		return this.hotspots.find((h) => hotspotContains(h, x, y) && this.isBehaviorEnabled(h.behavior));
+	}
+
+	/** Real `Configuration.isBehaviorEnabled(String, Mascot)`. Defaults to false with no driver
+	 * attached: the native placeholder has no named behaviors at all, so no name is "known" to it. */
+	private isBehaviorEnabled(name: string | undefined): boolean {
+		return this.driver?.isBehaviorEnabled?.(name) ?? false;
 	}
 
 	private onWindowBlur = (): void => {
