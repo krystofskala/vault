@@ -15,6 +15,10 @@ export interface ShimejiSettings {
 	autoSpawnCount: number;
 	maxMascots: number;
 	allowDragging: boolean;
+	/** Not a real shimeji-ee feature — the original engine has no vertical flip whatsoever, and
+	 * always pinches the mascot by the head (Dragged.java's `DEFAULT_OFFSETY = 120`). Grabbing the
+	 * lower third of the sprite instead holds it by the ankles, hanging upside down. */
+	upsideDownFeetDrag: boolean;
 	allowBreeding: boolean;
 	/** Real shimeji-ee's own `transients` setting — separate from `breeding`, and what
 	 * Breed.Delegate.isEnabled() consults for a `BornTransient` clone. */
@@ -58,6 +62,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	autoSpawnCount: 1,
 	maxMascots: 8,
 	allowDragging: true,
+	upsideDownFeetDrag: true,
 	allowBreeding: true,
 	allowTransients: true,
 	disabledBehaviors: {},
@@ -217,6 +222,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					this.plugin.settings.allowDragging = value;
 					await this.plugin.saveSettings();
 					this.plugin.applyAllowDragging();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Grab by the feet to dangle upside down")
+			.setDesc(
+				"Picking a mascot up by its lower third holds it by the ankles, hanging upside down; grabbing it anywhere higher pinches it by the head as usual. Not a real shimeji-ee feature — the original engine has no vertical flip at all and always grabs by the head.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.upsideDownFeetDrag).onChange(async (value) => {
+					this.plugin.settings.upsideDownFeetDrag = value;
+					await this.plugin.saveSettings();
+					this.plugin.applyUpsideDownFeetDrag();
 				}),
 			);
 

@@ -547,6 +547,31 @@ its editor.
 A custom action/behavior with the same name as a standard one (or another custom one) replaces
 it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml` directly.
 
+## Grab it by the feet (invented, on by default)
+
+Pick a mascot up by its **lower third** and it hangs upside down from your cursor, held by the
+ankles. Grab it anywhere higher and you get the ordinary drag, pinched by the head.
+
+The grab point being meaningful is real: `Dragged.java` has `OffsetX`/`OffsetY` parameters and puts
+the mascot's anchor at `cursor + offset` every tick, and its default `OffsetY` of 120 is exactly
+what makes the normal drag a pinch by the head — with the standard `ImageAnchor="64,128"` on a
+128px sprite, the cursor lands 8px below the top of the frame. Holding it by the feet is just
+offset 0, so the soles sit at the cursor.
+
+The **vertical flip is invented** — the real engine has no such thing anywhere; `setLookRight`
+mirrors horizontally and that is the only orientation it knows. Toggle it off under
+**Settings → Shimeji Desktop Mascot → Behavior**.
+
+Two notes on how it fits with the real mechanisms:
+
+- A pack-authored `<Hotspot>` always wins the click. The orientation choice only runs on the path a
+  declined hotspot scan falls through to.
+- It is deliberately *not* implemented as a `<Hotspot>`. A real Hotspot *replaces* the drag rather
+  than starting one, and is declared per-`<Animation>` — so "grabbable by the feet whatever it
+  happens to be doing" would mean copying the region onto every action in the pack and would still
+  be unable to pick the mascot up. Where the mascot is held is a property of the grab, so it lives
+  on the grab path.
+
 ## Window mischief (experimental, off by default)
 
 Real shimeji-ee mascots can grab the OS window they're standing next to, carry it along while

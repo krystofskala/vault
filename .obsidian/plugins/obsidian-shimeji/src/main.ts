@@ -78,6 +78,7 @@ export default class ShimejiPlugin extends Plugin {
 		if (needsSave) await this.saveSettings();
 
 		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
+		this.applyUpsideDownFeetDrag();
 		this.obsidianPaneActions = new ObsidianPaneActions(this.app);
 
 		this.stage = new Stage({
@@ -254,6 +255,12 @@ export default class ShimejiPlugin extends Plugin {
 
 	applyChaseMouseEnabled(): void {
 		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
+	}
+
+	/** Read at the moment of each grab, so flipping this mid-drag can't invert a mascot already in
+	 * the air — the next pickup gets the new setting. */
+	applyUpsideDownFeetDrag(): void {
+		this.engineConfig.upsideDownFeetDrag = this.settings.upsideDownFeetDrag;
 	}
 
 	/** No ambient pointer exists on a touch-only device between touches, so ChaseMouse would

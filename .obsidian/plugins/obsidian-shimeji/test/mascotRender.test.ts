@@ -313,3 +313,117 @@ describe("Mascot hotspot clicks", () => {
 		expect(started).toEqual(["Poke"]);
 	});
 });
+
+/**
+ * Grab-by-the-feet upside-down dragging. **Invented**, not a port: the real engine has no vertical
+ * flip at all. The mechanism it rides on is real, though — Dragged.java's OffsetX/OffsetY, whose
+ * default OffsetY of 120 is what makes the ordinary drag a pinch by the head.
+ */
+describe("Mascot upside-down feet drag", () => {
+	/** Standard shimeji geometry: a 128x128 sprite anchored bottom-centre. */
+	function draggableMascot(overrides: Partial<MascotDeps> = {}) {
+		const mascot = new Mascot(makeDeps(overrides), 400, 300);
+		mascot.setVisualImage("resolved:/shime1.png", { x: 64, y: 128 });
+		mascot.width = 128;
+		mascot.height = 128;
+		mascot.el.getBoundingClientRect = () => ({ left: 336, top: 172, width: 128, height: 128 }) as DOMRect;
+		mascot.el.setPointerCapture = () => {};
+		mascot.el.releasePointerCapture = () => {};
+		return mascot;
+	}
+
+	function grabAt(mascot: Mascot, clientX: number, clientY: number): void {
+		const ev = new Event("pointerdown", { bubbles: true, cancelable: true });
+		Object.assign(ev, { clientX, clientY, pointerId: 1, pointerType: "mouse" });
+		mascot.el.dispatchEvent(ev);
+	}
+
+	function release(mascot: Mascot): void {
+		const ev = new Event("pointerup", { bubbles: true, cancelable: true });
+		Object.assign(ev, { pointerId: 1 });
+		mascot.el.dispatchEvent(ev);
+	}
+
+	// Sprite spans client y 172..300. Lower third (FEET_GRAB_FRACTION) is 257..300.
+	it("grabbing the lower third holds it upside down", () => {
+		const mascot = draggableMascot();
+		grabAt(mascot, 400, 290);
+		expect(mascot.isDraggedUpsideDown).toBe(true);
+	});
+
+	it("grabbing anywhere higher keeps the ordinary pinch-by-the-head drag", () => {
+		const mascot = draggableMascot();
+		grabAt(mascot, 400, 200);
+		expect(mascot.isDraggedUpsideDown).toBe(false);
+	});
+
+	it("renders an upside-down drag as a vertical flip about the anchor row", () => {
+		const mascot = draggableMascot();
+		grabAt(mascot, 400, 290);
+		mascot.render();
+		const inner = mascot.el.firstElementChild as HTMLElement;
+		expect(inner.style.transform).toContain("scaleY(-1)");
+		// The pivot is the anchor, which is why no repositioning of `top` is needed alongside it.
+		expect(inner.style.transformOrigin).toBe("64px 128px");
+	});
+
+	it("leaves an ordinary drag unflipped", () => {
+		const mascot = draggableMascot();
+		grabAt(mascot, 400, 200);
+		mascot.render();
+		const inner = mascot.el.firstElementChild as HTMLElement;
+		expect(inner.style.transform).not.toContain("scaleY");
+	});
+
+	// Real Dragged puts the anchor at cursor + OffsetY (default 120), i.e. the head at the pointer.
+	// Held by the ankles the anchor *is* the grab point, so the offset is zero and the body hangs
+	// below the cursor rather than standing above it.
+	it("puts the anchor at the cursor when upside down, and 120px below it otherwise", () => {
+		const upright = draggableMascot();
+		grabAt(upright, 400, 200);
+		upright.simulate(0.04, []);
+		expect(upright.physics.y).toBeCloseTo(200 + 120);
+
+		const inverted = draggableMascot();
+		grabAt(inverted, 400, 290);
+		inverted.simulate(0.04, []);
+		expect(inverted.physics.y).toBeCloseTo(290);
+	});
+
+	it("rights itself on release, so the upright falling art is never drawn inverted", () => {
+		const mascot = draggableMascot();
+		grabAt(mascot, 400, 290);
+		expect(mascot.isDraggedUpsideDown).toBe(true);
+		release(mascot);
+		expect(mascot.isDraggedUpsideDown).toBe(false);
+		mascot.render();
+		const inner = mascot.el.firstElementChild as HTMLElement;
+		expect(inner.style.transform).not.toContain("scaleY");
+	});
+
+	it("stays upright everywhere when the feature is switched off", () => {
+		const mascot = draggableMascot({ config: { ...DEFAULT_ENGINE_CONFIG, upsideDownFeetDrag: false } });
+		grabAt(mascot, 400, 290);
+		expect(mascot.isDraggedUpsideDown).toBe(false);
+		mascot.simulate(0.04, []);
+		expect(mascot.physics.y).toBeCloseTo(290 + 120);
+	});
+
+	// A real pack-authored Hotspot must keep winning the click: the grab-orientation choice runs
+	// only on the path a declined hotspot scan falls through to.
+	it("never runs when a real hotspot claims the click first", () => {
+		const started: string[] = [];
+		const mascot = draggableMascot();
+		mascot.attachDriver({
+			tick() {},
+			startNamedBehavior: (_m: Mascot, name: string) => started.push(name),
+			isBehaviorEnabled: (name: string | undefined) => name === "Tickle",
+		});
+		mascot.physics.facing = -1;
+		// Covers the feet region in sprite-local coords (y 96..128 of 128).
+		mascot.hotspots = [{ shape: "Rectangle", origin: { x: 0, y: 96 }, size: { x: 128, y: 32 }, behavior: "Tickle" }];
+		grabAt(mascot, 400, 290);
+		expect(started).toEqual(["Tickle"]);
+		expect(mascot.isDraggedUpsideDown).toBe(false);
+	});
+});

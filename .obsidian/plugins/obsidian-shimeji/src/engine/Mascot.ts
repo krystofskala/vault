@@ -21,6 +21,39 @@ import type { Random } from "./Random";
  * it still lands in a sensible spot if the sprite's been resized. */
 const DRAG_ANCHOR_OFFSET_Y = 120;
 
+/**
+ * **Invented, not a port.** The real engine has no vertical flip anywhere — `setLookRight` mirrors
+ * horizontally and that is the only orientation it knows — so "dangling upside down by the ankles"
+ * has no counterpart in the source and is labelled as an addition, like note mischief and window
+ * throwing. Gated by `config.upsideDownFeetDrag`.
+ *
+ * What *is* faithful is the mechanism it rides on. Real `Dragged.java` has `OffsetX`/`OffsetY`
+ * parameters (`DEFAULT_OFFSETY = 120`) and places the anchor at `cursor + offset` every tick — so
+ * "which part of itself the mascot hangs by" is already a real, authorable quantity, and grabbing by
+ * a different part is just a different offset. With the standard pack's `ImageAnchor="64,128"` on a
+ * 128px-tall sprite, the real default of 120 puts the cursor 8px below the top of the frame: the
+ * mascot is pinched by the head, which is why the drag art looks the way it does.
+ *
+ * Grabbing the feet is therefore offset 0 — anchor (the soles) exactly at the cursor — plus the
+ * invented flip, so the body hangs *downward* from the pinch instead of standing on top of it.
+ */
+const FEET_DRAG_ANCHOR_OFFSET_Y = 0;
+
+/**
+ * How much of the sprite's height, measured up from the bottom, counts as "the feet" for choosing
+ * the grab orientation above. The standard 128x128 white shimeji stands with its soles on the
+ * bottom edge of the frame (that is what `ImageAnchor="64,128"` means), so the lower third is legs
+ * and feet and everything above it is body and head.
+ *
+ * Deliberately *not* a `<Hotspot>`: a real Hotspot replaces the drag rather than starting one, and
+ * is declared per-`<Animation>`, so expressing "grabbable by the feet whatever it happens to be
+ * doing" that way would mean duplicating the region onto every action in the pack and still leave
+ * it unable to actually pick the mascot up. This is a property of the grab itself, so it lives on
+ * the grab path — and it runs only *after* the real hotspot scan has declined the click, leaving
+ * genuine pack-authored hotspots strictly ahead of it in priority.
+ */
+const FEET_GRAB_FRACTION = 1 / 3;
+
 /** Touch/pen has no right-click, so holding still opens the context menu instead — the same
  * long-press-for-options gesture Obsidian's own mobile UI already uses elsewhere (e.g. the
  * file explorer). Gated to non-mouse pointers only; desktop's existing right-click is
@@ -165,6 +198,9 @@ export class Mascot {
 	private walk?: WalkState;
 	private climbDirection: "up" | "down" = "up";
 	private isDragging = false;
+	/** Set at the grab from where on the sprite the pointer landed, cleared on release so the
+	 * upright Thrown/Falling art is never drawn inverted — see FEET_GRAB_FRACTION. */
+	private dragUpsideDown = false;
 	private activePointerId: number | null = null;
 	private dragTrack: PointerState = { x: 0, y: 0, down: false };
 	/** Faithful port of Dragged.java's own footX/footDx fields — see tickDragFootX. Public
@@ -299,6 +335,11 @@ export class Mascot {
 			// action* can refuse the grab outright, independently of the app-level toggle above.
 			if (this.driver?.isDraggable?.(this, this.deps.getAmbientPointer()) === false) return;
 			ev.preventDefault();
+			// Which part of itself it hangs by, decided once at the grab and held for the whole
+			// drag — see FEET_GRAB_FRACTION. Real Dragged reads its OffsetX/OffsetY fresh every
+			// tick, but those are pack constants there; here the value comes from the grab, and a
+			// mascot that flipped orientation mid-drag because the cursor drifted would be absurd.
+			this.dragUpsideDown = this.deps.config.upsideDownFeetDrag && this.grabbedByTheFeet(ev.clientY);
 			this.el.setPointerCapture(ev.pointerId);
 			this.activePointerId = ev.pointerId;
 			this.isDragging = true;
@@ -403,6 +444,25 @@ export class Mascot {
 		return this.driver?.isBehaviorEnabled?.(name) ?? false;
 	}
 
+	/**
+	 * Whether a grab at this viewport y landed in the sprite's lower FEET_GRAB_FRACTION. Uses the
+	 * rendered box rather than physics, so it stays correct at any scale and for any pose's anchor
+	 * — the same client->local mapping hotspotAt does. No horizontal component and so no mirroring
+	 * to undo: "how far up the sprite" reads the same whichever way it faces.
+	 */
+	private grabbedByTheFeet(clientY: number): boolean {
+		const rect = this.el.getBoundingClientRect();
+		if (rect.height <= 0) return false;
+		const fromTop = (clientY - rect.top) / rect.height;
+		return fromTop >= 1 - FEET_GRAB_FRACTION;
+	}
+
+	/** Whether the current drag is holding the mascot by its ankles. Exposed for the debug API and
+	 * for tests; there is no setter, since the orientation is fixed at the grab. */
+	get isDraggedUpsideDown(): boolean {
+		return this.isDragging && this.dragUpsideDown;
+	}
+
 	private onWindowBlur = (): void => {
 		if (this.isDragging) this.finishDrag();
 		this.clearLongPress();
@@ -417,6 +477,9 @@ export class Mascot {
 	private finishDrag(): void {
 		if (!this.isDragging) return;
 		this.isDragging = false;
+		// Let go of the ankles: everything after release (Thrown, Falling, landing) is upright art,
+		// so the flip has to end with the grab and not linger into the fall.
+		this.dragUpsideDown = false;
 		this.el.classList.remove("is-dragging");
 		this.dragTrack.down = false;
 		if (this.activePointerId !== null) {
@@ -458,7 +521,11 @@ export class Mascot {
 			// for the actual rendered position, and update the *separate* FootX lag simulation
 			// used only for the pack's own lean-pose comparison.
 			this.physics.facing = -1;
-			tickDragged(this.physics, this.dragTrack, DRAG_ANCHOR_OFFSET_Y * this.scale, this.deps.getViewportSize());
+			// Real Dragged's OffsetY, whose default of 120 hangs the mascot from its head. Held by
+			// the feet the anchor *is* the pinch point, so the offset is zero and the flip in
+			// render() puts the body below the cursor instead of above it.
+			const anchorOffsetY = this.dragUpsideDown ? FEET_DRAG_ANCHOR_OFFSET_Y : DRAG_ANCHOR_OFFSET_Y;
+			tickDragged(this.physics, this.dragTrack, anchorOffsetY * this.scale, this.deps.getViewportSize());
 			const nextFoot = tickDragFootX(this.dragFootX, this.dragFootDx, this.dragTrack.x);
 			this.dragFootX = nextFoot.footX;
 			this.dragFootDx = nextFoot.footDx;
@@ -614,7 +681,17 @@ export class Mascot {
 		// dragging, simulate() forces facing to -1 every tick (Dragged.java's own unconditional
 		// `setLookRight(false)`) — the real Pinched poses are five distinct images already
 		// encoding their own left/right, and mirroring on top used to double-transform them.
-		this.inner.style.transform = this.physics.facing === 1 ? "scaleX(-1)" : "none";
+		// `transformOrigin` above is the anchor point, so scaleY(-1) mirrors the sprite about the
+		// anchor *row* — the grabbed point stays exactly under the cursor and only the body swings
+		// to the other side of it. That is the whole reason this is one inner transform rather than
+		// an adjustment to `top`: no repositioning is needed, the pivot is already in the right
+		// place. Composed with (not replacing) the facing mirror, even though simulate() forces
+		// facing to -1 for the duration of every drag, so the two can't currently co-occur.
+		// Guarded on `isDraggedUpsideDown` (which requires isDragging) rather than the raw flag, so a
+		// grab that sets the orientation and then aborts before the drag starts can't leave a
+		// standing mascot rendered on its head.
+		const flips = [this.physics.facing === 1 ? "scaleX(-1)" : "", this.isDraggedUpsideDown ? "scaleY(-1)" : ""].filter(Boolean);
+		this.inner.style.transform = flips.length > 0 ? flips.join(" ") : "none";
 	}
 
 	destroy(): void {

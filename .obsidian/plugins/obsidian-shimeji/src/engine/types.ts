@@ -90,6 +90,10 @@ export interface EngineConfig {
 	 * shared config object so both the native fallback state machine and real-pack BehaviorAI
 	 * see a live update without Stage needing a separate policy-config path). */
 	chaseMouseEnabled: boolean;
+	/** Grabbing the mascot low down holds it by the ankles and turns it upside down, instead of
+	 * pinching it by the head as the real engine always does. Invented — the original has no
+	 * vertical flip at all. See Mascot's FEET_GRAB_FRACTION. */
+	upsideDownFeetDrag: boolean;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -98,6 +102,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
 	climbSpeed: 70,
 	minThrowSpeed: 60,
 	chaseMouseEnabled: true,
+	upsideDownFeetDrag: true,
 };
 
 /** Shimeji-ee's own engine runs a fixed-timestep loop at this rate; Stage's simulation loop

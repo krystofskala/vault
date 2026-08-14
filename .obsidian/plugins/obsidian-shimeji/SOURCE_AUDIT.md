@@ -969,3 +969,47 @@ that exercises *that interaction*, not just the data it reads. All five of the n
 confirmed red against the previous commit's `Mascot.ts` before being accepted — the same
 revert-and-verify step that Passes 12-14 established after three consecutive no-op "fixes", now
 applied to feature work rather than only to bug reports.
+
+## Invented: grab-by-the-feet upside-down dragging (2026-08-14)
+
+Requested directly by the user ("drag it by head but also drag it by feet which drags it upside
+down"), so it goes in the same category as note mischief and the pane-throwing reinterpretation: an
+addition, clearly labelled, not a port. Recorded here because half of it *is* a real mechanism that
+had gone unnoticed until now.
+
+**What's real.** `Dragged.java` has `OffsetX` / `OffsetY` / `OffsetType` parameters
+(`DEFAULT_OFFSETY = 120`) and sets the anchor to `cursor + offset` on every tick. So "which part of
+itself the mascot hangs by" is already an authorable quantity in the original, and grabbing it
+somewhere else is simply a different offset. With the standard pack's `ImageAnchor="64,128"` on a
+128px-tall sprite, the real default of 120 places the cursor 8px below the top of the frame — the
+mascot is pinched by the head, which is what the Pinched artwork is drawn for. `DRAG_ANCHOR_OFFSET_Y`
+was already ported correctly (Pass 8); what was missing was noticing that it is a *parameter*, and
+what it implies.
+
+**What's invented.** The vertical flip. `grep -rn 'upsideDown\|flipVertical\|scaleY\|rotate'` over
+the whole package returns nothing — `setLookRight` mirrors horizontally and that is the only
+orientation the engine has. Grabbing the feet therefore uses offset 0 (soles at the cursor) plus a
+`scaleY(-1)` so the body hangs *below* the pinch instead of standing above it.
+
+Implementation notes worth keeping:
+
+- The flip is one inner-element transform, not an adjustment to the computed `top`. `render()`
+  already sets `transformOrigin` to the anchor point, so `scaleY(-1)` mirrors about the anchor *row*
+  — the grabbed point stays exactly under the cursor and only the body swings across it. No
+  repositioning needed.
+- Orientation is decided **once, at the grab**, and held for the whole drag. Real `Dragged` re-reads
+  its offsets every tick, but there they are pack constants; here the value comes from where the
+  pointer landed, and a mascot that flipped mid-drag because the cursor drifted would be nonsense.
+- Cleared in `finishDrag()`. Everything after release — Thrown, Falling, landing — is upright art,
+  so the flip must not outlive the grab. `render()` additionally guards on `isDraggedUpsideDown`
+  (which requires `isDragging`) rather than the raw flag, so a grab that aborts between setting the
+  orientation and starting the drag can't leave a standing mascot on its head.
+- It runs strictly *after* the real hotspot scan declines the click, so pack-authored `<Hotspot>`
+  regions keep absolute priority. Pinned by a test.
+
+**Why not a `<Hotspot>`, given that is what was asked for.** A real Hotspot *replaces* the drag
+rather than starting one — `handled = true` and the drag never begins — so it structurally cannot
+express "pick me up, but differently". It is also declared per-`<Animation>`, so an always-available
+feet region would have to be duplicated onto every action in the pack and would still be inert. The
+grab region is a property of the grab, so it lives on the grab path; the reference
+`Shimeji/conf/actions.xml` stays untouched, as it has throughout.
