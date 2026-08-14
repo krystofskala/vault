@@ -411,16 +411,37 @@ const warnedConditions = new Set<string>();
 /** Parses a `Condition="#{...}"` / `Condition="${...}"` attribute value. Returns undefined
  * (and logs once) on anything unrecognized, so an unsupported construct degrades to
  * "always true" rather than breaking the whole imported pack. */
-export function parseCondition(raw: string): Node | undefined {
+/**
+ * A condition that parses down to two adjacent operands with no operator between them — the shape
+ * `parseExpression` reports as "Expected eof but got num" — almost always means the pack's XML lost a
+ * comparison operator rather than that the author wrote nonsense. `<` and `>` are not legal raw
+ * characters inside an XML attribute value; they have to be written `&lt;` / `&gt;`. A pack that
+ * writes a bare `<`, or an entity missing its semicolon (`&lt 50`), can end up parsed with the
+ * operator simply gone, leaving `#{mascot.totalCount 50}` where `#{mascot.totalCount &lt; 50}` was
+ * meant. Worth saying out loud, because the raw text in the warning looks *almost* right and the
+ * actual defect is invisible in it.
+ */
+function looksLikeADroppedComparison(expr: string, message: string): boolean {
+	return /Expected eof but got/.test(message) && !/[<>=!]/.test(expr);
+}
+
+/** `context` is a human label for where this condition came from (an action or behavior name), so a
+ * warning is findable in a pack with hundreds of conditions instead of just quoting the text. */
+export function parseCondition(raw: string, context?: string): Node | undefined {
+	const where = context ? ` in "${context}"` : "";
 	const match = EXPR_WRAPPER.exec(raw.trim());
 	if (!match) {
-		warnOnce(`Unrecognized condition syntax, treating as always-true: ${raw}`);
+		warnOnce(`Unrecognized condition syntax${where}, treating as always-true: ${raw}`);
 		return undefined;
 	}
 	try {
 		return parseExpression(match[1]);
 	} catch (err) {
-		warnOnce(`Failed to parse condition, treating as always-true: ${raw} (${(err as Error).message})`);
+		const message = (err as Error).message;
+		const hint = looksLikeADroppedComparison(match[1], message)
+			? ` — this looks like a comparison operator missing from the XML: "<" and ">" must be written "&lt;" and "&gt;" inside an attribute value, and an entity without its semicolon can be dropped silently. Check this condition in the pack's actions.xml/behaviors.xml.`
+			: "";
+		warnOnce(`Failed to parse condition${where}, treating as always-true: ${raw} (${message})${hint}`);
 		return undefined;
 	}
 }

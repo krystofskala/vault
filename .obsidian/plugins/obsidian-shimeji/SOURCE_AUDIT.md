@@ -1112,3 +1112,50 @@ it `Frequency="0"` in the general pool) rather than on position, since once foll
 ordinary autonomous wandering resumes and can carry the mascot near the pointer by chance. It also has
 to drain the in-flight action first: switching off stops *new* pursuits and deliberately does not
 abort the action already running.
+
+## Pass 24: two live bugs from the Sound feature (2026-08-14)
+
+Reported from a real multi-character pack (Eevee_Egg / Umbreon / Umbreon_Shiny) via a console
+screenshot: a wall of "references sound X but no file was found" warnings, plus a condition parse
+failure.
+
+37. **Every sound file failed to resolve, for every pack.** Pack authors write `Sound` exactly the
+    way they write `Image` — pack-relative with a leading slash, `Sound="/197 - Umbreon.wav"`.
+    `resolveImage` has always stripped that (`rawPath.replace(/^[/\\]+/, "")`); the sound path
+    builder did not. Worse, it probed the *raw* joined candidate with `adapter.exists()` while only
+    passing the normalised path to `getResourcePath` — so the path that was tested was never the path
+    that would be used. Every candidate came out as `.../sound//197 - Umbreon.wav`, missed, and sound
+    was silently dead for every pack that actually shipped any. Both halves fixed: strip the leading
+    separator *and* normalise before probing.
+
+    This is the second time in this project that a path bug survived because the check and the use
+    went through different normalisation. Worth stating as a rule: **probe the exact string you are
+    going to use.**
+
+38. **One warning per missing file made the console unusable.** A pack declaring a dozen sounds
+    produced a dozen near-identical warnings at load, three packs producing thirty — which is what
+    the screenshot actually showed, and it buries real problems. Now one line per pack, listing the
+    count, the three folders it looked in, and the missing names. Sound is off by default, so this is
+    informational for most users and must not shout.
+
+39. **A pack condition parsed as `#{mascot.totalCount 50}`** — two operands, no operator. The
+    tokenizer handles `<`/`>` and *throws* on unknown characters, so the operator was genuinely
+    absent from the attribute string: `<` and `>` are not legal raw characters inside an XML
+    attribute value, and a pack writing a bare `<`, or `&lt` without its semicolon, can end up parsed
+    with the operator dropped. Not our bug to fix — but our warning quoted only the expression text,
+    which looks *almost* right, so the actual defect was invisible and unlocatable. `parseCondition`
+    now takes a context label (threaded through both parsers: action name, behavior name, which
+    `<Animation>`, which transition edge) and, when the failure has the two-operands-no-operator
+    shape, says explicitly that a comparison operator looks XML-dropped and must be written `&lt;`.
+
+    The user's pack files are not in this repo, so this was diagnosed from the tokenizer's own
+    behavior rather than by reading the offending XML — stated as a likely cause in the warning, not
+    asserted as fact.
+
+**Testing note.** `PackLoader` is the one module here importing a *value* from `obsidian`
+(`normalizePath`), and the real package ships types only with no runtime entry — so Vite could not
+resolve the id at all and `vi.mock` never got a look in, which is why the loader had no tests despite
+being the thing that reads the user's actual files. Added `test/stubs/obsidian.ts` plus a
+`resolve.alias` in vitest.config.ts. The stub implements `normalizePath` faithfully rather than as an
+identity function, because a lazy stub there would have let this exact path bug pass. Three of the
+four new loader tests were confirmed red against the previous commit before being accepted.

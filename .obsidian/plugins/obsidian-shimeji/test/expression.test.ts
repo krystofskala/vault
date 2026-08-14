@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { evaluate, evaluateCondition, parseCondition, parseExpression, type ExprContext, type ExprValue } from "../src/shimeji/Expression";
 
 function contextFrom(vars: Record<string, ExprValue>): ExprContext {
@@ -56,5 +56,35 @@ describe("expression evaluator", () => {
 		expect(parseCondition("not-a-condition")).toBeUndefined();
 		expect(evaluateCondition(parseCondition("not-a-condition"), contextFrom({}))).toBe(true);
 		expect(evaluateCondition(undefined, contextFrom({}))).toBe(true);
+	});
+});
+
+describe("condition diagnostics", () => {
+	// Reported live as `#{mascot.totalCount 50}` — two operands, no operator. `<` and `>` are not
+	// legal raw characters in an XML attribute value, so a pack writing a bare `<` (or `&lt` without
+	// its semicolon) can end up parsed with the operator simply gone. The raw text in the warning
+	// then looks almost right, and the actual defect is invisible in it.
+	it("names the owning action/behavior and flags a probably-dropped comparison operator", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		try {
+			expect(parseCondition("#{mascot.totalCount 50}", "behavior Evolve")).toBeUndefined();
+			const text = warn.mock.calls.map((c) => c.join(" ")).join("\n");
+			expect(text).toContain("behavior Evolve");
+			expect(text).toContain("&lt;");
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("does not blame XML escaping for a condition that genuinely has an operator", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		try {
+			parseCondition("#{mascot.totalCount < < 50}", "behavior Other");
+			const text = warn.mock.calls.map((c) => c.join(" ")).join("\n");
+			expect(text).toContain("behavior Other");
+			expect(text).not.toContain("&lt;");
+		} finally {
+			warn.mockRestore();
+		}
 	});
 });

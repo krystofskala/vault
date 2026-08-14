@@ -17,7 +17,14 @@ async function existsFile(app: App, path: string): Promise<boolean> {
  * undefined: a pose with an unresolvable sound should still show its art.
  */
 function soundCandidates(root: string, name: string, imgDir: string, file: string): string[] {
-	return [`${imgDir}/sound/${file}`, `${root}/sound/${name}/${file}`, `${root}/sound/${file}`];
+	// Pack authors write Sound the same way they write Image — leading-slash-relative to the pack,
+	// e.g. Sound="/egg.wav". resolveImage has always stripped that; this did not, so every candidate
+	// came out with a doubled separator (".../img/Umbreon/sound//197 - Umbreon.wav") and the
+	// existence check missed every single file, making sound silently dead for any pack that has it.
+	// Normalising here (not just at getResourcePath time, which was the other half of the mistake)
+	// means the path that gets *tested* is the path that gets *used*.
+	const clean = file.replace(/^[/\\]+/, "");
+	return [`${imgDir}/sound/${clean}`, `${root}/sound/${name}/${clean}`, `${root}/sound/${clean}`].map((p) => normalizePath(p));
 }
 
 async function tryLoadCharacter(app: App, name: string, imgDir: string, confDir: string, root: string): Promise<MascotPack | null> {
@@ -43,16 +50,26 @@ async function tryLoadCharacter(app: App, name: string, imgDir: string, confDir:
 	// The original does the same work eagerly too, just at a different moment: AnimationBuilder
 	// resolves and loads every Pose's sound while parsing actions.xml, long before any tick.
 	const soundSrcByFile = new Map<string, string>();
+	const unresolvedSounds: string[] = [];
 	for (const file of collectPoseSounds(actionsXml)) {
 		for (const candidate of soundCandidates(root, name, imgDir, file)) {
 			if (await existsFile(app, candidate)) {
-				soundSrcByFile.set(file, app.vault.adapter.getResourcePath(normalizePath(candidate)));
+				soundSrcByFile.set(file, app.vault.adapter.getResourcePath(candidate));
 				break;
 			}
 		}
-		if (!soundSrcByFile.has(file)) {
-			console.warn(`[obsidian-shimeji] pack "${name}" references sound "${file}" but no file was found in its sound folders`);
-		}
+		if (!soundSrcByFile.has(file)) unresolvedSounds.push(file);
+	}
+	// One line per pack, not one per file. A pack that declares sounds but ships none produces a
+	// dozen of these, and a wall of near-identical warnings at load is what makes real problems in
+	// the console impossible to spot. Names the folders it looked in, so the message is actionable
+	// rather than just an accusation.
+	if (unresolvedSounds.length > 0) {
+		console.warn(
+			`[obsidian-shimeji] pack "${name}": ${unresolvedSounds.length} sound file(s) declared in actions.xml were not found ` +
+				`(looked in "${imgDir}/sound/", "${root}/sound/${name}/", "${root}/sound/"). ` +
+				`Poses still animate, just silently. Missing: ${unresolvedSounds.join(", ")}`,
+		);
 	}
 
 	return {

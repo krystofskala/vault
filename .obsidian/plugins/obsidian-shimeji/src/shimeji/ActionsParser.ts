@@ -39,10 +39,10 @@ function parsePose(el: Element): PoseDef {
 	};
 }
 
-function parseActionRef(el: Element): ActionRefDef {
+function parseActionRef(el: Element, ownerLabel: string): ActionRefDef {
 	const conditionRaw = el.getAttribute("Condition") ?? el.getAttribute("NotCondition");
 	const negate = !el.getAttribute("Condition") && !!el.getAttribute("NotCondition");
-	const parsed = conditionRaw ? parseCondition(conditionRaw) : undefined;
+	const parsed = conditionRaw ? parseCondition(conditionRaw, `${ownerLabel} -> ${el.getAttribute("Name") ?? "?"}`) : undefined;
 	const paramOverrides: Record<string, string> = {};
 	for (const attr of Array.from(el.attributes)) {
 		if (attr.name === "Name" || attr.name === "Condition" || attr.name === "NotCondition") continue;
@@ -58,14 +58,14 @@ function parseActionRef(el: Element): ActionRefDef {
 /** Real packs can put a Condition on a bare nested <Action Type="Sequence"|"Select"> used as
  * an inline (unnamed) branch — modeled here as an anonymous ActionRefDef pointing at a
  * synthetic action name registered alongside the real ones. */
-function parseInlineChild(el: Element, registerAnonymous: (def: ActionDef) => string): ActionRefDef {
-	if (el.tagName === "ActionReference") return parseActionRef(el);
+function parseInlineChild(el: Element, registerAnonymous: (def: ActionDef) => string, ownerLabel: string): ActionRefDef {
+	if (el.tagName === "ActionReference") return parseActionRef(el, ownerLabel);
 	// A bare nested <Action> used as an inline branch (typically unnamed, inside Select/Sequence).
 	const hasName = !!el.getAttribute("Name");
 	const def = parseActionElement(el, registerAnonymous, !hasName);
 	const name = registerAnonymous(def);
 	const conditionRaw = el.getAttribute("Condition");
-	return { name, condition: conditionRaw ? parseCondition(conditionRaw) : undefined, paramOverrides: {} };
+	return { name, condition: conditionRaw ? parseCondition(conditionRaw, `inline branch of ${ownerLabel}`) : undefined, paramOverrides: {} };
 }
 
 /** Real AnimationBuilder.loadHotspot: Shape/Origin/Size are required, Behaviour optional, and an
@@ -93,13 +93,13 @@ function parseHotspot(el: Element): HotspotDef | null {
 	return { shape, origin: { x: ox, y: oy }, size: { x: sw, y: sh }, behavior: el.getAttribute("Behaviour") ?? el.getAttribute("Behavior") ?? undefined };
 }
 
-function parseAnimations(el: Element): AnimationVariant[] {
+function parseAnimations(el: Element, label: string): AnimationVariant[] {
 	const animEls = Array.from(el.children).filter((c) => c.tagName === "Animation");
 	if (animEls.length === 0) return [];
 	return animEls.map((animEl) => {
 		const conditionRaw = animEl.getAttribute("Condition");
 		return {
-			condition: conditionRaw ? parseCondition(conditionRaw) : undefined,
+			condition: conditionRaw ? parseCondition(conditionRaw, `<Animation> of action ${label}`) : undefined,
 			poses: Array.from(animEl.getElementsByTagName("Pose")).map(parsePose),
 			hotspots: Array.from(animEl.children)
 				.filter((c) => c.tagName === "Hotspot")
@@ -130,14 +130,14 @@ function parseActionElement(el: Element, registerAnonymous: (def: ActionDef) => 
 
 	const children: ActionRefDef[] = Array.from(el.children)
 		.filter((child) => child.tagName === "ActionReference" || child.tagName === "Action")
-		.map((child) => parseInlineChild(child, registerAnonymous));
+		.map((child) => parseInlineChild(child, registerAnonymous, `action ${name}`));
 
 	return {
 		name,
 		type,
 		borderType,
 		loop: el.getAttribute("Loop") === "true",
-		animations: parseAnimations(el),
+		animations: parseAnimations(el, name),
 		children,
 		embeddedName,
 		params,
