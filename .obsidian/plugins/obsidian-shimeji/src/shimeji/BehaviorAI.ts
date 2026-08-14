@@ -22,6 +22,19 @@ import type { BehaviorDef, MascotPack } from "./types";
  * Mascot.startNamedBehavior for the real, on-demand equivalent. */
 const REQUIRED_BEHAVIOR_NAMES = ["ChaseMouse", "Fall", "Dragged", "Thrown"];
 
+/**
+ * How far the cursor has to be, horizontally, before a mascot in sticky-follow mode re-runs
+ * ChaseMouse — see setFollowingMouse.
+ *
+ * Must exceed the standard pack's own stopping distance or the mode would thrash: ChaseMouse's
+ * final Dash targets `cursor.x + Gap` where `Gap` is up to `Math.random()*200` *short* of the
+ * cursor, so a mascot that just finished chasing can legitimately be sitting 200px away and must
+ * not immediately start again. Inside this radius the pack's own SitAndFaceMouse chain runs
+ * untouched, which is what makes the mode look like "arrives, then watches you" rather than a
+ * mascot vibrating against the pointer.
+ */
+const FOLLOW_REACQUIRE_PX = 240;
+
 export class BehaviorAI {
 	private runner: ActionRunner;
 	private currentBehavior?: BehaviorDef;
@@ -34,6 +47,30 @@ export class BehaviorAI {
 	setDisabledBehaviors(names: ReadonlySet<string>): void {
 		this.disabledBehaviors = names;
 	}
+
+	/**
+	 * **Invented.** Real "Follow Cursor" is a one-shot `Manager.setBehaviorAll(..., "ChaseMouse")`
+	 * — a single `setBehavior` call, verified in Manager.java — after which the pack's own
+	 * NextBehavior chain takes over and never comes back to it: the standard pack sends ChaseMouse
+	 * to SitAndFaceMouse, which references *itself* at Frequency="100" under `Add="false"`, so the
+	 * mascot sits watching the pointer indefinitely. That is the real, correct outcome, and
+	 * forceBehavior/the faithful command still do exactly it.
+	 *
+	 * This flag adds the thing people expect that behaviour to be: while set, a finished action
+	 * re-runs ChaseMouse whenever the pointer has moved more than FOLLOW_REACQUIRE_PX away, so the
+	 * mascot keeps coming after it. Kept strictly additive — it only ever intercepts the moment a
+	 * behaviour *ends*, and only to substitute ChaseMouse for the weighted pick, so nothing about
+	 * how actions themselves run is touched.
+	 */
+	setFollowingMouse(following: boolean): void {
+		this.followingMouse = following;
+	}
+
+	get isFollowingMouse(): boolean {
+		return this.followingMouse;
+	}
+
+	private followingMouse = false;
 
 	/**
 	 * Real `Configuration.isBehaviorEnabled(String name, Mascot)`, reproduced including both of its
@@ -101,6 +138,14 @@ export class BehaviorAI {
 				this.startBehavior(this.respawnAndFall(mascot), env);
 				return;
 			}
+			return;
+		}
+
+		// Sticky follow (invented — see setFollowingMouse) gets first refusal on the reselection,
+		// but only when the pointer is actually out of reach; otherwise the pack's own
+		// SitAndFaceMouse chain runs, so the mascot settles and watches instead of twitching.
+		if (this.followingMouse && Math.abs(ambientPointer.x - mascot.physics.x) > FOLLOW_REACQUIRE_PX) {
+			this.forceBehavior("ChaseMouse", mascot, ambientPointer, config, paneActions);
 			return;
 		}
 

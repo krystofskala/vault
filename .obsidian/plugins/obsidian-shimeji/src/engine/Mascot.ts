@@ -103,6 +103,9 @@ export interface MascotDriver {
 	 * a name the pack doesn't define at all** (`behaviorBuilders.containsKey(name)` else `false`),
 	 * which is load-bearing on the hotspot path — see hotspotAt. */
 	isBehaviorEnabled?(name: string | undefined): boolean;
+	/** Keeps re-running ChaseMouse as the pointer moves away, rather than the real engine's
+	 * one-shot. Invented; see BehaviorAI.setFollowingMouse. */
+	setFollowingMouse?(following: boolean): void;
 	onDetach?(mascot: Mascot): void;
 }
 
@@ -313,6 +316,13 @@ export class Mascot {
 
 	setDisabledBehaviors(names: ReadonlySet<string>): void {
 		this.driver?.setDisabledBehaviors?.(names);
+	}
+
+	/** Invented sticky follow. Starting it also kicks off the first chase immediately, so the mascot
+	 * reacts at once even when the pointer is already within the re-acquire radius. */
+	setFollowingMouse(following: boolean): void {
+		this.driver?.setFollowingMouse?.(following);
+		if (following) this.startNamedBehavior("ChaseMouse");
 	}
 
 	private bindPointerHandlers(): void {

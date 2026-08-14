@@ -547,6 +547,32 @@ its editor.
 A custom action/behavior with the same name as a standard one (or another custom one) replaces
 it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml` directly.
 
+## Following the mouse
+
+Real shimeji-ee's "Follow Cursor" tray item is a **one-shot**: `Manager.setBehaviorAll(config,
+"ChaseMouse", imageSet)` is a single `setBehavior` call per mascot, and from there the pack's own
+`NextBehavior` chain takes over. In the standard pack that chain is a deliberate cul-de-sac —
+ChaseMouse leads (`Add="false"`) to SitAndFaceMouse, and SitAndFaceMouse leads (`Add="false"`) to
+*itself* at `Frequency="100"`. So the real, correct outcome is:
+
+1. get off any ceiling, wall or pane it happens to be clinging to;
+2. dash toward the pointer's **x** three times, in randomised increments, stopping up to 200px short
+   on purpose;
+3. sit and watch the pointer, turning to face it, indefinitely.
+
+It never matches the pointer's *y* — it stays on whatever surface it's standing on — and it never
+starts chasing again by itself. If your pointer already happened to be near the mascot, all three
+dashes have almost no ground to cover and it looks like it barely moved before sitting down.
+
+**"Make all mascots dash to the mouse (once)"** is exactly that behaviour, unchanged.
+
+**"Keep all mascots following the mouse"** is an invented addition: while it's on, a mascot re-runs
+ChaseMouse whenever the pointer drifts more than 240px away horizontally, so it keeps coming after
+you. Inside that radius the pack's own sit-and-watch chain runs untouched, so it still settles and
+looks at you rather than twitching against the cursor. The 240px figure has to be larger than the
+pack's own deliberate 200px undershoot, or the mascot would never stop dashing. End it with **"Stop
+all mascots following the mouse"**, or the matching per-mascot menu items.
+
 ## Grab it by the feet (invented, on by default)
 
 Pick a mascot up by its **lower third** and it hangs upside down from your cursor, held by the
@@ -627,7 +653,9 @@ global/tray equivalent, the per-mascot context menu is character-scoped where th
   off-screen at a random x with random initial facing — real `Main.createMascot()`'s own
   `Math.random() < 0.5`, not always facing right), "Remove mascot" (the most recently spawned
   one), "Remove all mascots", "Reduce to one mascot" (keeps the *oldest* one, every character),
-  "Make all mascots follow the mouse", "Restore thrown windows" (see "Window mischief" above),
+  "Make all mascots dash to the mouse (once)" — real "Follow Cursor" exactly, see "Following the
+  mouse" below — plus its invented sticky counterparts "Keep all mascots following the mouse" and
+  "Stop all mascots following the mouse", "Restore thrown windows" (see "Window mischief" above),
   "Rescan pack folder" (re-reads the pack folder after you add/change files).
 - Right-click a mascot for its own menu (matching the real per-mascot popup, plus "Switch
   character" — a plugin-only convenience with no real analog, since a real mascot's character is
@@ -638,8 +666,9 @@ global/tray equivalent, the per-mascot context menu is character-scoped where th
   that it didn't actually match anything real), remove it, remove everyone, reduce *this
   character* to one (keeps the *newest* mascot of that character — the real per-character
   overload keeps the opposite end from the global command above, confirmed by reading both, not
-  assumed symmetric), make *this character* follow the mouse, switch its character, jump it straight to
-  a named behavior, restore thrown windows, or open plugin settings.
+  assumed symmetric), dash *this character* to the mouse once / keep it following / stop it
+  following, switch its character, jump it straight to a named behavior, restore thrown windows,
+  or open plugin settings.
 - Settings: pack folder + rescan; per-character on/off toggles under **Characters** (a new
   mascot picks randomly among the ones turned on); a **Custom animations & reactions** editor
   per character (see above); population controls (spawn/remove-all buttons, max mascots on

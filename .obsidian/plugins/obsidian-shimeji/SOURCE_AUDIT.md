@@ -1013,3 +1013,53 @@ express "pick me up, but differently". It is also declared per-`<Animation>`, so
 feet region would have to be duplicated onto every action in the pack and would still be inert. The
 grab region is a property of the grab, so it lives on the grab path; the reference
 `Shimeji/conf/actions.xml` stays untouched, as it has throughout.
+
+## Investigated: "follow mouse only sits there" — not a bug (2026-08-14)
+
+User report: after "follow the mouse", the mascot sits down within a few ticks and then only turns
+to face the pointer, never chasing it.
+
+**Verdict: that is the faithful behavior, reproduced correctly.** Traced through the real standard
+pack with a shared RNG (see the process note below) at three geometries:
+
+| scenario | result |
+| --- | --- |
+| bare window, cursor 800px away | 782px travelled over ~101 ticks, then SitAndFaceMouse |
+| bare window, cursor 60px away | 59px travelled over 11 ticks, then SitAndFaceMouse forever |
+| standing on a pane top, cursor far | dashes to the pane's left edge, jumps off, falls, bounces, *then* starts the Dash chain |
+
+The chain is a deliberate cul-de-sac in the pack. `Manager.setBehaviorAll(config, name, imageSet)`
+is a single `mascot.setBehavior(...)` per mascot — verified in Manager.java, no loop, no mode flag —
+and from there the pack drives itself: ChaseMouse -> (`Add="false"`) SitAndFaceMouse ->
+(`Add="false"`) *itself* at `Frequency="100"`. So one dash, then sit and watch, indefinitely. Real
+ChaseMouse also only ever targets the pointer's **x**; it never climbs toward its y.
+
+The user's observation is the second row: their pointer was horizontally near the mascot, so all
+three of ChaseMouse's randomised Dash steps had almost no ground to cover. Nothing to fix.
+
+**Added instead: an invented sticky follow mode**, as three commands and three menu items rather
+than a setting, so the faithful one-shot is never silently redefined and there is no default to
+argue about:
+
+- "Make all mascots dash to the mouse (once)" — real `setBehaviorAll("ChaseMouse")`, unchanged.
+- "Keep all mascots following the mouse" — while set, a *finished* behavior re-runs ChaseMouse
+  whenever `|cursor.x - mascot.x| > FOLLOW_REACQUIRE_PX`.
+- "Stop all mascots following the mouse".
+
+`FOLLOW_REACQUIRE_PX = 240` is not arbitrary: ChaseMouse's final Dash targets `cursor.x + Gap` where
+`Gap` is up to `Math.random()*200` *short* of the cursor, so a mascot that just finished chasing can
+legitimately be sitting 200px away. A threshold at or below that would leave it permanently
+mid-dash, never reaching the sit-and-watch chain. Inside the radius the pack's own chain runs
+untouched, which is what makes the mode read as "arrives, then watches you".
+
+The interception point is deliberately narrow — the single moment a behavior ends, substituting
+ChaseMouse for the weighted pick. Nothing about how actions run is touched.
+
+**Process note.** The first trace of this appeared to show a severe bug: 14px of movement in 40
+ticks, with 30-tick stalls. That was the harness, not the engine — it built a fresh `new Random(7)`
+on every tick, so every `Math.random()` in the pack returned the same first value, collapsing
+ChaseMouse's randomised Dash targets to a near-zero hop. Real `BehaviorAI` holds one RNG for the
+mascot's life. Worth recording because the fake was *plausible* — it reproduced the reported symptom
+closely enough to have been "fixed" with an invented continuous-chase rewrite of ChaseMouse, which
+would have destroyed a faithful behavior to solve a bug that did not exist. Confirming the harness
+before believing its output is the cheap step that avoided that.

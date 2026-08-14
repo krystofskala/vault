@@ -112,7 +112,22 @@ export default class ShimejiPlugin extends Plugin {
 		// previously missing entirely (this had been incorrectly treated as a duplicate of
 		// "remove all" instead of its own real, real-mascot-keeping primitive).
 		this.addCommand({ id: "shimeji-reduce-to-one", name: "Reduce to one mascot", callback: () => this.stage?.removeAllButOne() });
-		this.addCommand({ id: "shimeji-follow-mouse", name: "Make all mascots follow the mouse", callback: () => this.followMouseAllMascots() });
+		// Two deliberately separate commands: the first is real shimeji-ee's "Follow Cursor" tray
+		// item exactly (one `setBehaviorAll("ChaseMouse")`, after which the pack's own
+		// SitAndFaceMouse chain takes over and it watches the pointer without chasing again); the
+		// second is the invented sticky version. Keeping them apart means the faithful behavior is
+		// never silently redefined, and there is no default to argue about.
+		this.addCommand({ id: "shimeji-follow-mouse", name: "Make all mascots dash to the mouse (once)", callback: () => this.followMouseAllMascots() });
+		this.addCommand({
+			id: "shimeji-keep-following-mouse",
+			name: "Keep all mascots following the mouse",
+			callback: () => this.keepFollowingMouseAllMascots(true),
+		});
+		this.addCommand({
+			id: "shimeji-stop-following-mouse",
+			name: "Stop all mascots following the mouse",
+			callback: () => this.keepFollowingMouseAllMascots(false),
+		});
 		this.addCommand({ id: "shimeji-rescan", name: "Rescan pack folder", callback: () => this.rescanPacks() });
 		// Real Main.java's "Restore IE!" tray item — always available regardless of the "Window
 		// mischief" toggle (see paneActionsGate), same reasoning as its real counterpart: turning
@@ -224,6 +239,23 @@ export default class ShimejiPlugin extends Plugin {
 		}
 		const mascots = this.stage?.getMascots() ?? [];
 		for (const mascot of onlyMatching ? mascots.filter(onlyMatching) : mascots) mascot.startNamedBehavior("ChaseMouse");
+	}
+
+	/**
+	 * The invented sticky counterpart to the faithful one-shot above — see
+	 * BehaviorAI.setFollowingMouse for why they are two separate commands rather than one with a
+	 * setting. Real "Follow Cursor" runs ChaseMouse exactly once; this keeps re-running it as the
+	 * pointer moves away, which is what most people mean by "follow the mouse".
+	 */
+	keepFollowingMouseAllMascots(following: boolean, onlyMatching?: (mascot: Mascot) => boolean): void {
+		if (following && !this.effectiveChaseMouseEnabled()) {
+			new Notice("Chase the mouse is disabled (see Settings), or unavailable on mobile.");
+			return;
+		}
+		const mascots = this.stage?.getMascots() ?? [];
+		const targets = onlyMatching ? mascots.filter(onlyMatching) : mascots;
+		for (const mascot of targets) mascot.setFollowingMouse(following);
+		new Notice(following ? `Now following the mouse (${targets.length})` : `Stopped following the mouse (${targets.length})`);
 	}
 
 	/** True when `other` wears the same character (pack, including "no pack"/placeholder) as
@@ -438,9 +470,23 @@ export default class ShimejiPlugin extends Plugin {
 		if (this.effectiveChaseMouseEnabled()) {
 			menu.addItem((item) =>
 				item
-					.setTitle("Make this character follow the mouse")
+					.setTitle("Dash to the mouse once")
 					.setIcon("mouse-pointer-click")
 					.onClick(() => this.followMouseAllMascots((m) => this.sameCharacter(mascot, m))),
+			);
+			// The invented sticky mode, offered alongside the faithful one-shot above rather than
+			// replacing it — see keepFollowingMouseAllMascots.
+			menu.addItem((item) =>
+				item
+					.setTitle("Keep following the mouse")
+					.setIcon("mouse-pointer-2")
+					.onClick(() => this.keepFollowingMouseAllMascots(true, (m) => this.sameCharacter(mascot, m))),
+			);
+			menu.addItem((item) =>
+				item
+					.setTitle("Stop following the mouse")
+					.setIcon("square")
+					.onClick(() => this.keepFollowingMouseAllMascots(false, (m) => this.sameCharacter(mascot, m))),
 			);
 		}
 		// Real shimeji-ee's "Restore IE!" tray item — see restoreThrownWindows(). Shown whenever

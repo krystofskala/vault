@@ -95,6 +95,12 @@ export class PackDriver implements MascotDriver {
 		return this.ai.isBehaviorEnabled(name);
 	}
 
+	/** Invented sticky follow — see BehaviorAI.setFollowingMouse. The faithful one-shot is
+	 * startNamedBehavior("ChaseMouse") and is unaffected. */
+	setFollowingMouse(following: boolean): void {
+		this.ai.setFollowingMouse(following);
+	}
+
 	/** Real `Configuration.isBehaviorToggleable(name)` — which behaviors may be shown as
 	 * user-switchable checkboxes. Real Mascot.showPopup also skips composite names containing
 	 * "/", which never appear as standalone entries. */
