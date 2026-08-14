@@ -1344,6 +1344,9 @@ place is. So following still stops at the nearest surface, and only `orderToSpot
   (`Workspace.createLeafBySplit`, `WorkspaceLeaf.detach`); placing the divider reuses `resizeBy`.
   Which of the two resulting panes ended up lower is *measured*, not inferred from Obsidian's
   `'horizontal'`/`'vertical'` naming, for the same reason `splitAxis` measures.
+  **Superseded in Pass 28:** `makeSurfaceAt` did the whole operation in one silent call, which the
+  user correctly read as the mascot having magic. It is now two steps the mascot physically performs —
+  see `listNewPaneControls`/`pressNewPaneControl` there.
 - Bounded at two surgeries per order (`MAX_SPOT_SURGERIES`). Each one splits a real pane, so a spot
   that can never be reached must not become an endless run of new panes.
 - The created pane is left standing — closing it the instant the mascot arrived would drop it — so
@@ -1457,3 +1460,92 @@ the slow thing.
 
 Found by dumping both numbers rather than reasoning about the code — the isolated calculation gave
 569, the live path gave Infinity, and that discrepancy was the whole diagnosis.
+
+## Pass 28: physical layout surgery, and standing over hanging (2026-08-14)
+
+Two user reports, both about a mascot doing something that reads as wrong rather than as a mascot:
+
+> *"when mascot does surgery it cant be magic. he has to go to top op some pane to plus button to add
+> new pane. to move the pane or resize it he needs to use the animations like pushing puling or
+> jumping on pane to make it how he needs. not that he summons pane into position it needs. When
+> planing way he can use all resources at once, adding moving pane and dashing to reach the spot."*
+
+> *"obsidian has sometimes more lines at one spot and mascot sometimes chooses to clim cieling insted
+> of wwalk when both lines are near enoug, implement logic that if he can choose to stand he should
+> choose that not be upside down"*
+
+### Surgery is now two physical steps, not one silent one
+
+`PaneActions.makeSurfaceAt(point)` is **gone**. It was the whole operation in one call — a pane
+appeared, already positioned, wherever the mascot decided it wanted a floor. In its place:
+
+55. **`listNewPaneControls()`** reports where Obsidian's real new-tab buttons are
+    (`.workspace-tab-header-new-tab`), so a mascot can route to one like any other destination.
+
+56. **`pressNewPaneControl(near)`** presses one, *without positioning anything*. It returns whatever
+    split Obsidian gives it. Deliberately does less than `makeSurfaceAt` did: this is only the half a
+    button press can honestly account for.
+
+57. **`BehaviorAI.spotPhase`** is the state machine that strings those together — `toControl` (route
+    to the button and press it), then `shapeDivider` (get onto the new pane's top edge and shove it,
+    at `DIVIDER_SHOVE_PER_TICK` = 7px/tick, using the pack's own `Sit`/`Stand` carrying a `PaneResize`
+    param — exactly the mechanism ordinary pane wrangling uses). `dropFrom` is the third phase, from
+    Pass 27.
+
+58. **The cost estimate is now a chain, which is the "use all resources at once" part.** It is
+    `walk to the button` + `route from the button to wherever the split actually lands` + `the shove`.
+    Two details make it an estimate of the real operation rather than of a wish: it starts the second
+    leg *at the button* (the mascot is standing there by then, not back where it set off), and it
+    models the divider landing at the host pane's **midpoint**, because that is where a 50/50 split
+    puts it — costing it as if it arrived at the spot was what made surgery look free.
+
+    The old estimate priced a full-window-pane split at ~570 ticks. The honest one prices the same
+    operation at ~3800, because reaching a button at the top of the window means traversing the
+    ceiling at 0.64px/tick. That flips the decision to dropping, correctly.
+
+59. **`pressNewPaneControl` measures instead of trusting `SplitDirection`.** The mascot needs a
+    *horizontal* edge; which of `"horizontal"`/`"vertical"` produces that is the same naming coin-flip
+    `splitAxis` already exists to avoid asserting. So it tries one, measures the result against the
+    sibling, and takes the other if the panes came out side by side, detaching the loser. Bounded to
+    two attempts.
+
+### Standing beats hanging
+
+60. **`RouteOptions.uprightPreference`** (80px) is added to a candidate surface's score when it is not
+    a floor. Obsidian puts a pane's underside and the next pane's top edge on the same line, so
+    "closest surface" is constantly a near-tie broken arbitrarily. Big enough to settle those
+    decisively, small enough that a ceiling genuinely nearer still wins.
+
+61. **`nativeBehaviors` no longer keeps a ceiling attachment while grounded** — `physics.currentCeiling`
+    is only resolved when `!physics.grounded`. A mascot standing on a floor with a pane underside a few
+    pixels above it was registering as attached to both.
+
+### Three bugs this pass turned on
+
+**An infinite release/land loop.** With two stacked panes, `planDropThrough` happily picked the upper
+pane's underside as a departure — and the lower pane's *top edge is on the same line*. The mascot let
+go, landed instantly on the floor it was already standing on, was still not at the spot, and planned
+the identical drop again, forever. The obstruction test started its search a pixel *below* the
+departure, which excluded exactly the floor that makes the drop impossible. Now any floor at or below
+the departure line blocks, with the departing ledge exempt **by identity** rather than by height —
+which is what still lets a mascot walk off the end of a floor while a same-level sibling beside it
+correctly blocks the fall. Belt and braces: `spotSpentDrops` remembers departures already used, since
+a drop that did not deliver will not deliver on a second attempt either.
+
+**Pane wrangling moved the pane at full rate and the mascot at none.** `applyPaneSideEffects` ran
+*before* the frame's own tick, so `applyGravityAndLand` re-anchored the mascot to the stale ledge in
+the same tick and undid the ride. It only half-shows: the mascot still creeps along, 7px adrift,
+visibly fighting an edge it is also pushing. Moving the call after `tickFrame` fixes it — the new
+position then survives to the next tick, by which time the rebuilt ledge list agrees with it.
+
+The reason this survived fifteen passing tests is worth recording: the existing `paneWrangling` fake
+moves the ledge object *synchronously* inside `resizeBy`, which the real host cannot do (Obsidian only
+recomputes once the DOM settles). A test that models the real timing — rebuild the ledge list
+*between* ticks — fails against the old ordering by exactly the predicted 6px.
+
+**Two "standing beats hanging" tests that passed either way.** Both were near-ties the router already
+happened to break in favour of the floor, so they agreed with the new behaviour without depending on
+it. Replaced with one where the ceiling is genuinely *nearer* the target (10px against 30px) and
+therefore wins outright without the preference. Same lesson as the `makeSurfaceAt` fake in Pass 26 and
+the `normalizePath` stub in Pass 24: a test built to agree with the change proves nothing. Every fix
+in this pass was checked by stashing `src/` and confirming the new tests go red.

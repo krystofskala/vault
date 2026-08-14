@@ -3,8 +3,8 @@ import type { Mascot } from "../engine/Mascot";
 import { updateWallCeilingAdherence } from "../engine/nativeBehaviors";
 import type { PaneActions } from "../engine/PaneActions";
 import type { Random } from "../engine/Random";
-import { fallDurationTicks, findRoute, planDropThrough, routeDurationTicks, type RouteOptions, type RouteVia } from "../engine/Routing";
-import type { EngineConfig, Ledge, Vec2 } from "../engine/types";
+import { fallDurationTicks, findRoute, planDropThrough, pointOn, routeDurationTicks, type RouteOptions, type RouteVia } from "../engine/Routing";
+import type { EngineConfig, Ledge, PaneRef, Vec2 } from "../engine/types";
 import { ActionRunner, type PushEnv } from "./ActionRunner";
 import { evaluateCondition } from "./Expression";
 import { createRuntimeContext, type AmbientPointer } from "./RuntimeContext";
@@ -75,6 +75,10 @@ const SPOT_ARRIVAL_PX = 40;
  * into an endless run of new panes. */
 const MAX_SPOT_SURGERIES = 2;
 
+/** Per-tick pixels the mascot shoves a freshly-opened pane's divider by, standing on it and leaning —
+ * the same rate and the same mechanism as ordinary pane wrangling, so it looks like the same act. */
+const DIVIDER_SHOVE_PER_TICK = 7;
+
 const ROAM_CHANCE = 0.06;
 
 /** Roaming is not a precision exercise — anywhere near the chosen spot is a destination reached. */
@@ -141,8 +145,23 @@ export class BehaviorAI {
 	 * to satisfy it — see goToSpot. */
 	private orderedSpot?: Vec2;
 	private spotSurgeries = 0;
-	/** When the chosen plan is "fall through the spot", where to let go from — see driveSpotOrder. */
-	private dropThroughFrom?: Vec2;
+	/**
+	 * What the mascot is currently *doing* about an outstanding order, when that is more than simply
+	 * walking there. Each phase is a piece of physical work with an animation behind it, which is the
+	 * whole point: the layout changes because the mascot went somewhere and did something, not because
+	 * the order willed it.
+	 */
+	private spotPhase?:
+		| { kind: "dropFrom"; from: Vec2 }
+		| { kind: "toControl"; point: Vec2; paneRef?: PaneRef }
+		| { kind: "shapeDivider"; paneRef: PaneRef; targetY: number };
+
+	/** Departure points this order has already let go from. A drop either passes through the spot or it
+	 * does not, and if it did the order would be over — so still being here means that one failed, and
+	 * planning it again would produce the same fall forever. Cheaper and more honest than a retry
+	 * counter: the mascot remembers the specific thing that did not work, not merely how often it has
+	 * tried. */
+	private spotSpentDrops: Vec2[] = [];
 
 	/** The pointer position the current pursuit leg was aimed at, so a leg can be abandoned once that
 	 * aim goes stale. Cleared whenever following stops. */
@@ -170,19 +189,21 @@ export class BehaviorAI {
 	 * Following deliberately stops at the nearest surface, because a pointer sweeping across the
 	 * editor is not a request to rearrange anyone's workspace. An order is: it is given deliberately,
 	 * at one specific spot, so "there is nothing to stand on there" becomes a problem to solve rather
-	 * than a reason to stop. See PaneActions.makeSurfaceAt.
+	 * than a reason to stop — by walking to a real "+" button and then shoving the resulting divider
+	 * into place. See PaneActions.listNewPaneControls.
 	 */
 	orderToSpot(point: Vec2): void {
 		this.orderedSpot = { x: point.x, y: point.y };
 		this.spotSurgeries = 0;
-		this.dropThroughFrom = undefined;
+		this.spotSpentDrops = [];
+		this.spotPhase = undefined;
 		this.followingMouse = false;
 		this.roamTarget = undefined;
 	}
 
 	cancelSpotOrder(): void {
 		this.orderedSpot = undefined;
-		this.dropThroughFrom = undefined;
+		this.spotPhase = undefined;
 	}
 
 	get hasSpotOrder(): boolean {
@@ -212,24 +233,69 @@ export class BehaviorAI {
 		const routeTo = (target: Vec2, graph: Ledge[] = ledges) =>
 			graph.length > 0 ? findRoute(graph, here, target, attached, routeOpts) : [];
 
-		// Already committed to letting go somewhere: get there, then release.
-		if (this.dropThroughFrom) {
-			if (Math.hypot(this.dropThroughFrom.x - physics.x, this.dropThroughFrom.y - physics.y) <= SPOT_ARRIVAL_PX) {
-				const release = this.dropThroughFrom;
-				this.dropThroughFrom = undefined;
-				debugLog("spot order: letting go to fall through", { from: [Math.round(release.x), Math.round(release.y)], spot });
-				// Releasing is just ceasing to hold on; Fall is always defined (one of the four the
-				// engine requires), so this needs no pack-specific action to exist.
-				physics.currentCeiling = undefined;
-				physics.currentWall = undefined;
-				physics.grounded = false;
-				this.startBehavior(this.forceFallBehavior(), env);
-				return true;
+		// A phase in progress is physical work with an animation behind it — get where it happens, then
+		// do it. Each returns to plain routing once finished.
+		if (this.spotPhase) {
+			const phase = this.spotPhase;
+			const arrivedAt = (p: Vec2) => Math.hypot(p.x - physics.x, p.y - physics.y) <= SPOT_ARRIVAL_PX;
+
+			if (phase.kind === "dropFrom") {
+				if (arrivedAt(phase.from)) {
+					this.spotPhase = undefined;
+					this.spotSpentDrops.push(phase.from);
+					debugLog("spot order: letting go to fall through", { from: [Math.round(phase.from.x), Math.round(phase.from.y)], spot });
+					// Releasing is just ceasing to hold on; Fall is one of the four the engine requires,
+					// so this needs no pack-specific action to exist.
+					physics.currentCeiling = undefined;
+					physics.currentWall = undefined;
+					physics.grounded = false;
+					this.startBehavior(this.forceFallBehavior(), env);
+					return true;
+				}
+				const leg = routeTo(phase.from)[0];
+				if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
+				this.spotPhase = undefined; // can't get there after all; re-plan
+			} else if (phase.kind === "toControl") {
+				if (arrivedAt(phase.point)) {
+					this.spotPhase = undefined;
+					const created = env.paneActions?.pressNewPaneControl?.(phase.paneRef);
+					debugLog("spot order: pressed the new-pane button", { created: created !== undefined });
+					// The pane lands wherever the split puts it. Shoving it into position is the next
+					// phase's job — deliberately not this one's, so nothing about the layout moves
+					// without a mascot physically leaning on it.
+					if (created !== undefined) this.spotPhase = { kind: "shapeDivider", paneRef: created, targetY: spot.y };
+					return false;
+				}
+				const leg = routeTo(phase.point)[0];
+				if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
+				this.spotPhase = undefined; // unreachable button; re-plan
+			} else {
+				// Shove the new pane's own top edge to where the spot is, by standing on it and leaning.
+				const divider = ledges.find((l): l is Extract<Ledge, { kind: "floor" }> => l.kind === "floor" && l.paneRef === phase.paneRef);
+				if (!divider) {
+					this.spotPhase = undefined; // pane went away
+				} else if (Math.abs(divider.y - phase.targetY) <= SPOT_ARRIVAL_PX) {
+					debugLog("spot order: divider in position", { y: Math.round(divider.y) });
+					this.spotPhase = undefined;
+				} else {
+					const standing = physics.grounded && physics.currentFloor?.paneRef === phase.paneRef;
+					if (!standing) {
+						const leg = routeTo(pointOn(divider, spot))[0];
+						if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
+						this.spotPhase = undefined; // can't get onto it; re-plan
+					} else {
+						// Negative shrinks the pane, which moves its top edge — and the mascot riding it —
+						// downward; see ObsidianPaneActions.resizeBy for why that sign does that.
+						const perTick = divider.y < phase.targetY ? -DIVIDER_SHOVE_PER_TICK : DIVIDER_SHOVE_PER_TICK;
+						for (const name of ["Sit", "Stand"]) {
+							if (!this.pack.actions.has(name)) continue;
+							this.currentBehavior = undefined;
+							if (this.runner.start(name, env, { Duration: "20", PaneResize: String(perTick) })) return true;
+						}
+						this.spotPhase = undefined;
+					}
+				}
 			}
-			const leg = routeTo(this.dropThroughFrom)[0];
-			if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
-			// Can't get there after all; fall back to planning again from scratch.
-			this.dropThroughFrom = undefined;
 		}
 
 		const route = routeTo(spot);
@@ -275,7 +341,7 @@ export class BehaviorAI {
 		const attached = env.mascot.physics.currentFloor ?? env.mascot.physics.currentWall ?? env.mascot.physics.currentCeiling;
 
 		let dropTicks = Infinity;
-		const drop = planDropThrough(ledges, spot, routeOpts);
+		const drop = planDropThrough(ledges, spot, routeOpts, this.spotSpentDrops);
 		if (drop) {
 			const approach = findRoute(ledges, here, drop.from, attached, routeOpts);
 			const endsAtDeparture = approach.length === 0 || Math.hypot(approach[approach.length - 1].x - drop.from.x, approach[approach.length - 1].y - drop.from.y) <= SPOT_ARRIVAL_PX;
@@ -283,37 +349,68 @@ export class BehaviorAI {
 		}
 
 		let surgeryTicks = Infinity;
-		const canOperate = this.spotSurgeries < MAX_SPOT_SURGERIES && env.paneActions?.makeSurfaceAt !== undefined;
-		if (canOperate) {
-			// The graph a split would produce: a floor at the spot, spanning whichever pane contains it,
-			// since the split inherits that pane's width.
+		// The nearest button the mascot could actually walk to. Without one there is no honest way to
+		// create a pane, so surgery simply isn't an option — the mascot does not conjure panes.
+		let surgeryControl: { point: Vec2; paneRef?: PaneRef } | undefined;
+		const controls = env.paneActions?.listNewPaneControls?.() ?? [];
+		let bestControlTicks = Infinity;
+		for (const control of controls) {
+			const approach = findRoute(ledges, here, control.point, attached, routeOpts);
+			const reachable = approach.length === 0 || Math.hypot(approach[approach.length - 1].x - control.point.x, approach[approach.length - 1].y - control.point.y) <= SPOT_ARRIVAL_PX;
+			if (!reachable) continue;
+			const ticks = routeDurationTicks(here, approach, routeOpts);
+			if (ticks < bestControlTicks) {
+				bestControlTicks = ticks;
+				surgeryControl = control;
+			}
+		}
+
+		const canOperate = this.spotSurgeries < MAX_SPOT_SURGERIES && env.paneActions?.pressNewPaneControl !== undefined && surgeryControl !== undefined;
+		if (canOperate && surgeryControl) {
+			// The graph a split would actually produce. Two details make this an estimate of the real
+			// operation rather than of a wish:
 			//
-			// The fallback spans the whole window rather than a margin around the spot, and that is
+			// *Where* the divider lands is not the mascot's choice — Obsidian halves the pane it split,
+			// so the new edge appears at that pane's midpoint and has to be shoved from there. Costing it
+			// as if it arrived at the spot is what made surgery look free.
+			//
+			// The fallback span is the whole window rather than a margin around the spot, and that is
 			// load-bearing rather than tidy-minded. A short synthetic floor touches no wall, so nothing
 			// in the graph connects to it, every route to it costs Infinity, and the comparison silently
 			// concludes surgery is impossible — sending the mascot on a 2000-tick climb to the ceiling
-			// in preference to a 570-tick split it had wrongly ruled out. Spanning the window guarantees
-			// the synthetic floor meets the side walls, which is also what a real split of the only pane
-			// actually produces.
-			const containing = ledges.find((l) => l.rect && spot.x >= l.rect.left && spot.x <= l.rect.right && spot.y >= l.rect.top && spot.y <= l.rect.bottom);
-			const span = containing?.rect ?? { left: 0, right: env.mascot.getViewportSize().width };
-			const hypothetical: Ledge[] = [...ledges, { kind: "floor", y: spot.y, x1: span.left, x2: span.right, source: "pane" }];
-			const after = findRoute(hypothetical, here, spot, attached, routeOpts);
-			const reaches = after.length > 0 && Math.hypot(after[after.length - 1].x - spot.x, after[after.length - 1].y - spot.y) <= SPOT_ARRIVAL_PX;
-			if (reaches) surgeryTicks = routeDurationTicks(here, after, routeOpts);
+			// in preference to a split it had wrongly ruled out. Spanning the window guarantees the
+			// synthetic floor meets the side walls, which is also what a real split of the only pane does.
+			const containing = ledges.find((l) => l.rect && spot.x >= l.rect.left && spot.x <= l.rect.right && spot.y >= l.rect.top && spot.y <= l.rect.bottom)?.rect;
+			const span = containing ?? { left: 0, right: env.mascot.getViewportSize().width };
+			const dividerY = containing ? (containing.top + containing.bottom) / 2 : spot.y;
+			const hypothetical: Ledge[] = [...ledges, { kind: "floor", y: dividerY, x1: span.left, x2: span.right, source: "pane" }];
+			// Chained from the button, not from where the mascot set off: by the time the pane exists the
+			// mascot is standing at the control it just pressed, and the rest of the plan starts there.
+			// This is also what lets the estimate use everything at once — the walk to the button, the new
+			// pane's own edges, and the shove — instead of pricing them as unrelated alternatives.
+			const onDivider = { x: spot.x, y: dividerY };
+			const after = findRoute(hypothetical, surgeryControl.point, onDivider, undefined, routeOpts);
+			const lands = after.length > 0 ? after[after.length - 1] : surgeryControl.point;
+			const reaches = Math.hypot(lands.x - onDivider.x, lands.y - onDivider.y) <= SPOT_ARRIVAL_PX;
+			if (reaches) {
+				surgeryTicks =
+					bestControlTicks +
+					routeDurationTicks(surgeryControl.point, after, routeOpts) +
+					Math.abs(spot.y - dividerY) / DIVIDER_SHOVE_PER_TICK;
+			}
 		}
 
 		debugLog("spot order: comparing plans", { dropTicks: Math.round(dropTicks), surgeryTicks: Math.round(surgeryTicks) });
 
 		if (dropTicks <= surgeryTicks && Number.isFinite(dropTicks) && drop) {
-			this.dropThroughFrom = drop.from;
+			this.spotPhase = { kind: "dropFrom", from: drop.from };
 			return "drop";
 		}
-		if (Number.isFinite(surgeryTicks)) {
+		if (Number.isFinite(surgeryTicks) && surgeryControl) {
 			this.spotSurgeries++;
-			const created = env.paneActions?.makeSurfaceAt?.(spot);
-			debugLog("spot order: reshaping the layout to reach it", { attempt: this.spotSurgeries, created: created !== undefined });
-			if (created !== undefined) return "surgery";
+			debugLog("spot order: going to press the new-pane button", surgeryControl.point);
+			this.spotPhase = { kind: "toControl", point: surgeryControl.point, paneRef: surgeryControl.paneRef };
+			return "surgery";
 		}
 		return "neither";
 	}
@@ -503,7 +600,7 @@ export class BehaviorAI {
 		if (this.orderedSpot && Math.hypot(this.orderedSpot.x - mascot.physics.x, this.orderedSpot.y - mascot.physics.y) <= SPOT_ARRIVAL_PX) {
 			debugLog("spot order complete", { x: Math.round(mascot.physics.x), y: Math.round(mascot.physics.y) });
 			this.orderedSpot = undefined;
-			this.dropThroughFrom = undefined;
+			this.spotPhase = undefined;
 		}
 
 		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);

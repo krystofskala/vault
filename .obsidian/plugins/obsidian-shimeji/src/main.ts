@@ -69,10 +69,12 @@ export default class ShimejiPlugin extends Plugin {
 			this.settings.allowPaneWrangling || this.settings.allowWindowThrow ? this.obsidianPaneActions.resizeBy(pane, deltaPx, axis) : false,
 		setSidebar: (pane, mode) => (this.settings.allowPaneWrangling ? this.obsidianPaneActions.setSidebar(pane, mode) : false),
 		// Behind its own toggle: this one *creates* a pane in the user's layout, which is a bigger
-		// intrusion than resizing an existing one. Only ever reached from an explicit spot order.
-		makeSurfaceAt: (point) => {
+		// intrusion than resizing an existing one. Only ever reached from an explicit spot order, and
+		// only once the mascot has physically walked to the button.
+		listNewPaneControls: () => (this.settings.allowLayoutSurgery ? this.obsidianPaneActions.listNewPaneControls() : []),
+		pressNewPaneControl: (near) => {
 			if (!this.settings.allowLayoutSurgery) return undefined;
-			const created = this.obsidianPaneActions.makeSurfaceAt(point);
+			const created = this.obsidianPaneActions.pressNewPaneControl(near);
 			if (created !== undefined) this.mascotOpenedPanes.push(created);
 			return created;
 		},

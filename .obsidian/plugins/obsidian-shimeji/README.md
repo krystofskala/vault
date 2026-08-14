@@ -557,12 +557,19 @@ If the point isn't on any surface, there are two ways to be there anyway — **f
 
 - *Fall through*: hang from a ceiling directly above (or walk off the edge of a pane above), let go,
   and for a moment it is exactly there. Costs nothing but the trip to the departure point.
-- *Build*: split the pane under your cursor and slide the new divider onto your click.
+- *Build*: walk to a pane's **+ button**, press it, then shove the resulting divider into place.
 
-Which wins depends entirely on the layout. A ceiling far overhead makes the drop a 1200-tick climb and
-the split is quicker; standing on a pane whose edge is right above the spot makes the drop nearly free.
-The surgery estimate isn't a guess — it routes against the graph *as it would be* with a floor at the
-spot, which is exactly what the split produces.
+**The building is physical, not magic.** The mascot doesn't summon a pane where it needs one: it
+routes to a real new-tab button, presses it, and gets whatever split Obsidian gives it — which lands
+at the host pane's midpoint, not at your click. Moving it from there costs the mascot standing on the
+divider and leaning on it, at 7px a tick, with the same animations it uses for ordinary pane
+wrangling. Everything you see it do, it did.
+
+That also makes the plan a chain rather than a wish, and the cost estimate follows it honestly: the
+walk to the button, then the route from the button to wherever the split actually landed, then the
+shove. Which plan wins depends entirely on the layout. Stacked panes catch every fall, so there is no
+drop to be had at any price and the split wins; standing on a pane whose edge is right above the spot
+makes the drop nearly free and the button is a long climb away.
 
 Either way, any point in the window is reachable: if the terrain doesn't reach, the mascot either
 falls through it or changes the terrain.
@@ -603,6 +610,13 @@ The graph is built from the same ledge list the physics uses, so a route can nev
 the mascot can't actually stand on. Surfaces connect where they physically meet (a floor meeting a
 wall is how a mascot gets off the ground at all), plus jumps up to a nearby higher floor and drops off
 the end of a raised one.
+
+**Standing beats hanging when both are on offer.** Obsidian stacks surfaces on top of each other
+everywhere — a pane's underside and the next pane's top edge are the same line — so "closest surface
+to where I'm going" is constantly a near-tie between a floor and a ceiling. Left to chance, a mascot
+ends up upside down under a ledge it could have walked along, which reads as a glitch rather than a
+choice. A floor is worth 80px of extra distance, which settles those ties decisively while still
+losing to a ceiling that is genuinely much closer to the target.
 
 Two things use it:
 

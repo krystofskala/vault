@@ -71,6 +71,18 @@ export interface RouteOptions {
 	 */
 	travelTimeWeight: number;
 	/**
+	 * How much extra distance-from-target a mascot will accept in order to end up **standing** rather
+	 * than hanging or clinging. Expressed in pixels, added to a candidate surface's score.
+	 *
+	 * Obsidian's layout puts surfaces on top of each other everywhere — a pane's underside and the
+	 * next pane's top edge are the same line — so "closest surface to the target" is frequently a tie
+	 * between a floor and a ceiling, broken arbitrarily. Left arbitrary, a mascot ends up upside down
+	 * on the underside of a ledge it could just as well have walked along, which reads as a glitch
+	 * rather than a choice. Big enough to settle those ties decisively, small enough that a ceiling
+	 * genuinely nearer the target still wins.
+	 */
+	uprightPreference: number;
+	/**
 	 * How close to the best reachable point counts as being there. Load-bearing for callers that use
 	 * an empty route as their "stop" signal: without it, a mascot a pixel off would be handed a
 	 * one-pixel leg forever. It is measured against the closest point the *surfaces* allow, not
@@ -86,6 +98,7 @@ export const DEFAULT_ROUTE_OPTIONS: RouteOptions = {
 	gravity: 2,
 	jumpOverhead: 6,
 	travelTimeWeight: 2,
+	uprightPreference: 80,
 	arriveWithin: 4,
 };
 
@@ -296,7 +309,8 @@ export function findRoute(ledges: Ledge[], from: Vec2, target: Vec2, startLedge?
 	let goal: Ledge | undefined;
 	let goalScore = Infinity;
 	for (const [ledge, visit] of visited) {
-		const score = distance(pointOn(ledge, target), target) + visit.cost * opts.travelTimeWeight;
+		const upright = ledge.kind === "floor" ? 0 : opts.uprightPreference;
+		const score = distance(pointOn(ledge, target), target) + visit.cost * opts.travelTimeWeight + upright;
 		if (score < goalScore) {
 			goalScore = score;
 			goal = ledge;
@@ -380,30 +394,44 @@ const DROP_LINE_TOLERANCE = 28;
  *  - the **edge of a floor** directly above, which it simply walks off.
  * A floor's *middle* never qualifies, for the obvious reason that there is floor underfoot there.
  *
- * The fall must also be unobstructed: the first floor below the departure point has to be *below* the
- * spot, or there is none at all. Otherwise the mascot lands before reaching it.
+ * The fall must also be unobstructed: no floor may sit between the departure point and the spot.
+ *
+ * "Between" deliberately **includes floors level with the departure itself**, which is not a detail.
+ * Tiled panes put one pane's underside and the next pane's top edge on exactly the same line, so a
+ * ceiling that looks like a perfect place to hang and drop from very often has a floor in it. Ignoring
+ * those (by starting the search a pixel below) makes such a drop look free while in reality the mascot
+ * lands the instant it lets go — and then, still not at the spot, plans the identical drop again. That
+ * is not a hypothetical: it is an infinite release/land loop, observed with two stacked panes.
+ *
+ * The departing ledge is exempt from that test by identity rather than by height, which is what lets a
+ * mascot still walk off the *end* of a floor while a same-level sibling floor beside it correctly
+ * blocks the fall.
  */
-export function planDropThrough(ledges: Ledge[], spot: Vec2, options?: Partial<RouteOptions>): DropThrough | undefined {
+export function planDropThrough(ledges: Ledge[], spot: Vec2, options?: Partial<RouteOptions>, avoid: readonly Vec2[] = []): DropThrough | undefined {
 	const opts = { ...DEFAULT_ROUTE_OPTIONS, ...options };
 	let best: DropThrough | undefined;
 	let bestFall = Infinity;
 
-	const unobstructed = (fromY: number): boolean => {
-		const landing = findFloorBelow(ledges, spot.x, fromY + 1);
-		return !landing || landing.y > spot.y + opts.arriveWithin;
-	};
+	const blocked = (departing: Ledge, departY: number): boolean =>
+		ledges.some(
+			(l) =>
+				l.kind === "floor" && l !== departing && spansX(l, spot.x) && l.y >= departY - 0.5 && l.y <= spot.y + opts.arriveWithin,
+		);
+	const rejected = (from: Vec2): boolean => avoid.some((a) => distance(a, from) <= DROP_LINE_TOLERANCE);
 
 	for (const ledge of ledges) {
 		if (ledge.kind === "wall") continue;
 		if (ledge.y >= spot.y) continue; // must be above the spot to fall onto it
+		if (blocked(ledge, ledge.y)) continue;
 
 		if (ledge.kind === "ceiling") {
 			if (!spansX(ledge, spot.x)) continue;
-			if (!unobstructed(ledge.y)) continue;
+			const from = { x: spot.x, y: ledge.y };
+			if (rejected(from)) continue;
 			const fall = spot.y - ledge.y;
 			if (fall < bestFall) {
 				bestFall = fall;
-				best = { from: { x: spot.x, y: ledge.y }, ledge };
+				best = { from, ledge };
 			}
 			continue;
 		}
@@ -411,11 +439,12 @@ export function planDropThrough(ledges: Ledge[], spot: Vec2, options?: Partial<R
 		// A floor: only its two ends are departure points, and the spot has to be on that fall line.
 		for (const edgeX of [ledge.x1, ledge.x2]) {
 			if (Math.abs(edgeX - spot.x) > DROP_LINE_TOLERANCE) continue;
-			if (!unobstructed(ledge.y)) continue;
+			const from = { x: edgeX, y: ledge.y };
+			if (rejected(from)) continue;
 			const fall = spot.y - ledge.y;
 			if (fall < bestFall) {
 				bestFall = fall;
-				best = { from: { x: edgeX, y: ledge.y }, ledge };
+				best = { from, ledge };
 			}
 		}
 	}

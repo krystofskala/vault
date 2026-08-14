@@ -163,43 +163,66 @@ export class ObsidianPaneActions implements PaneActions {
 		}
 	}
 
-	/** How near an existing edge counts as "there is already a surface here", so the mascot doesn't
-	 * split a pane to reach somewhere it could simply walk to. */
-	private static readonly SURFACE_EXISTS_PX = 24;
+	/** Obsidian renders one of these per tab strip. Hidden strips are skipped by the same
+	 * offsetParent test the pane scan uses. */
+	listNewPaneControls(): Array<{ point: Vec2; paneRef?: PaneRef }> {
+		const out: Array<{ point: Vec2; paneRef?: PaneRef }> = [];
+		document.querySelectorAll<HTMLElement>(".workspace-tab-header-new-tab").forEach((button) => {
+			if (button.offsetParent === null) return;
+			const r = button.getBoundingClientRect();
+			if (r.width === 0 || r.height === 0) return;
+			// The leaf that strip belongs to, so the split is made relative to a real pane rather than
+			// to whatever happens to be focused when the mascot arrives.
+			const leafEl = button.closest<HTMLElement>(".workspace-tabs")?.querySelector<HTMLElement>(".workspace-leaf") ?? undefined;
+			out.push({ point: { x: (r.left + r.right) / 2, y: r.bottom }, paneRef: leafEl });
+		});
+		return out;
+	}
 
 	/**
-	 * Invented — see PaneActions.makeSurfaceAt. Uses documented API for the split
-	 * (`Workspace.createLeafBySplit`) and the existing resize path to place the boundary.
+	 * The mascot wants a *horizontal* edge to stand on, so the split has to come out stacked. Which
+	 * `SplitDirection` produces that is the same naming coin-flip `splitAxis` exists to avoid trusting —
+	 * so rather than assert one, this tries a direction, measures the result, and takes the other if the
+	 * panes came out side by side. Bounded to those two attempts, and the loser is detached immediately,
+	 * so at worst the user sees a pane blink.
+	 *
+	 * Left wherever the split puts it. Sliding it into place is the mascot's own job from here.
 	 */
-	makeSurfaceAt(point: Vec2): PaneRef | undefined {
+	pressNewPaneControl(near: PaneRef | undefined): PaneRef | undefined {
 		try {
-			const leaf = this.leafContaining(point);
+			const leaf = (near !== undefined ? this.resolveLeaf(near) : undefined) ?? this.app.workspace.getMostRecentLeaf() ?? undefined;
 			if (!leaf) return undefined;
-
-			const rect = leaf.containerEl.getBoundingClientRect();
-			// Already a horizontal edge within reach: nothing worth doing to the user's layout.
-			if (Math.abs(point.y - rect.top) < ObsidianPaneActions.SURFACE_EXISTS_PX) return undefined;
-			if (Math.abs(point.y - rect.bottom) < ObsidianPaneActions.SURFACE_EXISTS_PX) return undefined;
-
-			// "horizontal" here is Obsidian's own name for the split, and which way it actually lays
-			// the panes out is a naming convention rather than a promise — so the result is *measured*
-			// below rather than assumed, the same reasoning as splitAxis().
-			const created = this.app.workspace.createLeafBySplit(leaf, "horizontal");
-			if (!created) return undefined;
-
-			// Whichever of the pair ended up lower owns the boundary as its top edge. Shrinking it
-			// pushes that boundary down; growing it pulls the boundary up.
-			const createdRect = created.containerEl.getBoundingClientRect();
-			const originalRect = leaf.containerEl.getBoundingClientRect();
-			const lower = createdRect.top >= originalRect.top ? created : leaf;
-			const boundaryY = lower.containerEl.getBoundingClientRect().top;
-			this.resizeBy(lower.containerEl, boundaryY - point.y, "height");
-
-			return created.containerEl;
+			let fallback: WorkspaceLeaf | undefined;
+			for (const direction of ["horizontal", "vertical"] as const) {
+				const created = this.app.workspace.createLeafBySplit(leaf, direction);
+				if (!created) continue;
+				if (this.stacksVertically(created)) {
+					fallback?.detach();
+					return created.containerEl;
+				}
+				if (fallback) created.detach();
+				else fallback = created;
+			}
+			// Neither came out stacked (a single-pane window has no sibling to measure against, so this
+			// is also the honest answer when the question does not apply). Hand back what exists; the
+			// caller re-plans if it turns out not to be shoveable.
+			return fallback?.containerEl;
 		} catch (e) {
-			console.warn("[obsidian-shimeji] could not open a pane to reach that spot, skipping", e);
+			console.warn("[obsidian-shimeji] could not open a new pane, skipping", e);
 			return undefined;
 		}
+	}
+
+	/** Whether this leaf sits above or below its sibling rather than beside it — measured, for the
+	 * reason spelled out on splitAxis. */
+	private stacksVertically(leaf: WorkspaceLeaf): boolean {
+		const found = this.findResizableAncestor(leaf);
+		if (!found) return false;
+		const { split, child } = found;
+		const index = split.children.indexOf(child);
+		const neighbor = split.children[index + 1] ?? split.children[index - 1];
+		if (!neighbor) return false;
+		return this.splitAxis(child.containerEl, neighbor.containerEl) === "height";
 	}
 
 	closePane(pane: PaneRef): void {
@@ -208,24 +231,6 @@ export class ObsidianPaneActions implements PaneActions {
 		} catch (e) {
 			console.warn("[obsidian-shimeji] could not close a mascot-opened pane, skipping", e);
 		}
-	}
-
-	/** The innermost leaf whose box contains `point`. Smallest-first so a leaf wins over any
-	 * container that also happens to contain the point. */
-	private leafContaining(point: Vec2): WorkspaceLeaf | undefined {
-		let best: WorkspaceLeaf | undefined;
-		let bestArea = Infinity;
-		this.app.workspace.iterateAllLeaves((leaf) => {
-			const r = leaf.containerEl.getBoundingClientRect();
-			if (r.width <= 0 || r.height <= 0) return;
-			if (point.x < r.left || point.x > r.right || point.y < r.top || point.y > r.bottom) return;
-			const area = r.width * r.height;
-			if (area < bestArea) {
-				bestArea = area;
-				best = leaf;
-			}
-		});
-		return best;
 	}
 
 	/** Invented — see PaneActions.setSidebar. Uses only documented API. */

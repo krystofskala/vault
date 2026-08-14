@@ -61,22 +61,38 @@ export interface PaneActions {
 	openRandomNote?(pane: PaneRef): void;
 
 	/**
-	 * **Invented, and the most invasive thing in this interface**: reshape the layout so that a
-	 * walkable surface exists at `point`, by splitting whichever pane contains it and then sliding the
-	 * resulting boundary onto that exact coordinate.
+	 * **Invented, and the most invasive thing in this interface.** Between them, the two methods below
+	 * let a mascot reach *any* point on screen: if nothing there can be stood on, it walks to a pane's
+	 * "+" button, presses it, and then shoves the resulting divider into place with the same leaning
+	 * animations it uses for ordinary pane wrangling.
 	 *
-	 * This is what makes "go to that spot" answerable for *any* spot. A pointer hovering in the middle
-	 * of the editor is not somewhere a mascot can stand — but a pane divider is, and one can be put
-	 * there. It is the logical end of treating Obsidian's layout as the mascot's terrain rather than
-	 * its backdrop: if the terrain doesn't reach, the mascot changes the terrain.
-	 *
-	 * Returns the pane it created, so the caller can offer to close it again. Returns undefined when
-	 * the point isn't inside any pane, when splitting failed, or when the layout is already close
-	 * enough that no surgery is warranted.
+	 * Deliberately two steps rather than one. An earlier single `makeSurfaceAt(point)` did the whole
+	 * thing silently — a pane materialised, already positioned, wherever the mascot needed a floor.
+	 * That reads as the mascot having magic rather than solving a problem, so it is gone: creating a
+	 * pane now costs a walk to a real button, and positioning it costs the mascot physically leaning
+	 * on the divider.
 	 */
-	makeSurfaceAt?(point: Vec2): PaneRef | undefined;
+	/**
+	 * Where the "new pane" buttons are, so a mascot can walk to one.
+	 *
+	 * The point of routing a mascot to a button before the layout changes is that it stops the change
+	 * being magic. A pane appearing out of nowhere because the mascot needed a floor reads as the
+	 * mascot having powers; walking to the + button and pressing it reads as the mascot solving a
+	 * problem with the tools on screen. The geometry lives here rather than on Environment because
+	 * this is the interface already threaded through to the behaviour layer, and because pressing one
+	 * is a mutation regardless.
+	 */
+	listNewPaneControls?(): Array<{ point: Vec2; paneRef?: PaneRef }>;
 
-	/** Closes a pane — only ever used to tidy up ones `makeSurfaceAt` created. */
+	/**
+	 * Presses one — creating a pane *without* positioning it. Positioning is the mascot's own job,
+	 * done by shoving the resulting divider around with `resizeBy`, which is why this deliberately
+	 * does less than `makeSurfaceAt`: that one is the whole operation in a single silent step, and
+	 * this is only the half a button press can account for.
+	 */
+	pressNewPaneControl?(near: PaneRef | undefined): PaneRef | undefined;
+
+	/** Closes a pane — only ever used to tidy up ones the mascot created. */
 	closePane?(pane: PaneRef): void;
 
 	/** Real Main.java's "Restore IE!" tray item (`NativeFactory.getInstance().getEnvironment().

@@ -153,6 +153,39 @@ describe("PaneResize side effect", () => {
 		expect(r.y).toBeCloseTo(r.edgeY, 6);
 	});
 
+	/**
+	 * The same ride, but with the host's real timing rather than the convenient one above. Obsidian
+	 * moves the pane when asked and only recomputes the ledge list once the DOM has settled — so for
+	 * the rest of the tick the list still describes where the edge *was*. The other tests here hand the
+	 * resize back instantly, which happens to hide whether the ride survives that gap at all.
+	 *
+	 * It only survives if the ride is applied after the frame's own physics rather than before: applied
+	 * first, `applyGravityAndLand` re-anchors the mascot to the stale edge in the same tick and the ride
+	 * is silently undone. That does not break the feature outright, which is what makes it worth pinning
+	 * — it half-works, moving the pane at full rate and the mascot at none.
+	 */
+	it("rides an edge whose ledge only catches up on the next tick", () => {
+		const m = mascotOn("floor");
+		const ledge = m.ledges[0] as Extract<Ledge, { kind: "floor" }>;
+		let paneTop = RECT.top;
+		const env = envFor(m, {
+			resizeBy: (_pane: unknown, deltaPx: number) => {
+				paneTop -= deltaPx;
+				return true;
+			},
+		});
+		const runner = new ActionRunner(pack());
+		runner.start("Lean", env, { PaneResize: "-6" });
+		for (let i = 0; i < 5; i++) {
+			runner.tick(env, 0.04, m.ledges);
+			// What Stage does between ticks: rebuild the ledges from the settled layout.
+			ledge.y = paneTop;
+		}
+
+		expect(paneTop).toBe(RECT.top + 30);
+		expect(m.physics.y).toBeCloseTo(paneTop, 6);
+	});
+
 	it("hauls the pane it hangs beneath, and follows its underside down", () => {
 		const r = push("ceiling", "Hang", { PaneResize: "6" });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findRoute, ledgeUnder, pointOn } from "../src/engine/Routing";
+import { findRoute, ledgeUnder, planDropThrough, pointOn } from "../src/engine/Routing";
 import { computeLedgesFromRects } from "../src/engine/Ledges";
 import type { Ledge } from "../src/engine/types";
 
@@ -254,5 +254,100 @@ describe("route cost is time, not distance", () => {
 		const patientMiss = Math.abs(endOf(patient).y - target.y);
 		const hurriedMiss = Math.abs(endOf(hurried).y - target.y);
 		expect(patientMiss).toBeLessThanOrEqual(hurriedMiss);
+	});
+});
+
+/**
+ * Falling *through* a mid-air point, which is what makes such a point reachable at all without
+ * touching the layout. The interesting cases are all about what counts as an unobstructed fall.
+ */
+describe("planDropThrough", () => {
+	it("hangs from the ceiling above the spot and lets go", () => {
+		const plan = planDropThrough(bareWindow(), { x: 600, y: 500 });
+		expect(plan?.ledge.kind).toBe("ceiling");
+		expect(plan?.from).toEqual({ x: 600, y: 40 });
+	});
+
+	/**
+	 * The tiled-pane case, and a real bug this closes rather than a hypothetical. Stacked panes put one
+	 * pane's underside and the next pane's top edge on exactly the same line, so a ceiling that looks
+	 * like a perfect place to hang from has a floor in it. Treating that as a valid departure produced
+	 * an infinite release/land loop: the mascot let go, landed instantly on the floor it was already
+	 * standing on, was still not at the spot, and planned the identical drop again.
+	 */
+	it("refuses a ceiling that has a floor at the same height", () => {
+		const ledges = computeLedgesFromRects(VIEWPORT, [
+			{ rect: { left: 0, top: 40, right: 1200, bottom: 300 }, source: "pane" as const, paneRef: 1 },
+			{ rect: { left: 0, top: 300, right: 1200, bottom: 800 }, source: "pane" as const, paneRef: 2 },
+		]);
+		// The underside of the upper pane and the top edge of the lower one are both at y=300.
+		expect(ledges.some((l) => l.kind === "ceiling" && l.y === 300)).toBe(true);
+		expect(ledges.some((l) => l.kind === "floor" && l.y === 300)).toBe(true);
+		expect(planDropThrough(ledges, { x: 600, y: 500 })).toBeUndefined();
+	});
+
+	it("refuses a departure whose fall is caught before the spot", () => {
+		// A pane top at y=300 spans the whole window, so a drop from the window ceiling lands there.
+		const ledges = withPane({ left: 0, top: 300, right: 1200, bottom: 780 });
+		expect(planDropThrough(ledges, { x: 600, y: 500 })).toBeUndefined();
+	});
+
+	it("walks off the end of a floor when the spot is on that fall line", () => {
+		const ledges = withPane({ left: 100, top: 300, right: 600, bottom: 780 });
+		const plan = planDropThrough(ledges, { x: 600, y: 500 });
+		expect(plan?.ledge.kind).toBe("floor");
+		expect(plan?.from).toEqual({ x: 600, y: 300 });
+	});
+
+	it("skips a departure the caller has already spent", () => {
+		const ledges = bareWindow();
+		const first = planDropThrough(ledges, { x: 600, y: 500 })!;
+		expect(planDropThrough(ledges, { x: 600, y: 500 }, undefined, [first.from])).toBeUndefined();
+	});
+});
+
+/**
+ * Obsidian stacks surfaces on top of each other everywhere — a pane's underside and the next pane's
+ * top edge are the same line — so "closest surface to the target" is constantly a tie between a floor
+ * and a ceiling. Left arbitrary, a mascot ends up hanging upside down from a ledge it could have
+ * walked along, which reads as a glitch rather than a choice.
+ */
+describe("standing beats hanging when both are available", () => {
+	const stacked = () =>
+		computeLedgesFromRects(VIEWPORT, [
+			{ rect: { left: 0, top: 40, right: 1200, bottom: 300 }, source: "pane" as const, paneRef: 1 },
+			{ rect: { left: 0, top: 300, right: 1200, bottom: 800 }, source: "pane" as const, paneRef: 2 },
+		]);
+
+	it("ends on the floor, not the ceiling sharing its line", () => {
+		const ledges = stacked();
+		const route = findRoute(ledges, { x: 200, y: 800 }, { x: 900, y: 300 });
+		expect(route.length).toBeGreaterThan(0);
+		expect(route[route.length - 1].ledge.kind).toBe("floor");
+	});
+
+	/**
+	 * The case that actually needs the preference rather than merely agreeing with it: the ceiling here
+	 * is *nearer* the target than the floor (10px against 30px), so without a thumb on the scale the
+	 * mascot hangs upside down 10px from a point it could have stood 30px from. 80px of preference is
+	 * sized to take that and still lose to a ceiling that is genuinely much closer — which the next
+	 * case pins from the other side.
+	 */
+	it("prefers a floor slightly further away over a nearer ceiling", () => {
+		const ledges = computeLedgesFromRects(VIEWPORT, [
+			{ rect: { left: 0, top: 40, right: 1200, bottom: 300 }, source: "pane" as const, paneRef: 1 },
+			{ rect: { left: 0, top: 340, right: 1200, bottom: 800 }, source: "pane" as const, paneRef: 2 },
+		]);
+		const route = findRoute(ledges, { x: 200, y: 800 }, { x: 900, y: 310 }, undefined, { travelTimeWeight: 0.05 });
+		expect(route[route.length - 1].ledge.kind).toBe("floor");
+	});
+
+	it("still takes a ceiling that is genuinely nearer the target", () => {
+		// Nothing to stand on anywhere near: the only surface close to this point is the window ceiling,
+		// and it beats the side walls by 600px of proximity against an 80px preference. Weighted like a
+		// spot order, where reaching the point is the promise — under the default weight the near wall
+		// wins this on travel time alone, which is a different (and also correct) answer.
+		const route = findRoute(bareWindow(), { x: 200, y: 800 }, { x: 600, y: 45 }, undefined, { travelTimeWeight: 0.05 });
+		expect(route[route.length - 1].ledge.kind).toBe("ceiling");
 	});
 });

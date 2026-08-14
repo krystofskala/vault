@@ -99,7 +99,16 @@ const WALL_CEILING_ADHERENCE_REACH = 4;
  */
 export function updateWallCeilingAdherence(physics: MascotPhysics, ledges: Ledge[]): void {
 	physics.currentWall = keepOrFindWall(physics, ledges);
-	physics.currentCeiling = findCeilingAt(ledges, physics.x, physics.y, WALL_CEILING_ADHERENCE_REACH);
+	// Standing beats hanging whenever both are on offer at the same place.
+	//
+	// Obsidian stacks surfaces on top of each other constantly: one pane's bottom edge and the next
+	// pane's top edge are the same line to within a pixel, so a mascot walking along that floor also
+	// has a ceiling within adherence reach. Attaching to it made `activeIE.bottomBorder.isOn(...)`
+	// true while genuinely standing on the ground, which unlocked the pack's whole hanging repertoire
+	// — so the mascot would flip upside down and shuffle along the underside of a surface it had been
+	// perfectly happily walking on. A grounded mascot is not touching a ceiling in any sense that
+	// matters, so it simply isn't offered one.
+	physics.currentCeiling = physics.grounded ? undefined : findCeilingAt(ledges, physics.x, physics.y, WALL_CEILING_ADHERENCE_REACH);
 }
 
 /**

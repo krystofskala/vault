@@ -185,6 +185,14 @@ function resolvePaneTouch(physics: MascotPhysics): PaneTouch | undefined {
  * A vertical edge has no such guarantee — which sibling a horizontal split takes the space from
  * decides whether the pushed edge moves at all — so a shove is left to detach and drop if it does,
  * which reads perfectly well as shoving something and losing your grip.
+ *
+ * Timing matters as much as the arithmetic here: this must happen *after* the frame's own tick has
+ * settled the mascot against the ledge list, never before. The list is a snapshot, and the host only
+ * rebuilds it once the DOM has, so a ride applied first is simply undone by the same tick's
+ * `applyGravityAndLand` re-anchoring the mascot to where the edge still was. Applied last, the new
+ * position survives to the next tick, by which time the rebuilt list agrees with it. Getting this
+ * backwards does not break the feature outright — it half-works, moving the pane at full rate and the
+ * mascot at none, which reads as a mascot vibrating against an edge it is somehow also pushing.
  */
 function ridePaneEdge(physics: MascotPhysics, touch: PaneTouch, deltaPx: number): void {
 	if (touch.kind === "floor") physics.y -= deltaPx;
@@ -403,11 +411,12 @@ export class ActionRunner {
 			// *currently effective* Animation's hotspots — so which regions are clickable follows
 			// whichever animation variant the action's own conditions select right now.
 			this.refreshHotspots(frame, env);
-			// Invented pane wrangling, applied here for the same reason affordances are: it is a
-			// per-tick property of whatever action is running, readable off any action's own params.
-			this.applyPaneSideEffects(frame, env);
 			frame.ticks++;
 			const done = this.tickFrame(frame, env, dt, ledges);
+			// Invented pane wrangling: a per-tick property of whatever action is running, readable off
+			// any action's own params. Deliberately after the frame's own tick rather than alongside the
+			// affordance/hotspot refreshes above — see ridePaneEdge for why the order is load-bearing.
+			this.applyPaneSideEffects(frame, env);
 			if (!done) return false;
 			this.stack.pop();
 		}

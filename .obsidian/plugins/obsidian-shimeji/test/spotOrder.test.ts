@@ -34,29 +34,60 @@ function scene(startX: number, panes: Array<{ left: number; top: number; right: 
 		getWorldTop: () => 40, getTotalMascotCount: () => 1, getSameCharacterCount: () => 1,
 	} as unknown as Mascot;
 
-	const surgeries: Array<{ x: number; y: number }> = [];
+	/** Where the mascot was standing each time it pressed a "+" button, and each time it leaned on a
+	 * divider. Positions rather than counts, because what is being tested is that the mascot *went
+	 * there* — a layout change recorded from somewhere else on screen is the magic this is meant to
+	 * have removed. */
+	const presses: Array<{ at: { x: number; y: number }; button: { x: number; y: number } }> = [];
+	const shoves: Array<{ at: { x: number; y: number }; deltaPx: number }> = [];
 	/**
-	 * Stands in for Obsidian. Splitting a pane adds a whole *rect* to the layout, not a lone floating
-	 * line — the new pane brings its own sides and underside with it, and those are what a mascot
-	 * actually climbs to get up there. An earlier version of this fake appended a bare floor ledge at
-	 * the requested y, which no route could ever reach, so the test proved only that the order gave
-	 * up. Feeding a rect back through the real `computeLedgesFromRects` keeps the fake honest.
+	 * Stands in for Obsidian, and models the layout change as the *two physical steps it now is*: a
+	 * button somewhere the mascot has to walk to, and a divider it then has to lean on. Nothing here
+	 * repositions anything on its own — which is the property under test, since an earlier design let
+	 * a correctly-placed pane appear the instant the mascot decided it wanted one.
+	 *
+	 * Splitting also replaces a pane with two panes meeting at a boundary rather than adding a rect,
+	 * because that is what keeps the new surfaces connected to the rest of the layout; a free-floating
+	 * rect is unreachable by construction and makes a working feature look broken.
 	 */
+	const rebuild = () => {
+		ledges = computeLedgesFromRects(VIEWPORT, livePanes.map((rect) => ({ rect, source: "pane" as const, paneRef: rect })));
+	};
+	/** Obsidian's own "new tab" button sits in the tab header strip along a pane's top edge. */
+	const buttonFor = (rect: { left: number; top: number; right: number }) => ({ x: (rect.left + rect.right) / 2, y: rect.top });
 	const paneActions: PaneActions = {
-		makeSurfaceAt: (point) => {
-			surgeries.push({ x: point.x, y: point.y });
-			// Model a real split: the pane containing the point is *replaced* by two panes meeting at
-			// that y, which is what keeps the new surfaces connected to the rest of the layout. A fake
-			// that merely drops an extra rect in leaves it floating with nothing joining it to the
-			// ground, and no route can ever reach it — which an earlier version of this did, and it
-			// made a working feature look broken.
-			const containing = livePanes.find((r) => point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom);
-			if (!containing) return undefined;
-			const upper = { ...containing, bottom: point.y };
-			const lower = { ...containing, top: point.y };
-			livePanes = livePanes.flatMap((r) => (r === containing ? [upper, lower] : [r]));
-			ledges = computeLedgesFromRects(VIEWPORT, livePanes.map((rect) => ({ rect, source: "pane" as const, paneRef: rect })));
+		listNewPaneControls: () => livePanes.map((rect) => ({ point: buttonFor(rect), paneRef: rect })),
+		pressNewPaneControl: (near) => {
+			const host = (livePanes.find((r) => r === near) ?? livePanes[0]) as typeof livePanes[number] | undefined;
+			if (!host) return undefined;
+			presses.push({ at: { x: physics.x, y: physics.y }, button: buttonFor(host) });
+			// A real split halves the host pane; where the divider ends up is not the caller's choice.
+			const middle = (host.top + host.bottom) / 2;
+			const lower = { ...host, top: middle };
+			host.bottom = middle;
+			livePanes = livePanes.flatMap((r) => (r === host ? [host, lower] : [r]));
+			rebuild();
 			return lower;
+		},
+		resizeBy: (pane, deltaPx, axis) => {
+			if (axis === "width") return false;
+			const idx = livePanes.findIndex((r) => r === pane);
+			if (idx <= 0) return false; // needs a sibling above to take space from
+			const above = livePanes[idx - 1];
+			const target = livePanes[idx];
+			// Shrinking (negative) moves the shared boundary down, which is the sign convention the
+			// real resizeBy has and the whole reason the mascot rides the edge downward.
+			const boundary = Math.max(above.top + 40, Math.min(target.bottom - 40, target.top - deltaPx));
+			if (Math.abs(boundary - target.top) < 0.01) return false;
+			shoves.push({ at: { x: physics.x, y: physics.y }, deltaPx });
+			// Mutated in place, not replaced. `paneRef` identity has to survive a resize because the real
+			// one is a DOM element that does — and a fake that hands back fresh objects makes the mascot
+			// lose track of the very divider it is standing on and leaning against, which looks exactly
+			// like a bug in the feature rather than in the fake.
+			target.top = boundary;
+			above.bottom = boundary;
+			rebuild();
+			return true;
 		},
 	};
 
@@ -81,7 +112,7 @@ function scene(startX: number, panes: Array<{ left: number; top: number; right: 
 		}
 		return { ticks: maxTicks, arrived: { x: physics.x, y: physics.y } };
 	};
-	return { ai, mascot, physics, run, runUntilOrderDone, surgeries };
+	return { ai, mascot, physics, run, runUntilOrderDone, presses, shoves };
 }
 
 describe("spot order", () => {
@@ -91,35 +122,79 @@ describe("spot order", () => {
 		const { arrived } = s.runUntilOrderDone(400);
 
 		expect(Math.abs(arrived.x - 900)).toBeLessThanOrEqual(40);
-		expect(s.surgeries).toHaveLength(0);
+		expect(s.presses).toHaveLength(0);
 		expect(s.ai.hasSpotOrder).toBe(false);
 	});
 
+	/** Two stacked editor panes, and a spot in mid-air inside the lower one. Nothing can be stood on
+	 * there, and nothing can be *dropped* through it either — the pane's own top edge is a floor that
+	 * catches every fall from above — so the only way is to build a surface. */
+	const STACKED = () => [
+		{ left: 0, top: 40, right: 1200, bottom: 300 },
+		{ left: 0, top: 300, right: 1200, bottom: 800 },
+	];
+
 	// The point of the whole feature: mid-air, nothing to stand on, so it makes somewhere to stand.
 	it("reshapes the layout when the spot is not reachable, then goes there", () => {
-		// A full-window editor pane, as any real vault has — that is what gets split.
-		const s = scene(200, [{ left: 0, top: 40, right: 1200, bottom: 800 }]);
+		const s = scene(200, STACKED());
 		s.ai.orderToSpot({ x: 600, y: 500 });
 		const { arrived } = s.runUntilOrderDone(3000);
 
-		expect(s.surgeries.length).toBeGreaterThan(0);
-		expect(s.surgeries[0]).toEqual({ x: 600, y: 500 });
+		expect(s.presses.length).toBeGreaterThan(0);
 		expect(Math.abs(arrived.y - 500)).toBeLessThanOrEqual(40);
 		expect(Math.abs(arrived.x - 600)).toBeLessThanOrEqual(40);
+	});
+
+	/**
+	 * The user-visible requirement behind the whole two-step design: *"when mascot does surgery it
+	 * cant be magic. he has to go to top of some pane to plus button to add new pane."* An earlier
+	 * version created a correctly-positioned pane the instant the mascot decided it wanted one, from
+	 * wherever it happened to be standing.
+	 */
+	it("walks to a real + button before any pane appears, and presses it from there", () => {
+		const s = scene(200, STACKED());
+		s.ai.orderToSpot({ x: 600, y: 500 });
+		s.runUntilOrderDone(3000);
+
+		expect(s.presses.length).toBeGreaterThan(0);
+		for (const press of s.presses) {
+			expect(Math.hypot(press.at.x - press.button.x, press.at.y - press.button.y)).toBeLessThanOrEqual(40);
+		}
+	});
+
+	/** The other half of the same requirement: *"to move the pane or resize it he needs to use the
+	 * animations like pushing puling or jumping on pane... not that he summons pane into position"*.
+	 * A split lands the divider at the host pane's midpoint — 550 here — and the only thing that moves
+	 * it from there is the mascot standing on it and leaning. */
+	it("shoves the new divider into place while standing on it, rather than it arriving positioned", () => {
+		const s = scene(200, STACKED());
+		s.ai.orderToSpot({ x: 600, y: 500 });
+		s.runUntilOrderDone(3000);
+
+		expect(s.shoves.length).toBeGreaterThan(0);
+		// Every shove is the mascot's own weight on the edge it is moving: it is standing at the
+		// divider's current height, not resizing from across the window.
+		for (const shove of s.shoves) {
+			expect(shove.at.y).toBeGreaterThanOrEqual(500 - 40);
+			expect(shove.at.y).toBeLessThanOrEqual(550 + 40);
+		}
+		// And it is shoved in the direction that closes the gap, not away from it.
+		expect(s.shoves.every((shove) => shove.deltaPx > 0)).toBe(true);
 	});
 
 	// Each attempt splits a real pane in someone's workspace, so an impossible spot must not turn
 	// into an unbounded run of new panes.
 	it("gives up after a bounded number of layout changes rather than splitting forever", () => {
 		const s = scene(200);
-		// A fake that reports success but never actually adds a surface — the pathological case.
-		const stubborn: PaneActions = { makeSurfaceAt: () => "nothing-useful" };
 		const ledges = computeLedgesFromRects(VIEWPORT, []);
 		let attempts = 0;
+		// Reports a button, and reports the press as having worked, but never actually produces a
+		// surface — the pathological case, where every attempt looks like progress and isn't.
 		const counting: PaneActions = {
-			makeSurfaceAt: (p) => {
+			listNewPaneControls: () => [{ point: { x: 600, y: 800 } }],
+			pressNewPaneControl: () => {
 				attempts++;
-				return stubborn.makeSurfaceAt?.(p);
+				return "nothing-useful";
 			},
 		};
 		s.ai.orderToSpot({ x: 600, y: 300 });
@@ -144,7 +219,7 @@ describe("spot order", () => {
 		// surface the layout does offer before standing down. Trying hard is the specified behaviour;
 		// what is being asserted is that it eventually stops rather than that it stops soon.
 		for (let i = 0; i < 8000 && s.ai.hasSpotOrder; i++) {
-			// No makeSurfaceAt at all — the gated-off case.
+			// No pane controls at all — the gated-off case.
 			s.ai.tick(s.mascot, 0.04, ledges, { x: 0, y: 0, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG, {});
 			s.mascot.stateElapsedMs += 40;
 		}
@@ -165,7 +240,7 @@ describe("spot order", () => {
 		s.ai.cancelSpotOrder();
 		expect(s.ai.hasSpotOrder).toBe(false);
 		s.run(200);
-		expect(s.surgeries).toHaveLength(0);
+		expect(s.presses).toHaveLength(0);
 	});
 });
 
@@ -181,14 +256,19 @@ describe("spot order plan choice", () => {
 		return s;
 	}
 
-	// A single full-window pane: the only ceiling is the top of the window, so falling through means
-	// climbing 760px first (~1190 ticks at 0.64px/tick) then dropping. Splitting and climbing to the
-	// new divider is 300px of climb (~570 ticks). Surgery wins, and only a real costing says so —
-	// by distance the drop route looks perfectly reasonable.
-	it("splits a pane when that is quicker than climbing to the ceiling to fall through", () => {
-		const s = scenario([{ left: 0, top: 40, right: 1200, bottom: 800 }], { x: 600, y: 500 });
+	// Two stacked panes and a spot inside the lower one. Every fall from above is caught by that pane's
+	// own top edge, so there is no drop to be had at any price and surgery is the only plan — which the
+	// costing has to work out rather than be told.
+	it("splits a pane when there is no way to fall through the spot", () => {
+		const s = scenario(
+			[
+				{ left: 0, top: 40, right: 1200, bottom: 300 },
+				{ left: 0, top: 300, right: 1200, bottom: 800 },
+			],
+			{ x: 600, y: 500 },
+		);
 		s.runUntilOrderDone(6000);
-		expect(s.surgeries.length).toBeGreaterThan(0);
+		expect(s.presses.length).toBeGreaterThan(0);
 	});
 
 	// Now put the mascot on a raised pane whose right edge is directly above the spot. Walking to that
@@ -198,11 +278,17 @@ describe("spot order plan choice", () => {
 	it("walks off an edge and falls through the spot when that is cheaper than splitting", () => {
 		const s = scenario([{ left: 100, top: 300, right: 600, bottom: 780 }], { x: 600, y: 500 }, 200, 300);
 		s.runUntilOrderDone(6000);
-		expect(s.surgeries).toHaveLength(0);
+		expect(s.presses).toHaveLength(0);
 	});
 
 	it("reaches the spot either way", () => {
-		const viaSurgery = scenario([{ left: 0, top: 40, right: 1200, bottom: 800 }], { x: 600, y: 500 });
+		const viaSurgery = scenario(
+			[
+				{ left: 0, top: 40, right: 1200, bottom: 300 },
+				{ left: 0, top: 300, right: 1200, bottom: 800 },
+			],
+			{ x: 600, y: 500 },
+		);
 		expect(Math.hypot(viaSurgery.runUntilOrderDone(6000).arrived.y - 500)).toBeLessThanOrEqual(48);
 
 		const viaDrop = scenario([{ left: 100, top: 300, right: 600, bottom: 780 }], { x: 600, y: 500 }, 200, 300);
