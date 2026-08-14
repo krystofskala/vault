@@ -586,6 +586,14 @@ Shift is what makes the gesture safe to listen for: a bare triple-click is ordin
 The listener is passive — it never calls `preventDefault`, so the clicks still do whatever Obsidian
 would normally do with them.
 
+## Card-style themes
+
+Themes that render each pane as an inset card (Minimal's card layout, and similar) leave a few pixels
+of space between neighbouring panes instead of letting them share an edge. Pane edges that sit at the same
+height with only a narrow gap between them are joined into one continuous surface, so a mascot walks
+across the join instead of falling down it. Gaps wider than 16px are left alone — at that point it is
+a real hole, and falling through it is the right answer.
+
 ## Testing movement inside Obsidian
 
 Two commands, because they catch different things. Both write a Markdown report into the vault and

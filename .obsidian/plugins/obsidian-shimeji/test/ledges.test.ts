@@ -206,3 +206,53 @@ describe("withoutFloorsTooCloseToTop", () => {
 		expect(filtered.some((l) => l.kind === "floor" && l.y === 600)).toBe(true);
 	});
 });
+
+/**
+ * Card-style themes inset every pane, so neighbours sit a few pixels apart instead of sharing an
+ * edge. The rects below are the real ones from a user's live recording (6px gaps), where a mascot
+ * walking along the first floor stepped off at x=496, found nothing at 497 because the neighbour
+ * starts at 502, and fell 731px past three panes it appeared to be standing on.
+ */
+describe("card layouts: panes that don't touch", () => {
+	const CARDS = [
+		{ left: 50, top: 661, right: 496, bottom: 1347 },
+		{ left: 502, top: 661, right: 1120, bottom: 1227 },
+		{ left: 1126, top: 661, right: 1433, bottom: 1227 },
+		{ left: 1439, top: 661, right: 1745, bottom: 1227 },
+	];
+	const build = () => computeLedgesFromRects({ width: 1748, height: 1392, top: 40 }, CARDS.map((rect) => ({ rect, source: "pane" as const, paneRef: rect })));
+
+	it("joins the row into one continuous floor rather than four with cracks between them", () => {
+		const floors = build().filter((l) => l.kind === "floor" && l.source === "pane");
+		expect(floors).toHaveLength(1);
+		expect(floors[0]).toMatchObject({ y: 661, x1: 50, x2: 1745 });
+	});
+
+	it("a mascot over a 6px gap is still standing on the bridged floor, not falling", () => {
+		// x=499 sits inside a gap between two cards. Before bridging there was no floor here at all,
+		// so a mascot walking across it lost its footing mid-stride.
+		expect(findNearestFloorAt(build(), 499, 661)?.y).toBe(661);
+	});
+
+	it("and a mascot falling down that gap lands on it rather than the window floor 731px below", () => {
+		// Queried from just above the line, which is where a mascot mid-fall actually is.
+		expect(findFloorBelow(build(), 499, 655)?.y).toBe(661);
+	});
+
+	it("does not merge floors at genuinely different heights", () => {
+		const stepped = computeLedgesFromRects({ width: 1748, height: 1392, top: 40 }, [
+			{ rect: { left: 50, top: 661, right: 496, bottom: 1347 }, source: "pane" as const },
+			{ rect: { left: 502, top: 400, right: 1120, bottom: 1227 }, source: "pane" as const },
+		]);
+		const ys = stepped.filter((l) => l.kind === "floor" && l.source === "pane").map((l) => (l.kind === "floor" ? l.y : 0));
+		expect(ys.sort((a, b) => a - b)).toEqual([400, 661]);
+	});
+
+	it("leaves a genuinely wide gap alone — that one is a real hole", () => {
+		const spaced = computeLedgesFromRects({ width: 1748, height: 1392, top: 40 }, [
+			{ rect: { left: 50, top: 661, right: 496, bottom: 1347 }, source: "pane" as const },
+			{ rect: { left: 700, top: 661, right: 1120, bottom: 1227 }, source: "pane" as const },
+		]);
+		expect(spaced.filter((l) => l.kind === "floor" && l.source === "pane")).toHaveLength(2);
+	});
+});

@@ -51,7 +51,58 @@ export function computeLedgesFromRects(
 		}
 	}
 
-	return ledges;
+	return bridgeNarrowGaps(ledges);
+}
+
+/**
+ * How wide a gap between two otherwise-collinear pane edges still counts as one continuous surface.
+ *
+ * Panes were assumed to tile — to share edges exactly, the way Obsidian's default layout does — and a
+ * lot of this engine quietly depends on it. Card-style themes break that assumption: they inset every
+ * pane so neighbours sit a few pixels apart, which turns every floor in the workspace into a run of
+ * segments with cracks between them.
+ *
+ * Measured from a user's live recording: a card theme with 6px gaps, panes at [50,496], [502,1120],
+ * [1126,1433], [1439,1745]. A mascot walking right along the first floor stepped off at 496, found
+ * nothing at 497 (the neighbour starts at 502), and fell 731px to the bottom of the window — past
+ * three panes it looked like it was standing on.
+ *
+ * 16px is comfortably above the gaps themes actually use and far below anything a mascot could fall
+ * through without it looking wrong: the sprite is well over a hundred pixels wide, so a gap this size
+ * is not a hole it could plausibly fit into.
+ */
+const PANE_GAP_BRIDGE_PX = 16;
+
+/** Two edges within this many pixels vertically are at the same height — pane rects come from
+ * `getBoundingClientRect`, so collinear edges can differ by a fraction of a device pixel. */
+const SAME_LEVEL_EPS = 1.5;
+
+/**
+ * Joins floors (and ceilings) that sit at the same height with only a narrow gap between them, so a
+ * card-style layout presents the same continuous surfaces a tiled one does.
+ *
+ * Only spans are merged, never heights: two floors at genuinely different y stay separate, because
+ * the step between them is real. `rect`/`paneRef` are taken from the leftmost segment — a merged
+ * floor spans more than one pane, so "which pane is this" no longer has a single answer, and the
+ * left-hand one is the stable, predictable choice for the pane-wrangling actions that read it.
+ */
+function bridgeNarrowGaps(ledges: Ledge[]): Ledge[] {
+	const out: Ledge[] = ledges.filter((l) => l.kind === "wall" || l.source !== "pane");
+	for (const kind of ["floor", "ceiling"] as const) {
+		const segments = ledges
+			.filter((l): l is Extract<Ledge, { kind: "floor" | "ceiling" }> => l.kind === kind && l.source === "pane")
+			.sort((a, b) => a.y - b.y || a.x1 - b.x1);
+		let current: Extract<Ledge, { kind: "floor" | "ceiling" }> | undefined;
+		for (const seg of segments) {
+			const joins = current && Math.abs(seg.y - current.y) <= SAME_LEVEL_EPS && seg.x1 - current.x2 <= PANE_GAP_BRIDGE_PX;
+			if (joins && current) current.x2 = Math.max(current.x2, seg.x2);
+			else {
+				current = { ...seg };
+				out.push(current);
+			}
+		}
+	}
+	return out;
 }
 
 /**
