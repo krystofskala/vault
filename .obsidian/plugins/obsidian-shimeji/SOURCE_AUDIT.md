@@ -1227,3 +1227,60 @@ timeline — rather than only recombining a pack's existing actions. `CustomCont
 settings editor already construct actions/behaviors from specs and `CustomPoseSpec` already carries
 image/anchor/velocity/duration; what is missing is an image-import path into the pack folder and a
 timeline UI over `CustomAnimationVariantSpec.poses`.
+
+## Invented: route-finding over the ledge graph (2026-08-14)
+
+Requested as "with mouse following I want it to path trace vertically too... want them to jump more
+between panes". Both halves come from one capability, so it is built as one: a router over the same
+`Ledge` list the physics already uses.
+
+**Nothing to port.** shimeji-ee's mascots live on one desktop with a handful of tracked windows, and
+every movement behaviour in it is authored per-surface — "walk to a random x on *this* floor", "climb
+*this* wall to a random y". The original never asks how to get from one surface to another, so there
+is no algorithm here to be faithful to. Obsidian's layout is denser and far more vertical, and that
+question is exactly what makes a mascot look like it inhabits the window rather than patrols a floor.
+
+`engine/Routing.ts`: Dijkstra over ledges. Edges are corner joins (surfaces that physically meet),
+jumps up to a nearby higher floor within a budget, and drops off the end of a raised floor. Five step
+kinds — walk / climb / traverse / jump / drop — chosen precisely because each maps to an action the
+standard pack already has (`Dash`, `ClimbWall`, `ClimbCeiling`, `Jumping`); a route the pack cannot
+animate is not a route. Keyed by ledge rather than (ledge, point), which can in principle settle for
+a slightly worse entry point: a deliberate trade, since the graph is tens of nodes and is rebuilt
+every leg.
+
+Used by two things: pursuit (one step per leg, re-planned each leg so a moving pointer changes the
+plan at the next junction) and a new autonomous roam.
+
+Three bugs found while building it, two of them only visible in a live trace:
+
+43. **The route contained zero-length steps, and they deadlocked the pursuit.** A corner transfer
+    legitimately arrives at the point it departs from — changing which surface you are attached to
+    does not move you — so the raw path has them by construction. As *instructions* they are poison:
+    the caller turns each step into a targeted Move, which completes on its first tick, re-plans,
+    produces the same zero-length step, and never progresses. Observed as a mascot walking to the
+    foot of a wall and then standing there indefinitely. `withoutStandingStill` drops them; the
+    surface change is still carried by the next step, which names the new ledge.
+
+44. **Handing a wall climb a `TargetX` made it finish instantly.** Real `Move` treats a supplied
+    target as a completion condition, and the pack's own references bear this out — every
+    `<ActionReference Name="ClimbWall" .../>` in actions.xml passes `TargetY` and nothing else. The
+    first version passed both axes for every step, so a climb starting at the wall it was already
+    standing at was complete before it began. Same visible symptom as the bug above, which is why
+    both needed a trace rather than reasoning to separate.
+
+45. **Roaming made mascots appear to chase the mouse spontaneously.** `startRouteAction` attributed
+    every leg to ChaseMouse — correct for pursuit, since it makes the pack's own post-chase chain
+    follow — but a self-directed wander is not a chase. It broke the existing invariant test that
+    real shimeji-ee has no autonomous ChaseMouse trigger, and would also have sent a wandering mascot
+    into sit-and-watch-the-pointer afterwards. Attribution is now a parameter; roaming passes none.
+
+**A design point worth keeping.** Arrival is decided by the *router*, not by distance to the target.
+A pointer hovering over the middle of the editor is not somewhere a mascot can stand, and measuring
+against it directly would leave one re-planning forever, never settling into the pack's own chain. An
+empty route means "nowhere nearer to go", and both callers use it as their stop signal. `arriveWithin`
+exists on `RouteOptions` for exactly this: without it, a mascot one pixel off its goal would be handed
+a one-pixel leg indefinitely.
+
+Roaming is deliberately built on the same "intercept the moment a behaviour ends" seam as sticky
+follow — it never interrupts an action and never changes how one runs — and is checked *after*
+pursuit, so being asked to follow always outranks a self-chosen expedition.

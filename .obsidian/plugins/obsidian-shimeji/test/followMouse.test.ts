@@ -25,14 +25,18 @@ const actions = parseActionsXml(readFileSync(resolve(process.cwd(), "Shimeji/con
 const behaviors = parseBehaviorsXml(readFileSync(resolve(process.cwd(), "Shimeji/conf/behaviors.xml"), "utf-8"));
 const pack: MascotPack = { id: "s", name: "S", actions, behaviors, resolveImage: (p) => p };
 
-function scene(startX: number, cursorX: number) {
+function scene(startX: number, cursorX: number, cursorY?: number) {
 	const ledges = computeLedgesFromRects({ width: 1200, height: 800, top: 40 }, []);
 	const floor = ledges.find((l): l is Extract<Ledge, { kind: "floor" }> => l.kind === "floor")!;
 	const physics = {
 		x: startX, y: floor.y, vx: 0, vy: 0, facing: -1 as 1 | -1, grounded: true,
 		currentFloor: floor, currentWall: undefined, currentCeiling: undefined,
 	};
-	const cursor = { x: cursorX, y: 300, dx: 0, dy: 0 };
+	// On the floor line, deliberately: pursuit now routes in two dimensions, so a pointer hovering in
+	// mid-air is somewhere the mascot genuinely cannot stand and it will (correctly) stop short. The
+	// horizontal-pursuit tests below are about travelling *to* the pointer, so the pointer has to be
+	// somewhere reachable. Vertical routing gets its own tests in routing.test.ts.
+	const cursor = { x: cursorX, y: cursorY ?? floor.y, dx: 0, dy: 0 };
 	const mascot = {
 		physics, stateElapsedMs: 0, affordances: [] as string[], hotspots: [], variables: new Map(),
 		setVisualImage() {}, getViewportSize: () => ({ width: 1200, height: 800 }),
@@ -156,5 +160,36 @@ describe("sticky follow (invented)", () => {
 			seen.push(s.ai.currentBehaviorName ?? "-");
 		}
 		expect(seen).not.toContain("ChaseMouse");
+	});
+});
+
+/**
+ * Vertical pursuit. Before routing, sticky follow only ever aimed at the pointer's x, so a pointer
+ * high up the window left the mascot pacing the floor underneath it — which is what prompted this.
+ * The router turns "get to the pointer" into a real traversal across the surfaces that exist.
+ */
+describe("sticky follow routes vertically", () => {
+	it("climbs the wall toward a pointer high above the floor instead of pacing underneath it", () => {
+		// Bare window: the only way up is a side wall, so the route has to find and use it.
+		const s = scene(300, 0, 200);
+		s.ai.setFollowingMouse(true);
+		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
+		const startY = s.physics.y;
+		s.run(600);
+
+		expect(s.physics.y).toBeLessThan(startY - 200);
+		expect(Math.abs(s.physics.x - 0)).toBeLessThanOrEqual(32);
+	});
+
+	it("still terminates against a pointer floating where nothing can be stood on", () => {
+		// Mid-air in the middle of the window. The mascot gets as near as the surfaces allow and then
+		// hands back to the pack's own chain rather than re-planning forever.
+		const s = scene(600, 600, 400);
+		s.ai.setFollowingMouse(true);
+		s.ai.forceBehavior("ChaseMouse", s.mascot, s.cursor, DEFAULT_ENGINE_CONFIG);
+		s.run(700);
+
+		expect(s.ai.isFollowingMouse).toBe(true);
+		expect(s.ai.currentBehaviorName).not.toBe("ChaseMouse");
 	});
 });

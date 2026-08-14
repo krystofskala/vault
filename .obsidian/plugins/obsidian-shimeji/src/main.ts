@@ -86,6 +86,7 @@ export default class ShimejiPlugin extends Plugin {
 
 		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
 		this.applyUpsideDownFeetDrag();
+		this.applyRoamEnabled();
 		this.obsidianPaneActions = new ObsidianPaneActions(this.app);
 
 		this.stage = new Stage({
@@ -307,6 +308,10 @@ export default class ShimejiPlugin extends Plugin {
 	 * the air — the next pickup gets the new setting. */
 	applyUpsideDownFeetDrag(): void {
 		this.engineConfig.upsideDownFeetDrag = this.settings.upsideDownFeetDrag;
+	}
+
+	applyRoamEnabled(): void {
+		this.engineConfig.roamEnabled = this.settings.roamEnabled;
 	}
 
 	/** No ambient pointer exists on a touch-only device between touches, so ChaseMouse would

@@ -3,7 +3,8 @@ import type { Mascot } from "../engine/Mascot";
 import { updateWallCeilingAdherence } from "../engine/nativeBehaviors";
 import type { PaneActions } from "../engine/PaneActions";
 import type { Random } from "../engine/Random";
-import type { EngineConfig, Ledge } from "../engine/types";
+import { findRoute, type RouteVia } from "../engine/Routing";
+import type { EngineConfig, Ledge, Vec2 } from "../engine/types";
 import { ActionRunner, type PushEnv } from "./ActionRunner";
 import { evaluateCondition } from "./Expression";
 import { createRuntimeContext, type AmbientPointer } from "./RuntimeContext";
@@ -22,10 +23,14 @@ import type { BehaviorDef, MascotPack } from "./types";
  * Mascot.startNamedBehavior for the real, on-demand equivalent. */
 const REQUIRED_BEHAVIOR_NAMES = ["ChaseMouse", "Fall", "Dragged", "Thrown"];
 
-/** Close enough, horizontally, to count as having caught the pointer — at which point the pursuit
- * is over and the pack's own behavior chain takes back over. Vertical distance is deliberately
- * ignored: the mascot is bound to whatever surface it is standing on, so directly underneath the
- * pointer is as close as it can physically get, and the real ChaseMouse only ever targets x too. */
+/** Close enough — measured as a straight-line distance, in both axes — to count as having caught the
+ * pointer, at which point the pursuit is over and the pack's own behavior chain takes back over.
+ *
+ * This used to be horizontal-only, on the reasoning that a mascot is stuck on whatever surface it is
+ * standing on so directly underneath was as close as it could get. That stopped being true once
+ * pursuit started routing over the ledge graph: it can now climb and jump to a pointer above it, and
+ * a purely horizontal test would have declared victory the moment it was underneath, never bothering
+ * with the vertical half of the journey. */
 const FOLLOW_ARRIVAL_PX = 32;
 
 /**
@@ -38,10 +43,29 @@ const FOLLOW_ARRIVAL_PX = 32;
  */
 const FOLLOW_LEG_PX = 160;
 
-/** Actions to pursue with, best first. Real packs all define `Dash`; `Walk` is the fallback for a
- * custom pack that doesn't, and if neither exists pursuit degrades to re-running the pack's own
- * ChaseMouse behavior, which is at least always present (it is one of the four required ones). */
-const PURSUIT_ACTIONS = ["Dash", "Walk"];
+/**
+ * Which of the pack's own actions performs each kind of route step, best first. This mapping is the
+ * whole reason `RouteVia` has exactly five members: a route the pack cannot animate is not a route.
+ *
+ * A `drop` is deliberately a floor Move aimed past the edge — walking off and letting gravity take
+ * over is what a drop *is*, and the engine's own lost-ground handling turns it into a Fall without
+ * any action needing to exist for it.
+ */
+/** Chance, each time a behaviour ends, of setting off somewhere new. Low on purpose: the pack's own
+ * idling is most of a mascot's character, and a mascot permanently in transit would lose it. At the
+ * standard pack's behaviour lengths this works out to an expedition every minute or two. */
+const ROAM_CHANCE = 0.06;
+
+/** Roaming is not a precision exercise — anywhere near the chosen spot is a destination reached. */
+const ROAM_ARRIVAL_PX = 48;
+
+const ROUTE_ACTIONS: Record<RouteVia, string[]> = {
+	walk: ["Dash", "Walk"],
+	climb: ["ClimbWall"],
+	traverse: ["ClimbCeiling"],
+	jump: ["Jumping"],
+	drop: ["Dash", "Walk"],
+};
 
 export class BehaviorAI {
 	private runner: ActionRunner;
@@ -87,25 +111,129 @@ export class BehaviorAI {
 
 	private followingMouse = false;
 
-	/** One leg of a pursuit: the pack's own Dash/Walk aimed at the pointer, or ChaseMouse if this
-	 * pack somehow has neither. Returns false if nothing could be started, so the caller can fall
-	 * back to ordinary selection rather than leaving the runner idle. */
-	private startPursuitLeg(env: PushEnv, cursorX: number): boolean {
-		const { physics } = env.mascot;
-		const dx = cursorX - physics.x;
-		const leg = Math.sign(dx) * Math.min(Math.abs(dx), FOLLOW_LEG_PX);
-		const targetX = physics.x + leg;
+	/** Where an autonomous expedition is currently headed, if one is under way — see maybeRoam. */
+	private roamTarget?: Vec2;
 
-		for (const name of PURSUIT_ACTIONS) {
-			if (!this.pack.actions.has(name)) continue;
-			// Keep `currentBehavior` pointing at ChaseMouse so that when the pursuit does end, the
-			// pack's own NextBehavior edges from ChaseMouse (SitAndFaceMouse, in the standard pack)
-			// are what it settles into — rather than the general pool, which would look like the
-			// mascot losing interest the instant it caught up.
-			this.currentBehavior = this.pack.behaviors.get("ChaseMouse");
-			debugLog("pursuit leg ->", name, { from: Math.round(physics.x), targetX: Math.round(targetX), cursorX: Math.round(cursorX) });
-			if (this.runner.start(name, env, { TargetX: String(targetX) })) return true;
+	/**
+	 * **Invented.** Occasionally sets off across the window on its own, using the same router the
+	 * pointer pursuit uses.
+	 *
+	 * Without this the router only ever runs while you are actively making the mascot follow you,
+	 * which is a small fraction of its life; the rest of the time the pack's own behaviours apply,
+	 * and those are authored per-surface ("walk to a random x on *this* floor", "climb *this* wall")
+	 * with no notion of going somewhere else entirely. That is why a mascot otherwise tends to settle
+	 * on one ledge and stay there. Picking a destination anywhere in the layout and routing to it is
+	 * what produces the wandering — climbing, dropping and hopping between panes — as a side effect
+	 * of simply having somewhere to be.
+	 *
+	 * Deliberately built on the same "intercept the moment a behaviour ends" seam as sticky follow,
+	 * so it never interrupts anything and never changes how an action runs. A roam is abandoned the
+	 * instant something else wants the mascot: pursuit is checked first, and any forced behaviour
+	 * clears the target.
+	 */
+	private maybeRoam(env: PushEnv, ledges: Ledge[]): boolean {
+		if (!env.config.roamEnabled || ledges.length === 0) return false;
+
+		if (!this.roamTarget) {
+			if (!this.rng.chance(ROAM_CHANCE)) return false;
+			// Aim at a random point on a random surface. Unreachable picks are simply dropped rather
+			// than retried in a loop — the next behaviour ending rolls again a moment later, which is
+			// cheaper than searching for a guaranteed-reachable destination every time.
+			const ledge = this.rng.pick(ledges);
+			const spot = ledge.kind === "wall" ? { x: ledge.x, y: this.rng.range(ledge.y1, ledge.y2) } : { x: this.rng.range(ledge.x1, ledge.x2), y: ledge.y };
+			this.roamTarget = spot;
 		}
+
+		const { physics } = env.mascot;
+		const attached = physics.currentFloor ?? physics.currentWall ?? physics.currentCeiling;
+		const route = findRoute(ledges, { x: physics.x, y: physics.y }, this.roamTarget, attached, { arriveWithin: ROAM_ARRIVAL_PX });
+		const next = route[0];
+		if (!next) {
+			// Arrived, or nothing connects. Either way this expedition is over; the pack's own
+			// behaviours take back over until the next roll.
+			this.roamTarget = undefined;
+			return false;
+		}
+		return this.startRouteAction(env, next.via, next.x, next.y, route.length);
+	}
+
+	/**
+	 * One leg of a pursuit. Routes across the ledge graph rather than walking the floor, so following
+	 * the pointer is a two-dimensional business: the mascot climbs walls, crosses ceilings, jumps
+	 * between panes and drops off edges to get to you, instead of only ever pacing back and forth
+	 * underneath you.
+	 *
+	 * Only the *first* step of the route is executed, and the route is recomputed on the next leg.
+	 * That is what keeps it responsive — a pointer that moves mid-climb changes the plan at the next
+	 * junction rather than after the mascot has finished walking to somewhere you no longer are.
+	 *
+	 * Returns false if nothing could be started, so the caller can fall back to ordinary selection
+	 * rather than leaving the runner idle.
+	 */
+	private startPursuitLeg(env: PushEnv, cursor: Vec2, ledges: Ledge[]): boolean {
+		const { physics } = env.mascot;
+		const attached = physics.currentFloor ?? physics.currentWall ?? physics.currentCeiling;
+		const route = ledges.length > 0 ? findRoute(ledges, { x: physics.x, y: physics.y }, cursor, attached, { arriveWithin: FOLLOW_ARRIVAL_PX }) : [];
+		const next = route[0];
+
+		// With surfaces present, an empty route means the router has nothing left to offer — the
+		// mascot is already as near the pointer as the geometry permits. Stop, and let the pack take
+		// over. (With no surfaces at all there is no graph to route over, so fall back to the flat
+		// walk this used to be rather than refusing to move.)
+		if (!next) {
+			if (ledges.length > 0) return false;
+			const flatX = physics.x + Math.sign(cursor.x - physics.x) * Math.min(Math.abs(cursor.x - physics.x), FOLLOW_LEG_PX);
+			if (Math.abs(cursor.x - physics.x) <= FOLLOW_ARRIVAL_PX) return false;
+			return this.startRouteAction(env, "walk", flatX, undefined, 0, this.pack.behaviors.get("ChaseMouse"));
+		}
+
+		return this.startRouteAction(env, next.via, next.x, next.y, route.length, this.pack.behaviors.get("ChaseMouse"));
+	}
+
+	/**
+	 * Starts whichever of the pack's actions performs `via`, aimed at the step's point.
+	 *
+	 * `attributeTo` is what `currentBehaviorName` reports for the duration, which decides what the
+	 * pack picks *next* once the leg finishes. Pursuit attributes to ChaseMouse so the pack's own
+	 * post-chase chain (SitAndFaceMouse) follows, exactly as it would after a real chase. Roaming
+	 * passes nothing, and that distinction matters twice over: attributing a self-directed wander to
+	 * ChaseMouse would both send it into sit-and-watch-the-pointer afterwards, which is nonsense for
+	 * a mascot that was not following anything, and make the mascot appear to chase the mouse
+	 * spontaneously — something real shimeji-ee never does and which this project pins with a test.
+	 */
+	private startRouteAction(
+		env: PushEnv,
+		via: RouteVia,
+		targetX: number,
+		targetY: number | undefined,
+		remaining: number,
+		attributeTo?: BehaviorDef,
+	): boolean {
+		const { physics } = env.mascot;
+
+		for (const name of ROUTE_ACTIONS[via]) {
+			if (!this.pack.actions.has(name)) continue;
+			this.currentBehavior = attributeTo;
+			// Each step gets *only* the axis its move actually travels along, which is exactly how the
+			// pack references these actions itself (`<ActionReference Name="ClimbWall" TargetY="..."/>`
+			// never passes a TargetX). This is not cosmetic: real Move treats a supplied target as a
+			// completion condition, so handing a wall climb the TargetX it is already standing at made
+			// it finish on its first tick. The mascot then re-planned, got the same instruction, and
+			// stood at the foot of the wall forever — visibly identical to the routing not working.
+			const overrides: Record<string, string> = {};
+			if (via === "climb") overrides.TargetY = String(Math.round(targetY ?? 0));
+			else if (via === "jump") {
+				overrides.TargetX = String(Math.round(targetX));
+				overrides.TargetY = String(Math.round(targetY ?? 0));
+			} else overrides.TargetX = String(Math.round(targetX));
+			debugLog("pursuit leg ->", `${via}/${name}`, {
+				from: [Math.round(physics.x), Math.round(physics.y)],
+				to: [Math.round(targetX), targetY === undefined ? undefined : Math.round(targetY)],
+				remainingSteps: remaining,
+			});
+			if (this.runner.start(name, env, overrides)) return true;
+		}
+
 		const chase = this.pack.behaviors.get("ChaseMouse");
 		if (!chase) return false;
 		this.startBehavior(chase, env);
@@ -194,9 +322,17 @@ export class BehaviorAI {
 		// the session. While arrived it simply stops issuing legs and lets the pack's own chain run
 		// (SitAndFaceMouse — it sits and watches), staying armed so that a pointer moving back out of
 		// reach picks the pursuit straight up again.
-		if (this.followingMouse && Math.abs(ambientPointer.x - mascot.physics.x) > FOLLOW_ARRIVAL_PX) {
-			if (this.startPursuitLeg(env, ambientPointer.x)) return;
-		}
+		// Arrival is decided by the router, not by distance to the pointer, and that distinction is
+		// what keeps the mode terminating. A pointer hovering in the middle of the editor is not
+		// somewhere a mascot can stand: it gets as close as the surfaces allow and then has nothing
+		// further to do. Measuring against the raw pointer would leave it re-planning forever, never
+		// settling into the pack's own sit-and-watch chain. startPursuitLeg returns false for exactly
+		// that "nowhere nearer to go" case, and the mode stays armed so a pointer that moves back into
+		// reach picks the pursuit straight up again.
+		if (this.followingMouse && this.startPursuitLeg(env, ambientPointer, ledges)) return;
+
+		// Autonomous wandering, only ever considered when nothing more important is happening.
+		if (!this.followingMouse && this.maybeRoam(env, ledges)) return;
 
 		this.startBehavior(this.pickNextBehavior(mascot, env), env);
 	}
@@ -251,6 +387,8 @@ export class BehaviorAI {
 	 * Thrown actually starts and with what position/velocity. */
 	forceBehavior(name: string, mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): void {
 		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);
+		// Anything explicitly asking for a behaviour outranks an expedition the mascot chose itself.
+		this.roamTarget = undefined;
 		const behavior = this.pack.behaviors.get(name);
 		this.currentBehavior = behavior;
 		debugLog("behavior -> (forced)", name, {

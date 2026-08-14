@@ -547,6 +547,37 @@ its editor.
 A custom action/behavior with the same name as a standard one (or another custom one) replaces
 it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml` directly.
 
+## Getting around: route-finding
+
+Mascots plan routes across the surfaces that actually exist, rather than only pacing whichever floor
+they happen to be on. A route is built from five kinds of step — **walk**, **climb**, **traverse**
+(along a ceiling), **jump** and **drop** — each of which maps onto an action your pack already has
+(`Dash`, `ClimbWall`, `ClimbCeiling`, `Jumping`). That mapping is why the set is exactly those five:
+a route the pack cannot animate would be unplayable.
+
+The graph is built from the same ledge list the physics uses, so a route can never describe a surface
+the mascot can't actually stand on. Surfaces connect where they physically meet (a floor meeting a
+wall is how a mascot gets off the ground at all), plus jumps up to a nearby higher floor and drops off
+the end of a raised one.
+
+Two things use it:
+
+- **Following the mouse now works vertically.** Point somewhere high and the mascot climbs a wall,
+  crosses a ceiling or hops between panes to get there, instead of standing on the floor beneath you.
+- **Wandering** — mascots occasionally pick somewhere else entirely and route to it, which is what
+  produces climbing and pane-hopping during ordinary idling. Toggle under **Behavior → Wander the
+  whole window**; off keeps them on whichever surface they're on, closer to how the original behaves
+  on a bare desktop.
+
+Nothing in shimeji-ee corresponds to this. Its mascots live on one desktop with a few tracked
+windows, and every movement behavior is authored per-surface ("walk to a random x on *this* floor") —
+the original never asks "how do I get *there* from *here*", so there was no algorithm to port.
+
+A target that isn't on any surface — a pointer hovering over the middle of the editor — is handled by
+getting as close as the geometry allows and stopping. That termination is load-bearing: measuring
+arrival against the raw pointer instead of the closest reachable point would leave a mascot
+re-planning forever and never settling.
+
 ## Following the mouse
 
 Real shimeji-ee's "Follow Cursor" tray item is a **one-shot**: `Manager.setBehaviorAll(config,

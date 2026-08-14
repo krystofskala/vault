@@ -43,6 +43,9 @@ export interface ShimejiSettings {
 	 * shove and fold your panes and sidebars. Separate from allowWindowThrow because that one spawns
 	 * a real OS window, which is a different order of surprise. See shimeji/paneWrangling.ts. */
 	allowPaneWrangling: boolean;
+	/** Invented: mascots occasionally pick a destination anywhere in the layout and route to it over
+	 * the ledge graph, climbing walls and hopping between panes to get there. See engine/Routing.ts. */
+	roamEnabled: boolean;
 	/** Invented — shimeji-ee has no vault/note awareness at all. While a mascot happens to be on
 	 * the pane you're actively working in, occasionally swaps in a random other note from the
 	 * vault. Off by default for the same reason as allowWindowThrow: it changes what you're
@@ -75,6 +78,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	soundVolume: 70,
 	allowWindowThrow: false,
 	allowPaneWrangling: true,
+	roamEnabled: true,
 	allowNoteMischief: false,
 	customContent: {},
 };
@@ -308,6 +312,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 						this.plugin.applySoundSettings();
 					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Wander the whole window")
+			.setDesc(
+				"Mascots occasionally pick somewhere else in the layout and actually route to it — walking, climbing walls, hopping between panes and dropping off edges to get there. Off means they stick to whichever surface they happen to be on, which is closer to how the original behaves on a bare desktop.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.roamEnabled).onChange(async (value) => {
+					this.plugin.settings.roamEnabled = value;
+					await this.plugin.saveSettings();
+					this.plugin.applyRoamEnabled();
+				}),
 			);
 
 		new Setting(containerEl)

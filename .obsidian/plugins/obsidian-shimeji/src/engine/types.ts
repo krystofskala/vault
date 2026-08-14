@@ -94,6 +94,9 @@ export interface EngineConfig {
 	 * pinching it by the head as the real engine always does. Invented — the original has no
 	 * vertical flip at all. See Mascot's FEET_GRAB_FRACTION. */
 	upsideDownFeetDrag: boolean;
+	/** Lets mascots occasionally pick a destination anywhere in the layout and route to it, climbing
+	 * and jumping between panes to get there. Invented; see BehaviorAI.maybeRoam. */
+	roamEnabled: boolean;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -103,6 +106,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
 	minThrowSpeed: 60,
 	chaseMouseEnabled: true,
 	upsideDownFeetDrag: true,
+	roamEnabled: true,
 };
 
 /** Shimeji-ee's own engine runs a fixed-timestep loop at this rate; Stage's simulation loop
