@@ -95,6 +95,16 @@ export interface RoomFixture {
 	paint(p: Painter, mood: RoomMood): void;
 	surfaces?: RoomSurface[];
 	walls?: RoomWall[];
+	/**
+	 * Which side of the resident this fixture is drawn on. Everything defaults to `background`, and
+	 * `foreground` is what puts a mascot genuinely *behind* something — a desk it is sitting at, a
+	 * counter it is standing behind.
+	 *
+	 * It cannot be done by draw order alone: mascots are not drawn into the room's canvas at all,
+	 * they live on the stage's own full-window overlay above the workspace. So a foreground fixture
+	 * is painted onto a second canvas that sits above that overlay in turn — see RoomForeground.
+	 */
+	layer?: "background" | "foreground";
 }
 
 export interface RoomDef {
@@ -117,6 +127,22 @@ export interface RoomDef {
 	/** `painted` draws the fixtures below; `image` fits supplied artwork into the room square and
 	 * treats the fixtures as geometry only. Defaults to painted. */
 	background?: "painted" | "image";
+	/**
+	 * How tall the resident stands here, as a fraction of the room's drawn height. Per-room because
+	 * the right answer depends on what the room is: a whole flat wants a small figure, while a scene
+	 * built around the mascot itself wants it large enough to read. Defaults to Residency's own.
+	 */
+	residentHeightFraction?: number;
+	/**
+	 * Pins which way the resident faces. Set only by rooms where the pose is the point — a mascot
+	 * sitting at a desk should not turn its back on you every few seconds.
+	 *
+	 * Worth being plain about the limit: shimeji artwork is drawn in side elevation and the real
+	 * engine has no front-facing pose at all (`setLookRight` mirrors horizontally and that is the
+	 * whole of its orientation). So this settles *which side*, and cannot conjure a view the pack
+	 * does not contain.
+	 */
+	residentFacing?: 1 | -1;
 	/**
 	 * The threshold. Both directions pass through it: a mascot moving in appears here, and one
 	 * called away walks here before the workspace becomes its world again.

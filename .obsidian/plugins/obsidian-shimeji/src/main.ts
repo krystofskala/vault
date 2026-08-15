@@ -18,6 +18,7 @@ import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./set
 import { Residency } from "./room/Residency";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
+import { RoomForeground } from "./room/RoomForeground";
 
 /** How often to check whether a mascot is currently on the user's active pane and roll for
  * "note mischief" — not tied to any real engine tick, this is Obsidian-layer-only and has no
@@ -51,6 +52,10 @@ export default class ShimejiPlugin extends Plugin {
 		packIdOf: (mascot) => this.packIdOf(mascot),
 	});
 	private residencyRaf = 0;
+	/** The part of the room drawn over the mascot — a desk it sits behind. Owned here rather than by
+	 * the view because it is not inside the pane at all: it has to stack above the stage's own
+	 * full-window overlay, which nothing within the workspace can do. */
+	private readonly roomForeground = new RoomForeground();
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
 	stage?: Stage;
 	/** What everything (settings UI, spawning, the context menu) actually consumes: basePacks
@@ -265,6 +270,7 @@ export default class ShimejiPlugin extends Plugin {
 
 	onunload(): void {
 		cancelAnimationFrame(this.residencyRaf);
+		this.roomForeground.destroy();
 		uninstallDebugApi();
 		this.stage?.destroy();
 		// The clip registry is a module-level singleton (as the real `Sounds` is a static class),
@@ -759,7 +765,9 @@ export default class ShimejiPlugin extends Plugin {
 	private startResidencyLoop(): void {
 		const step = (): void => {
 			this.residency.tick();
-			this.roomView()?.refresh();
+			const view = this.roomView();
+			view?.refresh();
+			this.roomForeground.update(view?.def, view?.layout());
 			this.residencyRaf = requestAnimationFrame(step);
 		};
 		this.residencyRaf = requestAnimationFrame(step);

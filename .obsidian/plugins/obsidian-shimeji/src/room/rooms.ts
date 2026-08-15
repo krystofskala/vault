@@ -1,5 +1,6 @@
 import { APARTMENT } from "./apartment";
 import { CELLAR } from "./cellar";
+import { OFFICE } from "./office";
 import { LIVING_ROOM, type RoomDef } from "./roomDef";
 
 /**
@@ -11,7 +12,7 @@ import { LIVING_ROOM, type RoomDef } from "./roomDef";
  * idea how many there are.
  */
 
-export type RoomStyleId = "apartment" | "cellar" | "painted";
+export type RoomStyleId = "apartment" | "cellar" | "office" | "painted";
 
 export interface RoomStyle {
 	id: RoomStyleId;
@@ -41,6 +42,12 @@ export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
 		def: CELLAR,
 		imageBase: "room/room2",
 	},
+	office: {
+		id: "office",
+		label: "Office",
+		description: "A desk with a PC, drawn by the plugin. The shimeji sits at it and stays there — the desk is drawn in front of it.",
+		def: OFFICE,
+	},
 	painted: {
 		id: "painted",
 		label: "Plant nook (drawn by the plugin)",
@@ -49,7 +56,7 @@ export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
 	},
 };
 
-export const ROOM_STYLE_IDS: RoomStyleId[] = ["apartment", "cellar", "painted"];
+export const ROOM_STYLE_IDS: RoomStyleId[] = ["apartment", "cellar", "office", "painted"];
 
 /** Tried in order. PNG first because that is what pixel art is normally saved as. */
 export const ROOM_IMAGE_EXTENSIONS = ["png", "webp", "jpg", "jpeg", "gif"] as const;

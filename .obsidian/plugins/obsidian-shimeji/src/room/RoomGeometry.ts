@@ -24,6 +24,10 @@ const MIN_SCALE = 2;
 const MAX_SCALE = 8;
 
 export interface RoomLayout {
+	/** The room this is a placement of. Carried along so anything holding a layout — the foreground
+	 * painter, the residency controller — cannot end up applying one room's rules to another's
+	 * geometry. */
+	def: RoomDef;
 	scale: number;
 	mirrored: boolean;
 	/** Which side of the room faces the rest of the window — where the threshold is, whether or not
@@ -156,6 +160,7 @@ export function layoutRoom(def: RoomDef, paneRect: Rect, viewportWidth: number):
 	const doorCentreX = def.mirrorable === false && nearSide === "right" ? def.width - def.door.x1 - doorWidth / 2 : def.door.x1 + doorWidth / 2;
 
 	return {
+		def,
 		scale,
 		mirrored,
 		nearSide,

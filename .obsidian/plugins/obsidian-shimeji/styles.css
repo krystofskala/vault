@@ -151,3 +151,14 @@
 .shimeji-room-missing-note {
 	font-size: calc(var(--font-ui-smaller) * 0.92);
 }
+
+/* The part of a room drawn in front of its resident. Fixed and above the stage overlay, because
+   mascots live on that overlay and nothing inside the workspace can paint over it — see
+   room/RoomForeground.ts. Click-through: it is a picture, and the mascot beneath the parts it
+   overlaps has to stay grabbable. */
+.shimeji-room-foreground {
+	position: fixed;
+	pointer-events: none;
+	z-index: 61;
+	image-rendering: pixelated;
+}

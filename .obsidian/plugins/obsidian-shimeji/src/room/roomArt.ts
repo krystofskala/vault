@@ -35,15 +35,29 @@ function painterFor(ctx: CanvasRenderingContext2D): Painter {
 	};
 }
 
-/** Draws the room into `canvas`, sized and mirrored to match a RoomLayout. */
-export function paintRoom(canvas: HTMLCanvasElement, def: RoomDef, mood: RoomMood, opts: { scale: number; mirrored: boolean; devicePixelRatio?: number }): void {
+/** Whether a room has anything drawn in front of its resident at all — most do not, and no
+ * foreground canvas is created for them. */
+export function hasForeground(def: RoomDef): boolean {
+	return def.fixtures.some((f) => f.layer === "foreground");
+}
+
+/** Draws one layer of the room into `canvas`, sized and mirrored to match a RoomLayout. */
+export function paintRoom(
+	canvas: HTMLCanvasElement,
+	def: RoomDef,
+	mood: RoomMood,
+	opts: { scale: number; mirrored: boolean; devicePixelRatio?: number; layer?: "background" | "foreground" },
+): void {
 	const buffer = document.createElement("canvas");
 	buffer.width = def.width;
 	buffer.height = def.height;
 	const bufferCtx = buffer.getContext("2d");
 	if (!bufferCtx) return;
 	const painter = painterFor(bufferCtx);
-	for (const fixture of def.fixtures) fixture.paint(painter, mood);
+	const layer = opts.layer ?? "background";
+	for (const fixture of def.fixtures) {
+		if ((fixture.layer ?? "background") === layer) fixture.paint(painter, mood);
+	}
 
 	// The CSS size is the layout's scale; the backing store is multiplied again by the display's
 	// own ratio so the art stays crisp on a HiDPI screen instead of being upscaled by the compositor.

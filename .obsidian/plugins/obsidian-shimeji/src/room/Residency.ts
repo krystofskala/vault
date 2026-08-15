@@ -175,8 +175,13 @@ export class Residency {
 		const mascot = this.resident;
 		if (!mascot || mascot.height <= 0) return;
 		const roomHeight = layout.rect.bottom - layout.rect.top;
-		const wanted = Math.min(MAX_RESIDENT_SCALE, (roomHeight * RESIDENT_HEIGHT_FRACTION) / mascot.height);
+		const fraction = layout.def.residentHeightFraction ?? RESIDENT_HEIGHT_FRACTION;
+		const wanted = Math.min(MAX_RESIDENT_SCALE, (roomHeight * fraction) / mascot.height);
 		if (Math.abs(mascot.scale - wanted) > 0.001) mascot.scale = wanted;
+		// A room may pin which way its resident faces — a mascot sitting at a desk should not keep
+		// turning away. Applied every frame because the pack's own Look action would otherwise flip
+		// it back within seconds.
+		if (layout.def.residentFacing !== undefined) mascot.physics.facing = layout.def.residentFacing;
 	}
 
 	/**

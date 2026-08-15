@@ -3,6 +3,8 @@ import { layoutRoom, shouldMirror } from "../src/room/RoomGeometry";
 import { LIVING_ROOM, roomSurfaces, roomWalls } from "../src/room/roomDef";
 import { APARTMENT } from "../src/room/apartment";
 import { CELLAR } from "../src/room/cellar";
+import { OFFICE, OFFICE_DESK_Y } from "../src/room/office";
+import { hasForeground } from "../src/room/roomArt";
 import { ROOM_STYLES, ROOM_STYLE_IDS, roomStyle } from "../src/room/rooms";
 import { findRoute } from "../src/engine/Routing";
 import { findFloorBelow } from "../src/engine/Ledges";
@@ -363,5 +365,59 @@ describe("where the room sits in its pane", () => {
 				expect(Math.abs(l.rect.left - pane.left - (pane.right - l.rect.right)), `${id} is off-centre horizontally`).toBeLessThanOrEqual(1);
 			}
 		}
+	});
+});
+
+describe("the office", () => {
+	const layout = layoutRoom(OFFICE, { left: 1420, top: 120, right: 1740, bottom: 1360 }, VIEWPORT_W)!;
+
+	it("draws the desk in front of the resident, and the chair behind it", () => {
+		// The whole point of the room. A desk on the background layer would have the mascot standing
+		// on top of it rather than sitting at it.
+		expect(hasForeground(OFFICE), "nothing is drawn in front of the resident").toBe(true);
+		const front = OFFICE.fixtures.filter((f) => f.layer === "foreground").map((f) => f.id);
+		expect(front).toContain("desk");
+		expect(front).toContain("monitor");
+		// The chair is what it sits *in*, so it must stay behind.
+		expect(OFFICE.fixtures.find((f) => f.id === "chair")?.layer ?? "background").toBe("background");
+	});
+
+	it("gives the resident nowhere to go but the seat", () => {
+		// It stays at the desk by having no alternative, not by any rule policing it — the same
+		// substitute-the-world trick confinement itself uses, applied once more in the small.
+		const floors = layout.ledges().filter((l) => l.kind === "floor");
+		expect(floors).toHaveLength(1);
+		const seat = floors[0] as Extract<Ledge, { kind: "floor" }>;
+		expect(seat.x1).toBeGreaterThan(layout.rect.left);
+		expect(seat.x2).toBeLessThan(layout.rect.right);
+		// Walled at both ends, so it cannot walk off the short run it has.
+		const walls = layout.ledges().filter((l): l is Extract<Ledge, { kind: "wall" }> => l.kind === "wall");
+		expect(walls.some((w) => Math.abs(w.x - seat.x1) < 1)).toBe(true);
+		expect(walls.some((w) => Math.abs(w.x - seat.x2) < 1)).toBe(true);
+	});
+
+	it("sits the desktop across the resident's body, not above or below it", () => {
+		// If the desk line sits above the mascot's head it hides the whole thing; below its feet and
+		// the mascot appears to stand in front. Either way the room fails at the one thing it is for,
+		// and both depend on the resident's size — so they are checked together.
+		const roomHeight = layout.rect.bottom - layout.rect.top;
+		const spriteHeight = roomHeight * (OFFICE.residentHeightFraction ?? 1 / 6);
+		const feet = layout.toViewport(0, OFFICE.floorY).y;
+		const head = feet - spriteHeight;
+		const desktop = layout.toViewport(0, OFFICE_DESK_Y).y;
+		expect(desktop, "the desk is above the mascot's head — it would be hidden entirely").toBeGreaterThan(head);
+		expect(desktop, "the desk is below the mascot's feet — it would not hide anything").toBeLessThan(feet);
+		// Bounded at both ends, because "across the body" is a range and not a side. Too little above
+		// the desktop and only a scalp shows; too much and the desk is a skirting board it happens to
+		// be standing behind. Between a third and three quarters reads as sitting at it.
+		const showing = (desktop - head) / spriteHeight;
+		expect(showing, "barely any of the mascot shows above the desk").toBeGreaterThan(0.33);
+		expect(showing, "the desk hides almost nothing — it does not read as sitting at it").toBeLessThan(0.75);
+	});
+
+	it("pins which way it faces", () => {
+		// Shimeji artwork is side-on and has no front-facing pose, so this settles the side rather
+		// than turning it to camera. Without it the pack's own Look action flips it every few seconds.
+		expect(OFFICE.residentFacing).toBeDefined();
 	});
 });
