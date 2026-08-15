@@ -3,7 +3,7 @@ import type { Mascot } from "../engine/Mascot";
 import { updateWallCeilingAdherence } from "../engine/nativeBehaviors";
 import type { PaneActions } from "../engine/PaneActions";
 import type { Random } from "../engine/Random";
-import { edgeStepOffX, fallDurationTicks, findRoute, planDropThrough, pointOn, routeDurationTicks, type RouteOptions, type RouteVia } from "../engine/Routing";
+import { edgeStepOffX, facingWall, fallDurationTicks, findRoute, planDropThrough, pointOn, routeDurationTicks, type RouteOptions, type RouteVia } from "../engine/Routing";
 import type { EngineConfig, Ledge, PaneRef, Vec2 } from "../engine/types";
 import { ActionRunner, type PushEnv } from "./ActionRunner";
 import { evaluateCondition } from "./Expression";
@@ -91,7 +91,23 @@ const ROUTE_ACTIONS: Record<Exclude<RouteVia, "drop">, string[]> = {
 	climb: ["ClimbWall"],
 	traverse: ["ClimbCeiling"],
 	jump: ["Jumping"],
+	// The same action the pack's own JumpFromLeftWall/JumpFromRightWall use to cross to the opposite
+	// wall — only aimed upward. See CHIMNEY_HOP_PX.
+	chimney: ["Jumping"],
 };
+
+/**
+ * How far up one kick off a wall carries, when climbing a corridor between two facing walls.
+ *
+ * Must match the router's own `chimneyHopUp`, or the plan and its execution disagree about how many
+ * hops an ascent takes and the route is re-costed wrongly every leg.
+ *
+ * A chimney arrives as a *single* route step covering the whole climb, and this is what turns it back
+ * into hops: each leg kicks this far and no further, and because callers only ever execute a route's
+ * first step and then re-plan, the mascot lands on the far wall, re-plans, and kicks back. Nothing
+ * scripts the alternation — it falls out of the corridor being symmetric.
+ */
+const CHIMNEY_HOP_PX = 120;
 
 /**
  * How far from a floor's end the mascot may be and still be understood as letting go *of that end*.
@@ -237,7 +253,7 @@ export class BehaviorAI {
 	 * for the realistic case (split the pane, then place the divider) while making a runaway
 	 * impossible.
 	 */
-	private driveSpotOrder(env: PushEnv, ledges: Ledge[]): boolean {
+	private driveSpotOrder(env: PushEnv, ledges: Ledge[], reentered = false): boolean {
 		const spot = this.orderedSpot;
 		if (!spot) return false;
 		const { physics } = env.mascot;
@@ -319,8 +335,13 @@ export class BehaviorAI {
 		const shortfall = Math.hypot(end.x - spot.x, end.y - spot.y);
 
 		if (shortfall > SPOT_ARRIVAL_PX) {
-			const chosen = this.chooseSpotPlan(env, ledges, here, spot, routeOpts);
-			if (chosen === "drop") return this.driveSpotOrder(env, ledges); // re-enter with dropThroughFrom set
+			// Re-entered exactly once, to pick the drop phase up in the same tick it was chosen rather
+			// than idling for one. Once, and no more: `chooseSpotPlan` sets `spotPhase`, and if some
+			// future change ever let it choose "drop" again on the way back down, an unbounded
+			// recursion would take the whole app with it — a mascot cannot be worth a stack overflow.
+			// A second pass costs one tick of delay and nothing else.
+			const chosen = reentered ? "neither" : this.chooseSpotPlan(env, ledges, here, spot, routeOpts);
+			if (chosen === "drop") return this.driveSpotOrder(env, ledges, true);
 			if (chosen === "surgery") return false; // new geometry arrives next tick
 		}
 
@@ -578,7 +599,39 @@ export class BehaviorAI {
 			return this.letGoAndFall(env, ledges);
 		}
 
-		for (const name of ROUTE_ACTIONS[via]) {
+		/*
+		 * A climb up a wall that has another facing it is done by kicking between the two, not by
+		 * `ClimbWall`.
+		 *
+		 * This is the case that matters, and the one a wall-to-wall *transfer* alone does not cover.
+		 * When the destination is on the wall the mascot is already holding — which is most of the
+		 * time, since the router picks whichever surface gets nearest the target — no transfer is
+		 * planned at all and the step is a plain climb. At 0.64px/tick that is a thousand pixels in a
+		 * minute, which is where "the order does nothing" came from.
+		 *
+		 * Turning it into kicks needs no new plan: kick to the opposite wall, and the next leg
+		 * re-plans from there and kicks back. The router already prices the climb this way (see
+		 * Routing's climbSpeed), so plan and execution agree.
+		 */
+		let effectiveVia = via;
+		let kickToX = targetX;
+		if (via === "climb" && targetY !== undefined) {
+			const wall = physics.currentWall?.kind === "wall" ? physics.currentWall : undefined;
+			const partner = wall ? facingWall(wall, ledges) : undefined;
+			// Short climbs are left alone: a kick covers a fixed height, so using one to travel less
+			// than that would overshoot, and `ClimbWall` is perfectly good over a few dozen pixels.
+			if (partner && Math.abs(targetY - physics.y) > CHIMNEY_HOP_PX) {
+				effectiveVia = "chimney";
+				kickToX = partner.x;
+			}
+		}
+
+		// One kick per leg, however tall the climb the router costed. Jumping straight to the step's
+		// own y would cross the whole corridor in one constant-speed move, which reads as levitating
+		// rather than as kicking off a wall.
+		const hopY = effectiveVia === "chimney" && targetY !== undefined ? physics.y + Math.sign(targetY - physics.y) * Math.min(CHIMNEY_HOP_PX, Math.abs(targetY - physics.y)) : targetY;
+
+		for (const name of ROUTE_ACTIONS[effectiveVia]) {
 			if (!this.pack.actions.has(name)) continue;
 			this.currentBehavior = attributeTo;
 			// Each step gets *only* the axis its move actually travels along, which is exactly how the
@@ -588,15 +641,16 @@ export class BehaviorAI {
 			// it finish on its first tick. The mascot then re-planned, got the same instruction, and
 			// stood at the foot of the wall forever — visibly identical to the routing not working.
 			const overrides: Record<string, string> = {};
-			if (via === "climb") overrides.TargetY = String(Math.round(targetY ?? 0));
-			else if (via === "jump") {
-				overrides.TargetX = String(Math.round(targetX));
-				overrides.TargetY = String(Math.round(targetY ?? 0));
+			if (effectiveVia === "climb") overrides.TargetY = String(Math.round(targetY ?? 0));
+			else if (effectiveVia === "jump" || effectiveVia === "chimney") {
+				overrides.TargetX = String(Math.round(kickToX));
+				overrides.TargetY = String(Math.round(hopY ?? 0));
 			} else overrides.TargetX = String(Math.round(targetX));
-			debugLog("pursuit leg ->", `${via}/${name}`, {
+			debugLog("pursuit leg ->", `${effectiveVia}/${name}`, {
 				from: [Math.round(physics.x), Math.round(physics.y)],
-				to: [Math.round(targetX), targetY === undefined ? undefined : Math.round(targetY)],
+				to: [Math.round(kickToX), hopY === undefined ? undefined : Math.round(hopY)],
 				remainingSteps: remaining,
+				...(effectiveVia === "chimney" ? { kickingUpTo: Math.round(targetY ?? 0) } : {}),
 			});
 			if (this.runner.start(name, env, overrides)) return true;
 		}

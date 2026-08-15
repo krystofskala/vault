@@ -20,7 +20,7 @@ import type { CeilingLedge, FloorLedge, Ledge, Vec2, WallLedge } from "./types";
 /** How a mascot got to a step's point from the previous one. Each maps to a real pack action —
  * see BehaviorAI's route execution — which is why the set is exactly these five and not a richer
  * vocabulary: anything with no pack action behind it would be unplayable. */
-export type RouteVia = "walk" | "climb" | "traverse" | "jump" | "drop";
+export type RouteVia = "walk" | "climb" | "traverse" | "jump" | "drop" | "chimney";
 
 export interface RouteStep {
 	via: RouteVia;
@@ -58,6 +58,27 @@ export interface RouteOptions {
 	/** Fixed tick overheads: a jump has a windup, and changing surface costs a moment either way.
 	 * Without these the router would happily chain dozens of micro-hops. */
 	jumpOverhead: number;
+	/**
+	 * How much height one kick off a wall gains, when climbing a corridor between two facing walls.
+	 *
+	 * This is the answer to climbing being unbearably slow. `ClimbWall` averages 0.64px/tick, so a
+	 * mascot crossing a full-height window vertically takes around two minutes — long enough that
+	 * every early report of "the order does nothing" turned out to be a climb in progress. `Jumping`
+	 * runs at 20px/tick, thirty times faster, and the standard pack already contains the move: see
+	 * `JumpFromLeftWall`/`JumpFromRightWall`, each a `Jumping` at the opposite wall followed by
+	 * `GrabWall`. The pack aims them downward; aiming them upward is the invention here, and the
+	 * mechanism is entirely the pack's own.
+	 *
+	 * Sized to read as a kick rather than a levitation: big enough that a tall climb is a handful of
+	 * hops, small enough that each one is visibly a jump.
+	 */
+	chimneyHopUp: number;
+	/**
+	 * How far apart two facing walls must be before jumping between them means anything. Below this
+	 * they are the same edge to within a rounding error — adjacent panes in a tiled theme share their
+	 * boundary exactly — and a "jump" across it would be a mascot flickering upward on the spot.
+	 */
+	minChimneyGap: number;
 	/**
 	 * When picking *which* reachable surface to aim for, how many pixels of extra distance-from-target
 	 * one tick of travel is worth. It is the dial between "get closest" and "get there soonest", and
@@ -97,6 +118,8 @@ export const DEFAULT_ROUTE_OPTIONS: RouteOptions = {
 	speeds: { walk: 8, climb: 0.64, traverse: 0.64, jump: 20 },
 	gravity: 2,
 	jumpOverhead: 6,
+	chimneyHopUp: 120,
+	minChimneyGap: 3,
 	travelTimeWeight: 2,
 	uprightPreference: 80,
 	arriveWithin: 4,
@@ -129,6 +152,65 @@ function spansX(ledge: FloorLedge | CeilingLedge, x: number): boolean {
 
 function spansY(wall: WallLedge, y: number): boolean {
 	return y >= wall.y1 - JOIN_EPS && y <= wall.y2 + JOIN_EPS;
+}
+
+/**
+ * Which way is *away* from a wall — the side a mascot stands on.
+ *
+ * A pane is an obstacle seen from outside, so its left edge is approached from the left. The window
+ * is a container seen from inside, so its left edge is approached from the right. The two
+ * conventions are opposite, and `side` alone does not distinguish them; `source` does.
+ *
+ * `0` means "no reliable convention here". A room's walls are hand-authored and mix both kinds — the
+ * shell is a container, a bookshelf is an obstacle — so rooms are simply left out of corridor
+ * finding. They lose nothing by it: a room is a few hundred pixels tall and full of furniture to
+ * climb, which is the opposite of the problem this solves.
+ */
+function wallOutward(wall: WallLedge): -1 | 0 | 1 {
+	if (wall.source === "pane") return wall.side === "left" ? -1 : 1;
+	if (wall.source === "window") return wall.side === "left" ? 1 : -1;
+	return 0;
+}
+
+/**
+ * The wall facing this one across a corridor, if there is one — what makes climbing quick.
+ *
+ * Exported because the router and the mascot have to agree about it: the router prices a climb at
+ * kicking speed exactly when this returns something, and the mascot kicks exactly when it does too.
+ * If they disagreed, a route would be costed as seconds and take minutes, or the reverse.
+ */
+export function facingWall(wall: WallLedge, ledges: Ledge[], options?: Partial<RouteOptions>): WallLedge | undefined {
+	const opts = { ...DEFAULT_ROUTE_OPTIONS, ...options };
+	let best: WallLedge | undefined;
+	for (const other of ledges) {
+		if (other.kind !== "wall" || other === wall) continue;
+		if (!faceEachOther(wall, other)) continue;
+		const gap = Math.abs(other.x - wall.x);
+		if (gap < opts.minChimneyGap || gap > opts.maxJumpDx) continue;
+		// Enough shared height to be a corridor rather than two walls that merely pass each other.
+		if (Math.min(wall.y2, other.y2) - Math.max(wall.y1, other.y1) < opts.chimneyHopUp) continue;
+		if (!best || gap < Math.abs(best.x - wall.x)) best = other;
+	}
+	return best;
+}
+
+/** How fast a wall can be got up, in px/tick: kicking off the wall opposite when there is one, and
+ * the pack's own slow `ClimbWall` when there is not. */
+function climbSpeed(along: Ledge | undefined, ledges: Ledge[] | undefined, opts: RouteOptions): number {
+	if (!along || along.kind !== "wall" || !ledges) return opts.speeds.climb;
+	const partner = facingWall(along, ledges, opts);
+	if (!partner) return opts.speeds.climb;
+	const gap = Math.abs(partner.x - along.x);
+	// One kick's height over one kick's duration.
+	return opts.chimneyHopUp / (Math.hypot(gap, opts.chimneyHopUp) / opts.speeds.jump + opts.jumpOverhead);
+}
+
+/** Whether two walls face each other across open space, so a mascot could kick between them. */
+function faceEachOther(a: WallLedge, b: WallLedge): boolean {
+	const outA = wallOutward(a);
+	const outB = wallOutward(b);
+	if (outA === 0 || outB === 0 || a.x === b.x) return false;
+	return b.x > a.x ? outA === 1 && outB === -1 : outA === -1 && outB === 1;
 }
 
 /** Movement *along* a surface, which is what gets you from an arrival point to a departure point. */
@@ -187,6 +269,23 @@ function transfersFrom(ledge: Ledge, at: Vec2, goal: Vec2, ledges: Ledge[], opts
 			const at = { x: clamp(ledge.x, other.x1, other.x2), y: other.y };
 			out.push({ from, to: other, at, via: alongVia(other) });
 			continue;
+		}
+
+		// Kicking off one wall to the one facing it — how a mascot gets up a corridor quickly instead
+		// of climbing it at 0.64px/tick. Emitted as a single edge covering the whole ascent, and
+		// performed one hop at a time: callers execute only the route's first step and re-plan, so
+		// the mascot arrives on the far wall, re-plans, and kicks back. The alternation is not
+		// scripted anywhere — it falls out of the graph being symmetric.
+		if (ledge.kind === "wall" && other.kind === "wall" && faceEachOther(ledge, other)) {
+			const gap = Math.abs(other.x - ledge.x);
+			const top = Math.max(ledge.y1, other.y1);
+			const bottom = Math.min(ledge.y2, other.y2);
+			// Both walls have to exist at the same heights, with room to gain something by kicking.
+			if (gap >= opts.minChimneyGap && gap <= opts.maxJumpDx && bottom - top >= opts.chimneyHopUp) {
+				const from = { x: ledge.x, y: clamp(at.y, top, bottom) };
+				const to = { x: other.x, y: clamp(goal.y, top, bottom) };
+				if (Math.abs(to.y - from.y) >= opts.chimneyHopUp) out.push({ from, to: other, at: to, via: "chimney" });
+			}
 		}
 
 		// Jumps, from a floor only: a mascot pushes off something it is standing on. Reaching *up* is
@@ -251,14 +350,21 @@ export function edgeStepOffX(ledges: Ledge[], floor: FloorLedge, end: "x1" | "x2
 	return offX > minX && offX < maxX ? offX : undefined;
 }
 
-/** Estimated ticks to perform this step — see RouteOptions.speeds for why this is time, not distance. */
-function stepCost(via: RouteVia, from: Vec2, to: Vec2, opts: RouteOptions): number {
+/**
+ * Estimated ticks to perform this step — see RouteOptions.speeds for why this is time, not distance.
+ *
+ * `along` and `ledges` are what let a climb be costed honestly. A wall with another facing it across
+ * a corridor is got up by kicking between the two at 20px/tick, not by `ClimbWall`'s 0.64 — a
+ * difference of more than an order of magnitude, and the difference between an order that takes
+ * seconds and one that takes minutes.
+ */
+function stepCost(via: RouteVia, from: Vec2, to: Vec2, opts: RouteOptions, along?: Ledge, ledges?: Ledge[]): number {
 	const d = distance(from, to);
 	switch (via) {
 		case "jump":
 			return d / opts.speeds.jump + opts.jumpOverhead;
 		case "climb":
-			return d / opts.speeds.climb;
+			return d / climbSpeed(along, ledges, opts);
 		case "traverse":
 			return d / opts.speeds.traverse;
 		case "drop": {
@@ -266,6 +372,14 @@ function stepCost(via: RouteVia, from: Vec2, to: Vec2, opts: RouteOptions): numb
 			const dy = Math.abs(to.y - from.y);
 			const dx = Math.abs(to.x - from.x);
 			return Math.sqrt((2 * dy) / opts.gravity) + dx / opts.speeds.walk;
+		}
+		case "chimney": {
+			// One edge, many kicks — so the cost is the whole ascent, or the router would price a
+			// corridor climb as a single hop and prefer it to things that are genuinely nearer.
+			const dy = Math.abs(to.y - from.y);
+			const dx = Math.abs(to.x - from.x);
+			const hops = Math.max(1, Math.ceil(dy / opts.chimneyHopUp));
+			return hops * (Math.hypot(dx, Math.min(opts.chimneyHopUp, dy)) / opts.speeds.jump + opts.jumpOverhead);
 		}
 		default:
 			return d / opts.speeds.walk;
@@ -327,7 +441,12 @@ function withoutStandingStill(steps: RouteStep[], from: Vec2): RouteStep[] {
 		const dx = Math.abs(step.x - at.x);
 		const dy = Math.abs(step.y - at.y);
 		// Which axis the leg's action is actually given as its target — see BehaviorAI.startRouteAction.
-		const worthDoing = step.via === "climb" ? dy > NO_OP_STEP_PX : step.via === "walk" || step.via === "traverse" ? dx > NO_OP_STEP_PX : distance(at, step) > NO_OP_STEP_PX;
+		const worthDoing =
+			step.via === "climb" || step.via === "chimney"
+				? dy > NO_OP_STEP_PX
+				: step.via === "walk" || step.via === "traverse"
+					? dx > NO_OP_STEP_PX
+					: distance(at, step) > NO_OP_STEP_PX;
 		if (!worthDoing) continue;
 		out.push(step);
 		at = step;
@@ -366,7 +485,9 @@ export function findRoute(ledges: Ledge[], from: Vec2, target: Vec2, startLedge?
 
 		for (const transfer of transfersFrom(ledge, here.at, target, ledges, opts)) {
 			const cost =
-				here.cost + stepCost(alongVia(ledge), here.at, transfer.from, opts) + stepCost(transfer.via, transfer.from, transfer.at, opts);
+				here.cost +
+				stepCost(alongVia(ledge), here.at, transfer.from, opts, ledge, ledges) +
+				stepCost(transfer.via, transfer.from, transfer.at, opts, transfer.to, ledges);
 			const existing = visited.get(transfer.to);
 			if (existing && existing.cost <= cost) continue;
 			visited.set(transfer.to, { cost, at: transfer.at, prev: { ledge, transfer } });
@@ -424,12 +545,12 @@ export function findRoute(ledges: Ledge[], from: Vec2, target: Vec2, startLedge?
  * new divider" both reach a mid-air target, and which is quicker depends entirely on the layout. With
  * costs in ticks, the two are directly comparable numbers instead of a guess.
  */
-export function routeDurationTicks(from: Vec2, steps: RouteStep[], options?: Partial<RouteOptions>): number {
+export function routeDurationTicks(from: Vec2, steps: RouteStep[], options?: Partial<RouteOptions>, ledges?: Ledge[]): number {
 	const opts = { ...DEFAULT_ROUTE_OPTIONS, ...options };
 	let at = from;
 	let total = 0;
 	for (const step of steps) {
-		total += stepCost(step.via, at, step, opts);
+		total += stepCost(step.via, at, step, opts, step.ledge, ledges);
 		at = step;
 	}
 	return total;

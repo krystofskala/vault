@@ -1689,3 +1689,46 @@ each fail exactly one test.
 **Deferred, and why:** the room does not track vault activity, tend its own plants, or put the
 resident to bed — all proposed, none asked for. It also does not let the resident come home on its own,
 matching the user's one-way rule.
+
+## Pass 31: climbing by kicking off the opposite wall (2026-08-15)
+
+Two things, one a defect I had knowingly left and one the user's idea.
+
+**Bounded the spot-order recursion.** `driveSpotOrder` re-entered itself when `chooseSpotPlan`
+returned "drop", to pick the phase up in the same tick rather than idling for one. Nothing bounded
+it. Flagged two passes ago and left because the repro did not hang, which is not a reason. Now
+re-entered exactly once; a second pass costs one tick and a stack overflow costs the app.
+
+**Vertical movement was unusable and the fix was already in the pack.** `ClimbWall` averages
+0.64px/tick, so a thousand pixels takes a minute — the source of every "the order does nothing"
+report. The user pointed out the pack has wall-to-wall jumping already, and it does:
+`JumpFromLeftWall`/`JumpFromRightWall` are each a `Jumping` at the opposite wall followed by
+`GrabWall`, and `JumpOnIELeftWall`/`RightWall` the same onto a pane's edge. Reading their *conditions*
+rather than their names settles what they are: all four require the mascot to already be in the
+bottom quarter (`|workArea.bottom - anchor.y| < height/4`) and all four target
+`bottom - random*height/4`. They are low lateral hops, not ascents. So the move is the pack's;
+aiming it upward is the invention, and `Jumping` at 20px/tick is thirty times `ClimbWall`.
+
+A corridor is two walls facing each other across open space. `side` alone cannot tell you that — a
+pane is an obstacle seen from outside and its left edge is approached from the left, while the
+window is a container seen from inside and its left edge is approached from the right. `source`
+distinguishes them. Rooms are excluded: their walls are hand-authored and mix both kinds (the shell
+is a container, a bookshelf is an obstacle), and a room is a few hundred pixels tall anyway.
+
+**The first attempt only solved half of it, and the probe is what showed that.** A wall-to-wall
+*transfer* helps only when the route crosses to the other wall. Most of the time it does not: the
+router picks whichever surface gets nearest the target, and that is usually the wall already being
+held, so the step is a plain climb and stayed slow. Measured: the corridor case still took 1509
+ticks. So a climb along a wall that has a partner is now *costed* at kicking speed (Routing's
+`climbSpeed`) and *executed* as kicks (BehaviorAI's `effectiveVia`), with the alternation falling
+out of re-planning rather than being scripted. Plan and execution read the same `facingWall`, which
+is why they cannot disagree.
+
+Measured on the user's real layout, floor to the top of the panes: **91.5s → 13.3s**. Across the
+window to the far top corner: 87.4s → 15.0s.
+
+Tiled themes get nothing: neighbouring panes share their boundary exactly, and two coincident walls
+are not a corridor. `minChimneyGap` rejects them rather than have a mascot flicker upward on the
+spot. Card themes — which is what prompted all of this — leave 3-6px everywhere.
+
+408 tests.
