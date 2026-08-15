@@ -28,14 +28,21 @@ describe("responsiveScaleFactor", () => {
 		expect(wide).toBeCloseTo(600 / SIZE_REFERENCE_VMIN, 5);
 	});
 
-	it("shrinks on a small window and grows on a large one", () => {
+	it("shrinks on a small window", () => {
 		expect(responsiveScaleFactor(500, 700)).toBeLessThan(1);
-		expect(responsiveScaleFactor(1400, 1400)).toBeGreaterThan(1);
 	});
 
-	it("clamps at both ends", () => {
+	it("never grows the mascot, however large the window", () => {
+		// The regression this exists to prevent: growing on a big monitor silently multiplied a
+		// size setting everybody was already happy with, and mascots turned up huge after an
+		// update. Shrinking on a phone was the whole point; enlarging never was.
+		expect(responsiveScaleFactor(1400, 1400)).toBe(1);
+		expect(responsiveScaleFactor(6000, 6000)).toBe(1);
+		expect(MAX_SCALE_FACTOR).toBe(1);
+	});
+
+	it("clamps at the floor so it stays a usable touch target", () => {
 		expect(responsiveScaleFactor(120, 120)).toBe(MIN_SCALE_FACTOR);
-		expect(responsiveScaleFactor(6000, 6000)).toBe(MAX_SCALE_FACTOR);
 	});
 
 	it("falls back to 1 for a window with no size", () => {
@@ -55,6 +62,14 @@ describe("effectiveScale", () => {
 	it("multiplies the setting by the window's factor when it is on", () => {
 		expect(effectiveScale(2, SIZE_REFERENCE_VMIN, SIZE_REFERENCE_VMIN, true)).toBe(2);
 		expect(effectiveScale(2, 450, 450, true)).toBeCloseTo(1, 5);
+	});
+
+	it("leaves a desktop-sized window exactly as the setting says", () => {
+		// Anything at or above the reference is untouched, so turning this on does not move the
+		// mascot for anyone on a normal screen.
+		for (const vmin of [SIZE_REFERENCE_VMIN, 1080, 1440, 2160]) {
+			expect(effectiveScale(1.4, vmin, vmin, true)).toBe(1.4);
+		}
 	});
 
 	it("keeps the setting's own meaning — doubling it still doubles the result", () => {

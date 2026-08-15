@@ -221,7 +221,11 @@ export class RoomView extends ItemView {
 				this.contentEl.style.backgroundColor = this.backdrop ?? "#121a1a";
 			} else {
 				paintRoom(this.canvas, def, mood, { scale: layout.scale, mirrored: layout.mirrored });
-				this.contentEl.style.backgroundColor = mood.dusk ? ROOM_BACKDROP_DUSK : ROOM_BACKDROP;
+				// A room that declares paneBackdrop keeps the theme's own sidebar colour around it —
+				// removed rather than set, so it follows the theme and keeps following it if the
+				// theme changes underneath.
+				if (def.paneBackdrop) this.contentEl.style.removeProperty("background-color");
+				else this.contentEl.style.backgroundColor = mood.dusk ? ROOM_BACKDROP_DUSK : ROOM_BACKDROP;
 			}
 			if (surfaces) drawSurfaceOverlay(this.canvas, def, { scale: layout.scale, mirrored: layout.mirrored });
 		}

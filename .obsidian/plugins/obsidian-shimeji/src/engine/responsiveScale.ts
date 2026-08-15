@@ -17,11 +17,19 @@
  * factor is exactly 1 and the setting means what it says. */
 export const SIZE_REFERENCE_VMIN = 900;
 
-/** Bounds on the factor. Not arbitrary: below 0.4 a 128px sprite is under 52px and stops being a
- * usable drag target on a touch screen, and above 1.75 it is over 220px, which on the tall narrow
- * window this is most likely to hit is more mascot than workspace. */
+/**
+ * Bounds on the factor.
+ *
+ * The maximum is exactly 1: this **only ever shrinks**. The problem being solved is a phone, where
+ * a desktop-sized mascot covers the screen. Growing one on a large monitor was never the point, and
+ * doing it turned "my size setting" into "my size setting, times something" for everybody already
+ * happy with theirs — which is precisely how a mascot suddenly turns up huge after an update.
+ *
+ * The floor is 0.4 because below that a 128px sprite is under 52px, which stops being a usable
+ * drag target on a touch screen — the very device this exists for.
+ */
 export const MIN_SCALE_FACTOR = 0.4;
-export const MAX_SCALE_FACTOR = 1.75;
+export const MAX_SCALE_FACTOR = 1;
 
 /**
  * How much to scale up or down for this window, relative to the reference.

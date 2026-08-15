@@ -149,6 +149,16 @@ export interface RoomDef {
 	 * treats the fixtures as geometry only. Defaults to painted. */
 	background?: "painted" | "image";
 	/**
+	 * Leaves the pane around the room in the theme's own colour instead of painting it from the
+	 * room's palette.
+	 *
+	 * For a room that reads as a scene rather than as a picture hung on a wall: the office is a
+	 * view *into* somewhere, so a slab of invented wall colour around it just looks like the pane
+	 * failed to fill. Letting Obsidian's own sidebar colour run right up to the art makes the room
+	 * sit in the workspace instead of on top of it.
+	 */
+	paneBackdrop?: boolean;
+	/**
 	 * How tall the resident stands here, as a fraction of the room's drawn height. Per-room because
 	 * the right answer depends on what the room is: a whole flat wants a small figure, while a scene
 	 * built around the mascot itself wants it large enough to read. Defaults to Residency's own.

@@ -398,6 +398,7 @@ export const OFFICE: RoomDef = {
 	mirrorable: true,
 	integerScale: true,
 	background: "painted",
+	paneBackdrop: true,
 	// The lamp flickers, the screen breathes, and dust drifts through the window. See `light()`.
 	animated: true,
 	residentHeightFraction: RESIDENT_FRACTION,
