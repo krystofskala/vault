@@ -13,6 +13,24 @@ export interface RoomDiagnostics {
 	describeHour(hour: number): Record<string, string | number>;
 }
 
+/** What debugApi needs to explain why nobody is talking. */
+export interface SpeechDiagnostics {
+	report(): {
+		enabled: boolean;
+		filePath: string;
+		fileExists: boolean;
+		lines: number;
+		tags: string[];
+		unmatchedTags: string[];
+		chancePercent: number;
+	};
+	/** Every behaviour of the loaded characters, paired with the line pool that would answer it. */
+	coverage(): Array<{ behavior: string; lines: number }>;
+	/** Says something on a live mascot, ignoring every cooldown — separates "never chose to speak"
+	 * from "cannot draw a bubble at all". */
+	test(): boolean;
+}
+
 export interface ShimejiDebugApi {
 	setVerbose(on: boolean): void;
 	stageCount(): number;
@@ -26,6 +44,7 @@ export interface ShimejiDebugApi {
 	explainOrder(x: number, y: number): void;
 	room(): void;
 	roomHour(hour?: number): void;
+	speech(): void;
 }
 
 declare global {
@@ -46,6 +65,7 @@ export function installDebugApi(
 	getStage: () => Stage | undefined,
 	getPaneActions: () => PaneActions | undefined = () => undefined,
 	getRoom: () => RoomDiagnostics | undefined = () => undefined,
+	getSpeech: () => SpeechDiagnostics | undefined = () => undefined,
 ): void {
 	window.shimejiDebug = {
 		setVerbose(on) {
@@ -187,6 +207,36 @@ export function installDebugApi(
 			const report = room.report();
 			console.table(report.chain);
 			if (report.note) console.info(`[obsidian-shimeji] ${report.note}`);
+		},
+
+		/**
+		 * Why nobody is saying anything.
+		 *
+		 * Silence has four separate causes that look identical on screen — switched off, no file,
+		 * a file with no usable lines in it, or lines whose tags match no behaviour the character
+		 * actually runs — and one more that is not about speech at all: the bubble failing to
+		 * draw. This prints the first four and then fires a test bubble for the fifth.
+		 */
+		speech() {
+			const speech = getSpeech();
+			if (!speech) {
+				console.info("[obsidian-shimeji] the plugin is not loaded, or is an older build with no speech");
+				return;
+			}
+			const r = speech.report();
+			console.table([r]);
+			if (!r.enabled) console.warn("[obsidian-shimeji] speech is switched off in settings");
+			else if (!r.fileExists) console.warn(`[obsidian-shimeji] no file at "${r.filePath}"`);
+			else if (r.lines === 0) console.warn("[obsidian-shimeji] the file has no tagged lines — Settings has an \u201cAdd the starter lines\u201d button");
+
+			const coverage = speech.coverage();
+			const covered = coverage.filter((c) => c.lines > 0);
+			console.info(`[obsidian-shimeji] ${covered.length} of ${coverage.length} behaviours have a line`);
+			if (covered.length > 0) console.table(covered);
+			if (r.unmatchedTags.length > 0) console.warn("[obsidian-shimeji] tags matching no behaviour:", r.unmatchedTags);
+
+			console.info(`[obsidian-shimeji] firing a test bubble \u2014 if nothing appears, the problem is drawing it, not choosing it`);
+			if (!speech.test()) console.warn("[obsidian-shimeji] no mascot to speak \u2014 spawn one first");
 		},
 
 		/** Forces the room's lighting to a given hour, or with no argument prints the whole day and

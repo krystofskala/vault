@@ -589,6 +589,24 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			status.setText("Not read yet.");
 		} else if (!stats.fileExists) {
 			status.setText("No file at that path yet — the pencil button creates it.");
+		} else if (stats.taggedLineCount === 0) {
+			// Almost always a file written before the character was loaded, which came out holding
+			// only the explanation. Nothing about a silent mascot points at its own cause, so this
+			// says it outright and offers the one-click fix.
+			status.setText("The file has no speech lines in it yet — so nothing is ever said.");
+			new Setting(containerEl)
+				.setName("Add the starter lines")
+				.setDesc("Appends a few example lines for this character to the end of the file. Nothing already in it is changed.")
+				.addButton((b) =>
+					b
+						.setButtonText("Add them")
+						.setCta()
+						.onClick(async () => {
+							const ok = await this.plugin.appendStarterLines();
+							new Notice(ok ? "Added the starter lines." : "Couldn't write to the speech file.");
+							this.display();
+						}),
+				);
 		} else {
 			status.setText(`${stats.taggedLineCount} line(s) across ${stats.tagCount} tag(s).`);
 			if (stats.unmatchedTags.length > 0) {

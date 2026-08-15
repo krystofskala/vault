@@ -144,8 +144,28 @@ describe("speechLinesTemplate", () => {
 		expect(unmatchedTags(parsed.pool, ["Fall", "Dragged", "Thrown", "SitDown", "Walk", "ChaseMouse"])).toEqual([]);
 	});
 
-	it("copes with no character loaded", () => {
-		expect(() => parseSpeechLines(speechLinesTemplate([]))).not.toThrow();
+	it("still writes usable lines when no character is loaded yet", () => {
+		// The regression that made mascots permanently mute. The file is created exactly once and
+		// never rewritten, so a template that quietly filtered every example away — because the
+		// packs had not finished loading when it ran — left a file that parsed to nothing, forever.
+		// "Did not throw" was the only thing the old test checked, and it passed the whole time.
+		const parsed = parseSpeechLines(speechLinesTemplate([]));
+		expect(parsed.taggedLineCount).toBeGreaterThan(0);
+		expect(parsed.pool.size).toBeGreaterThan(0);
+	});
+
+	it("writes usable lines even when the character shares none of the example behaviours", () => {
+		// Same failure by a different route: a real pack loaded, but one whose behaviours happen
+		// not to match any example. Suggesting a tag that turns out not to apply is a small,
+		// visible problem — the settings screen flags it. Writing nothing is a silent permanent one.
+		const parsed = parseSpeechLines(speechLinesTemplate(["Hover", "Blink"]));
+		expect(parsed.taggedLineCount).toBeGreaterThan(0);
+	});
+
+	it("narrows the examples to the behaviours a character actually has", () => {
+		const md = speechLinesTemplate(["Dragged", "DraggedAlong", "Fall"]);
+		expect(md).toContain("@Dragged");
+		expect(md).not.toContain("@ChaseMouse");
 	});
 });
 

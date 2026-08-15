@@ -22,7 +22,7 @@ import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "
 import { RoomForeground } from "./room/RoomForeground";
 import { SpeechBubbles } from "./speech/SpeechBubbles";
 import { DEFAULT_SPEECH_OPTIONS } from "./speech/SpeechScheduler";
-import { parseSpeechLines, speechLinesTemplate, unmatchedTags } from "./speech/speechLines";
+import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, type SpeechPool } from "./speech/speechLines";
 
 /** What the settings screen reports about the speech file, so a typo'd tag or an empty file is
  * visible rather than silently producing a mascot that never says anything. */
@@ -55,6 +55,9 @@ export default class ShimejiPlugin extends Plugin {
 	readonly speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS);
 	/** Last parse of the speech file, for the settings screen. Undefined until first read. */
 	speechStats?: SpeechStats;
+	/** The parsed pool, kept so shimejiDebug.speech() can show which behaviours are actually
+	 * covered — the bubbles own their own copy and cannot be asked. */
+	speechPool?: SpeechPool;
 	/** Who lives in the plant room. Created unconditionally — it is inert until the room's pane
 	 * is actually open, and having it always present keeps every call site free of a null check. */
 	readonly residency = new Residency({
@@ -183,6 +186,23 @@ export default class ShimejiPlugin extends Plugin {
 					return { hour, daylight: Math.round(m.daylight * 100) / 100, warmth: Math.round(m.warmth * 100) / 100, dark: m.dusk ? "yes" : "no" };
 				},
 			}),
+			() => ({
+				report: () => ({
+					enabled: this.settings.speechEnabled,
+					filePath: this.settings.speechFilePath,
+					fileExists: this.speechStats?.fileExists ?? false,
+					lines: this.speechStats?.taggedLineCount ?? 0,
+					tags: this.speechPool ? [...this.speechPool.keys()] : [],
+					unmatchedTags: this.speechStats?.unmatchedTags ?? [],
+					chancePercent: this.settings.speechChancePercent,
+				}),
+				coverage: () =>
+					this.speechTagVocabulary().map((behavior) => ({
+						behavior,
+						lines: this.speechPool ? linesFor(this.speechPool, behavior).length : 0,
+					})),
+				test: () => this.trySpeech("Testing, testing."),
+			}),
 		);
 		this.applySoundSettings();
 
@@ -202,15 +222,6 @@ export default class ShimejiPlugin extends Plugin {
 		this.startResidencyLoop();
 
 		this.applySpeechSettings();
-		// Deferred to layout-ready: creating the starter file needs the vault's own "new note"
-		// folder, and the template lists the loaded packs' behaviour names, neither of which is
-		// settled during onload.
-		this.app.workspace.onLayoutReady(() => {
-			void (async () => {
-				await this.ensureSpeechFile();
-				await this.reloadSpeechLines();
-			})();
-		});
 		// Editing the file in Obsidian reloads it on save, so writing a line and watching for it
 		// does not need a trip through settings.
 		this.registerEvent(
@@ -287,6 +298,16 @@ export default class ShimejiPlugin extends Plugin {
 		this.registerInterval(window.setInterval(() => this.maybeTriggerNoteMischief(), NOTE_MISCHIEF_CHECK_MS));
 
 		await this.rescanPacks();
+
+		// Strictly after rescanPacks, never merely "on layout ready". The starter file lists the
+		// loaded character's behaviour names, and onLayoutReady runs its callback *immediately*
+		// when the layout is already settled — which is exactly the case when the plugin is
+		// enabled by hand from the settings screen. Registered earlier, this ran with no packs
+		// loaded and wrote a starter file containing no lines at all, which the mascot then read
+		// forever after, because the file is only ever created once.
+		await this.ensureSpeechFile();
+		await this.reloadSpeechLines();
+
 		if (this.settings.autoSpawn) {
 			for (let i = 0; i < this.settings.autoSpawnCount; i++) this.spawnMascot();
 		}
@@ -930,11 +951,13 @@ export default class ShimejiPlugin extends Plugin {
 		const path = this.settings.speechFilePath.trim();
 		if (!path || !(await this.app.vault.adapter.exists(path))) {
 			this.speechStats = { fileExists: false, taggedLineCount: 0, tagCount: 0, untaggedLines: [], unmatchedTags: [] };
-			this.speech.setPool(new Map());
+			this.speechPool = new Map();
+			this.speech.setPool(this.speechPool);
 			return;
 		}
 		try {
 			const parsed = parseSpeechLines(await this.app.vault.adapter.read(path));
+			this.speechPool = parsed.pool;
 			this.speech.setPool(parsed.pool);
 			this.speechStats = {
 				fileExists: true,
@@ -946,8 +969,30 @@ export default class ShimejiPlugin extends Plugin {
 		} catch (e) {
 			console.warn("[obsidian-shimeji] could not read the speech file", e);
 			this.speechStats = { fileExists: true, taggedLineCount: 0, tagCount: 0, untaggedLines: [], unmatchedTags: [] };
-			this.speech.setPool(new Map());
+			this.speechPool = new Map();
+			this.speech.setPool(this.speechPool);
 		}
+	}
+
+	/**
+	 * Adds the starter example lines to a speech file that has none.
+	 *
+	 * The recovery path for a file written before the loaded character was known, which came out
+	 * containing only the explanation — the mascot reads it forever and never says anything, and
+	 * `ensureSpeechFile` will not touch a file that exists. Appends rather than rewrites, so it
+	 * cannot destroy anything the user has since written, and only the example sections are added,
+	 * not a second copy of the preamble.
+	 */
+	async appendStarterLines(): Promise<boolean> {
+		const path = this.settings.speechFilePath.trim();
+		if (!path || !(await this.app.vault.adapter.exists(path))) return false;
+		const template = speechLinesTemplate(this.speechTagVocabulary());
+		const examplesAt = template.indexOf("\n## ");
+		if (examplesAt < 0) return false;
+		const existing = await this.app.vault.adapter.read(path);
+		await this.app.vault.adapter.write(path, `${existing.trimEnd()}\n${template.slice(examplesAt)}`);
+		await this.reloadSpeechLines();
+		return true;
 	}
 
 	/** Opens the speech file for editing, creating it first if it has gone missing. */

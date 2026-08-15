@@ -127,8 +127,24 @@ export function unmatchedTags(pool: SpeechPool, behaviorNames: string[]): string
  * everybody but the pack it was written against.
  */
 export function speechLinesTemplate(behaviorNames: string[]): string {
-	const has = (tag: string): boolean => behaviorNames.some((b) => b === tag || b.startsWith(tag));
 	const cheatSheet = behaviorNames.length > 0 ? behaviorNames.map((n) => `\`@${n}\``).join(" ") : "_(no character loaded yet)_";
+
+	/**
+	 * Which example tags to include.
+	 *
+	 * Filtered against the loaded character where possible, so the starter file does not suggest
+	 * tags that character has no behaviour for. But it falls back to writing all of them whenever
+	 * that filter would leave nothing — an empty starter file is the worst possible outcome here,
+	 * because the file is created exactly once and never rewritten, so a moment of bad timing
+	 * during load would leave the mascot permanently, silently mute. A tag that turns out not to
+	 * match is merely wrong, and the settings screen says so.
+	 */
+	const keep = (tags: string[]): string[] => {
+		const matching = tags.filter((tag) => behaviorNames.some((b) => b === tag || b.startsWith(tag)));
+		return matching.length > 0 ? matching : tags;
+	};
+	const usableTags = new Set(keep(["Dragged", "Thrown", "Fall", "Walk", "SitDown", "ChaseMouse"]));
+	const has = (tag: string): boolean => usableTags.has(tag);
 
 	// Every word of explanation goes inside a callout, and every example line outside one. That is
 	// not a stylistic choice: a plain paragraph *is* a speech line as far as the scanner is
