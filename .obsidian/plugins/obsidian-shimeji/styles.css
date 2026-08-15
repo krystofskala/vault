@@ -94,18 +94,22 @@
 
 /* ---- the plant room -------------------------------------------------- */
 
-/* The room is drawn bottom-anchored inside its pane: a room rests on its floor, and any spare
-   height belongs above it as wall rather than below it as a gap. The pane's own background is set
-   to the room's wall colour from RoomView, so the art doesn't read as a picture hung in a void. */
+/* The room is centred in its pane on both axes — it is a finished picture with its own surround,
+   not a room whose walls continue up out of frame. The surround colour is sampled from the artwork
+   itself (see RoomView), so the pane and the picture meet without a seam.
+
+   Placement here must agree with RoomGeometry.layoutRoom, which computes the same centring for the
+   collision surfaces. The stylesheet centres the canvas; the geometry centres the ledges; they are
+   the same sum, and if this changes that one must too. */
 .shimeji-room-pane {
 	padding: 0;
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+	justify-content: center;
 }
 
 .shimeji-room-stack {
-	margin-top: auto;
 	display: flex;
 	justify-content: center;
 }

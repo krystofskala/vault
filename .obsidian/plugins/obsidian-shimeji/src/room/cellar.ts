@@ -75,24 +75,30 @@ export const CELLAR: RoomDef = {
 			// are one surface rather than two. Two abutting floors would leave the router with no
 			// edge between them — floors do not connect to each other sideways, only through a wall,
 			// a jump or a drop — and the mascot could walk across the join but never plan to.
+			//
+			// Corrected against the surface overlay: this began at 43, which left the heater with no
+			// line over it at all. It is a free-standing radiator on the floor whose top happens to
+			// be level with the table, so the run starts at its left edge instead.
 			surfaces: [
-				{ kind: "floor", y: 38, x1: 43, x2: 71, label: "heater and table" },
-				{ kind: "ceiling", y: 40, x1: 43, x2: 71, label: "under the table" },
+				{ kind: "floor", y: 37, x1: 38, x2: 70, label: "heater and table" },
+				{ kind: "ceiling", y: 39, x1: 47, x2: 70, label: "under the table" },
 			],
-			walls: [{ side: "left", x: 51, y1: 38, y2: FLOOR_Y, label: "table side" }],
+			walls: [{ side: "left", x: 38, y1: 37, y2: FLOOR_Y, label: "heater side" }],
 		}),
 		surfacesOnly("tank", {
-			surfaces: [{ kind: "floor", y: 28, x1: 54, x2: 68, label: "tank" }],
-			walls: [{ side: "left", x: 54, y1: 28, y2: 38, label: "tank side" }],
+			// Also corrected against the overlay: at 28 the line ran through the middle of the glass
+			// rather than along the top of the frame.
+			surfaces: [{ kind: "floor", y: 23, x1: 50, x2: 65, label: "tank" }],
+			walls: [{ side: "left", x: 50, y1: 23, y2: 37, label: "tank side" }],
 		}),
 		surfacesOnly("armchair", {
 			surfaces: [
 				{ kind: "floor", y: 44, x1: 66, x2: 78, label: "armchair seat" },
-				{ kind: "floor", y: 36, x1: 72, x2: 80, label: "armchair back" },
+				{ kind: "floor", y: 34, x1: 72, x2: 80, label: "armchair back" },
 			],
 			walls: [
 				{ side: "left", x: 66, y1: 44, y2: FLOOR_Y, label: "armchair side" },
-				{ side: "left", x: 72, y1: 36, y2: 44, label: "armchair back" },
+				{ side: "left", x: 72, y1: 34, y2: 44, label: "armchair back" },
 			],
 		}),
 		surfacesOnly("bucket", {

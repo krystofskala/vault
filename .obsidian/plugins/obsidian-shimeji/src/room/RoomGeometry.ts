@@ -82,10 +82,16 @@ export function layoutRoom(def: RoomDef, paneRect: Rect, viewportWidth: number):
 	if (scale <= 0) return undefined;
 	const drawnW = def.width * scale;
 	const drawnH = def.height * scale;
-	// Centred horizontally, sat on the bottom: a room rests on its floor, and any spare height
-	// belongs above it as wall rather than below it as a gap.
+	// Centred on both axes. An earlier version sat the room on the bottom of the pane, on the
+	// reasoning that a room rests on its floor — which holds for a room whose walls continue upward
+	// out of frame, and not at all for a finished picture with its own surround. A sidebar is much
+	// taller than either room is, so bottom-anchoring left a large empty band above the artwork and
+	// the room read as having slipped down the pane.
+	//
+	// The picture and the geometry are placed by this one calculation, so they cannot disagree — the
+	// stylesheet only has to centre the canvas it is given.
 	const originX = Math.round(paneRect.left + (availW - drawnW) / 2);
-	const originY = Math.round(paneRect.bottom - drawnH);
+	const originY = Math.round(paneRect.top + (availH - drawnH) / 2);
 	// Supplied artwork is never flipped — see RoomDef.mirrorable. The threshold still moves to the
 	// side facing the workspace, which is what `nearSide` below is for.
 	const nearSide: "left" | "right" = shouldMirror(paneRect, viewportWidth) ? "right" : "left";

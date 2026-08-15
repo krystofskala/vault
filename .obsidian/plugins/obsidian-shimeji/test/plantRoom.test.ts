@@ -34,11 +34,20 @@ describe("plant room geometry", () => {
 		}
 	});
 
-	it("fits inside the pane it is given", () => {
+	it("sits centred in the pane it is given", () => {
+		// The geometry and the stylesheet place the room independently — one positions the ledges,
+		// the other the canvas — so this is what keeps them agreeing. A room drawn centred with its
+		// surfaces computed bottom-anchored would put the mascot on furniture that is not there.
 		const layout = layoutRoom(LIVING_ROOM, RIGHT_SIDEBAR, VIEWPORT_W)!;
 		expect(layout.rect.left).toBeGreaterThanOrEqual(RIGHT_SIDEBAR.left);
 		expect(layout.rect.right).toBeLessThanOrEqual(RIGHT_SIDEBAR.right);
-		expect(layout.rect.bottom).toBe(RIGHT_SIDEBAR.bottom);
+		expect(layout.rect.bottom).toBeLessThanOrEqual(RIGHT_SIDEBAR.bottom);
+		const gapAbove = layout.rect.top - RIGHT_SIDEBAR.top;
+		const gapBelow = RIGHT_SIDEBAR.bottom - layout.rect.bottom;
+		expect(Math.abs(gapAbove - gapBelow), "the room is not centred vertically").toBeLessThanOrEqual(1);
+		const gapLeft = layout.rect.left - RIGHT_SIDEBAR.left;
+		const gapRight = RIGHT_SIDEBAR.right - layout.rect.right;
+		expect(Math.abs(gapLeft - gapRight), "the room is not centred horizontally").toBeLessThanOrEqual(1);
 	});
 
 	it("puts the door on the side facing the rest of the window, in either sidebar", () => {
@@ -332,5 +341,27 @@ describe("the rooms on offer", () => {
 		// room, leaving surround where the geometry says there is floor.
 		expect(APARTMENT.width / APARTMENT.height).toBeCloseTo(1, 3);
 		expect(CELLAR.width / CELLAR.height).toBeCloseTo(1280 / 896, 2);
+	});
+});
+
+describe("where the room sits in its pane", () => {
+	it("is centred for every room, at every pane shape", () => {
+		// Checked across shapes because a sidebar is far taller than any of these rooms while a room
+		// dragged into the main area can be far wider — and the room should be in the middle of
+		// whatever it is given, not pinned to an edge of it.
+		const panes: Rect[] = [
+			{ left: 1420, top: 120, right: 1740, bottom: 1360 },
+			{ left: 8, top: 120, right: 328, bottom: 1360 },
+			{ left: 200, top: 100, right: 1200, bottom: 500 },
+			{ left: 0, top: 0, right: 400, bottom: 400 },
+		];
+		for (const id of ROOM_STYLE_IDS) {
+			for (const pane of panes) {
+				const l = layoutRoom(ROOM_STYLES[id].def, pane, VIEWPORT_W);
+				if (!l) continue;
+				expect(Math.abs(l.rect.top - pane.top - (pane.bottom - l.rect.bottom)), `${id} is off-centre vertically`).toBeLessThanOrEqual(1);
+				expect(Math.abs(l.rect.left - pane.left - (pane.right - l.rect.right)), `${id} is off-centre horizontally`).toBeLessThanOrEqual(1);
+			}
+		}
 	});
 });
