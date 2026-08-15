@@ -1593,3 +1593,46 @@ alone:
 collapse into one test with two assertions. Left alone: they cost one line of setup each and buy a
 failure message that names the broken direction. That is a style preference, not redundancy — unlike
 the five removed above, which bought nothing at all.
+
+## Pass 30: every descent stalled — three pixel-wide mismatches (2026-08-15)
+
+Reported live: "spot order works better but mascot still has trouble with spots on lower levels than
+he is or on levels too far from him", and separately "he can stand in middle of two panes then calling
+him doesn't work, he stands still".
+
+Method: drive spot orders end to end against the user's real card-themed layout (1748x1392, 6px pane
+gaps, 3px inset from the window walls) in nine directions, until the order is discharged.
+**Five of nine never finished.** Every existing unit test passed throughout — they check the router and
+the physics separately, on tidy synthetic geometry, and each failure here is the two *disagreeing* by a
+few pixels so that carrying out the plan returns the mascot to where the plan was made.
+
+1. **Drops stepped inward.** `letGoAndFall` nudged toward the route step's target, but a drop step
+   names where the mascot will *land*, and the landing point is nearly always back under the middle of
+   the floor being left. The mascot let go one pixel inside the ledge it was standing on, gravity put it
+   straight back, the order re-planned the identical drop. Direction now comes from the floor, and the
+   step is absolute so a mascot stopped short of the edge still clears it. This one bug accounted for
+   every "go somewhere lower" failure, since descending always ends in a drop.
+2. **Corner joins named points on neither surface.** `spansX`/`spansY` allow `JOIN_EPS` of slack, but
+   the corner was a single shared point. A card theme spends every pixel of it — one pane's bottom edge
+   sits 6px above the next one's top — so the router ordered a climb 6px past the end of its own wall.
+   That never completes, and the two surfaces each planned the reverse leg of the other: a mascot
+   ping-ponging across the gap for the full 320s of a run. Departure and arrival are now clamped onto
+   their own surfaces separately.
+3. **Physics stricter than the router about ceilings.** A pane's underside stops 3px short of the
+   window wall, so a mascot pinned there by `clampToWalls` was outside the span of the ceiling it was
+   plainly touching: climb, no ceiling, lost border, fall, climb again. `findCeilingAt` now allows the
+   same slack the joins do.
+
+Two consequences of the same measurements: a drop off an edge with no room to step past (the topmost
+pane floor stops 3px from the window wall) is not offered at all, and the step-off now exceeds
+`WALL_CEILING_ADHERENCE_REACH` so it does not leave the mascot clinging to the wall it stepped past.
+`edgeStepOffX` is shared by router and mascot so the router can only plan departures the mascot can
+perform.
+
+`test/spotOrderAcrossLayout.test.ts` drives the whole loop; 7 of its 9 cases fail without the fixes.
+
+**Not a bug, reported as one:** "he was going to all previously marked spots in order". There is no
+queue — `orderToSpot` replaces. Orders go to whichever mascot is *nearest* the click, so several given
+in a row land on several different mascots and run at once. `shimejiDebug.where()` now has an `ordered`
+column to make that visible. Whether a new order should instead always go to the same mascot is an open
+design question, not a defect.
