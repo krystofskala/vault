@@ -176,12 +176,19 @@ export class Residency {
 		if (!mascot || mascot.height <= 0) return;
 		const roomHeight = layout.rect.bottom - layout.rect.top;
 		const fraction = layout.def.residentHeightFraction ?? RESIDENT_HEIGHT_FRACTION;
-		const wanted = Math.min(MAX_RESIDENT_SCALE, (roomHeight * fraction) / mascot.height);
+		const cap = layout.def.residentMaxScale ?? MAX_RESIDENT_SCALE;
+		const wanted = Math.min(cap, (roomHeight * fraction) / mascot.height);
 		if (Math.abs(mascot.scale - wanted) > 0.001) mascot.scale = wanted;
 		// A room may pin which way its resident faces — a mascot sitting at a desk should not keep
 		// turning away. Applied every frame because the pack's own Look action would otherwise flip
 		// it back within seconds.
 		if (layout.def.residentFacing !== undefined) mascot.physics.facing = layout.def.residentFacing;
+
+		// Held in one behaviour, re-applied the moment the pack's chain moves off it. Without this the
+		// pack keeps selecting from its whole repertoire, and in a room the size of a seat the result
+		// reads as jittering rather than as idling — reported as "shaking like crazy".
+		const hold = layout.def.residentBehavior;
+		if (hold && mascot.currentBehaviorName !== hold) mascot.startNamedBehavior(hold);
 	}
 
 	/**

@@ -45,7 +45,7 @@ export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
 	office: {
 		id: "office",
 		label: "Office",
-		description: "A desk with a PC, drawn by the plugin. The shimeji sits at it and stays there — the desk is drawn in front of it.",
+		description: "A post-apocalyptic office, drawn by the plugin: broken window, damp concrete, one lamp still working. The shimeji sits at the desk and stays there, behind the monitor.",
 		def: OFFICE,
 	},
 	painted: {

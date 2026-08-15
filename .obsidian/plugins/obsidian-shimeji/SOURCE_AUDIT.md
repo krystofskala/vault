@@ -1732,3 +1732,34 @@ are not a corridor. `minChimneyGap` rejects them rather than have a mascot flick
 spot. Card themes — which is what prompted all of this — leave 3-6px everywhere.
 
 408 tests.
+
+## Pass 32: the office, corrected against a screenshot (2026-08-15)
+
+Four reports, one of which explained another.
+
+**The resident was invisible behind the desk, and the cause was not the desk.** `MAX_RESIDENT_SCALE`
+is 1 — never enlarge a mascot past its natural size, since one bigger indoors than out looks wrong at
+the threshold. But the office is a room nothing ever leaves through that threshold in view, and the
+cap silently overrode `residentHeightFraction`: a 128px sprite in an 860px-tall room is 15%, not the
+30% asked for. Worse, it bound only in *wide* panes, so how much cleared the desk depended on how the
+sidebar happened to be dragged. Now `residentMaxScale` is per-room and set high enough here that it
+never binds, the seat is a chair at y=47 rather than the ground at 56, and a test walks five pane
+widths requiring the proportion to vary by under 5%. Mutation-checked: restoring the cap to 1 fails it.
+
+**The mascot shook.** Held to one behaviour now (`residentBehavior`, re-applied whenever the pack's
+chain moves off it). In a room the size of a seat the pack's full repertoire — walks, stands, looks —
+reads as jitter rather than idling. The pack's own `SitDown` wraps its `Sit` pose, so nothing was
+invented for it.
+
+**The monitor faced the wrong way.** The mascot faces the viewer across the desk, which puts the
+screen's *back* to us — case, vents, cable, and stickers. Drawing the screen put viewer and mascot on
+the same side of it. The stickers are deliberately the brightest thing on that side of the desk: a
+blank grey rectangle facing the viewer is what the first version got wrong.
+
+**Post-apocalyptic.** Whole palette moved into a narrow band of cold desaturated green-grey — damp
+concrete, plaster gone to brick, moss and vines coming in through a broken pane, rubble — so that the
+two warm things left, the lamp and the screen-glow leaking round the monitor, carry the picture. A
+`gloom` wash is painted last, on the foreground layer, so it lies over the resident too: gloom is in
+the air of the room, not behind the things in it.
+
+410 tests.

@@ -400,8 +400,14 @@ describe("the office", () => {
 		// If the desk line sits above the mascot's head it hides the whole thing; below its feet and
 		// the mascot appears to stand in front. Either way the room fails at the one thing it is for,
 		// and both depend on the resident's size — so they are checked together.
+		//
+		// The size is the *effective* one, cap included. Computing it from the fraction alone is how
+		// this test passed while the room shipped showing a scalp: the cap of 1 was silently winning
+		// in every pane wide enough to matter, and the test never knew.
 		const roomHeight = layout.rect.bottom - layout.rect.top;
-		const spriteHeight = roomHeight * (OFFICE.residentHeightFraction ?? 1 / 6);
+		const NATURAL_SPRITE_PX = 128;
+		const scale = Math.min(OFFICE.residentMaxScale ?? 1, (roomHeight * (OFFICE.residentHeightFraction ?? 1 / 6)) / NATURAL_SPRITE_PX);
+		const spriteHeight = NATURAL_SPRITE_PX * scale;
 		const feet = layout.toViewport(0, OFFICE.floorY).y;
 		const head = feet - spriteHeight;
 		const desktop = layout.toViewport(0, OFFICE_DESK_Y).y;
@@ -411,13 +417,45 @@ describe("the office", () => {
 		// the desktop and only a scalp shows; too much and the desk is a skirting board it happens to
 		// be standing behind. Between a third and three quarters reads as sitting at it.
 		const showing = (desktop - head) / spriteHeight;
-		expect(showing, "barely any of the mascot shows above the desk").toBeGreaterThan(0.33);
-		expect(showing, "the desk hides almost nothing — it does not read as sitting at it").toBeLessThan(0.75);
+		expect(showing, "barely any of the mascot shows above the desk").toBeGreaterThan(0.4);
+		expect(showing, "the desk hides almost nothing — it does not read as sitting at it").toBeLessThan(0.72);
 	});
 
-	it("pins which way it faces", () => {
-		// Shimeji artwork is side-on and has no front-facing pose, so this settles the side rather
-		// than turning it to camera. Without it the pack's own Look action flips it every few seconds.
+	it("pins which way it faces, and what it is doing", () => {
+		// Shimeji artwork is side-on and has no front-facing pose, so facing settles the side rather
+		// than turning it to camera. The held behaviour is the other half: without it the pack picks
+		// freely from walks and stands in a room twenty pixels wide, which reads as shaking.
 		expect(OFFICE.residentFacing).toBeDefined();
+		expect(OFFICE.residentBehavior, "nothing holds the resident still").toBeDefined();
+	});
+
+	it("seats the resident the same way at every pane size", () => {
+		// The bug this room shipped with, generalised. `residentMaxScale` capped the sprite at its
+		// natural 128px, so how much of it cleared the desk depended entirely on how wide the sidebar
+		// happened to be — full height in a narrow one, a scalp in a wide one. The proportion has to
+		// be a property of the room, not of the pane.
+		const NATURAL_SPRITE_PX = 128;
+		const seen: number[] = [];
+		for (const width of [220, 300, 420, 700, 1100]) {
+			const l = layoutRoom(OFFICE, { left: 0, top: 0, right: width, bottom: 1240 }, VIEWPORT_W);
+			if (!l) continue;
+			const roomHeight = l.rect.bottom - l.rect.top;
+			const scale = Math.min(OFFICE.residentMaxScale ?? 1, (roomHeight * (OFFICE.residentHeightFraction ?? 1 / 6)) / NATURAL_SPRITE_PX);
+			const sprite = NATURAL_SPRITE_PX * scale;
+			const feet = l.toViewport(0, OFFICE.floorY).y;
+			seen.push((l.toViewport(0, OFFICE_DESK_Y).y - (feet - sprite)) / sprite);
+		}
+		expect(seen.length).toBeGreaterThan(3);
+		expect(Math.max(...seen) - Math.min(...seen), `how much clears the desk varies by pane width: ${seen.map((v) => v.toFixed(2)).join(", ")}`).toBeLessThan(0.05);
+	});
+
+	it("puts the back of the monitor to the viewer, with something on it", () => {
+		// The mascot faces us across the desk, so the screen faces away. A blank grey rectangle is
+		// what that leaves unless something is stuck to it.
+		const front = OFFICE.fixtures.filter((f) => f.layer === "foreground").map((f) => f.id);
+		expect(front).toContain("monitor");
+		expect(front).toContain("atmosphere");
+		// The gloom wash is painted over the resident too, so it has to come last of the foreground.
+		expect(front[front.length - 1]).toBe("atmosphere");
 	});
 });

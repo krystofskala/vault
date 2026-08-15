@@ -144,6 +144,24 @@ export interface RoomDef {
 	 */
 	residentFacing?: 1 | -1;
 	/**
+	 * A behaviour to hold the resident in, re-applied whenever the pack's own chain moves off it.
+	 *
+	 * For rooms where the mascot is part of the composition rather than a thing wandering through it.
+	 * Left to itself the pack keeps selecting from its whole repertoire — walks, sits, stands, looks —
+	 * and in a room the size of a seat that reads as jittering on the spot rather than as idling.
+	 */
+	residentBehavior?: string;
+	/**
+	 * How far the resident may be scaled *up* from its natural size here. Defaults to 1: a mascot
+	 * larger indoors than out looks wrong at the threshold, which is the one moment both sizes are on
+	 * screen together.
+	 *
+	 * A room the mascot never leaves has no such moment, and needs the freedom — the cap otherwise
+	 * silently overrides `residentHeightFraction` in any pane big enough to matter, which is how the
+	 * office ended up with only a scalp showing above its desk.
+	 */
+	residentMaxScale?: number;
+	/**
 	 * The threshold. Both directions pass through it: a mascot moving in appears here, and one
 	 * called away walks here before the workspace becomes its world again.
 	 *
