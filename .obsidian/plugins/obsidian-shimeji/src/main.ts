@@ -17,7 +17,7 @@ import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
 import { Residency } from "./room/Residency";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
-import { roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
+import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
 
 /** How often to check whether a mascot is currently on the user's active pane and roll for
  * "note mischief" — not tied to any real engine tick, this is Obsidian-layer-only and has no
@@ -617,15 +617,26 @@ export default class ShimejiPlugin extends Plugin {
 	 * not added the picture yet" — reported as exactly that.
 	 */
 	private async roomImageSrc(style: RoomStyle): Promise<string | undefined> {
-		if (!style.imageFile) return undefined;
-		const dir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
-		const path = `${dir}/${style.imageFile}`;
-		try {
-			if (!(await this.app.vault.adapter.exists(path))) return undefined;
-		} catch {
-			return undefined;
+		const found = await this.findRoomImage(style);
+		return found ? this.app.vault.adapter.getResourcePath(`${this.roomFolder()}/${found}`) : undefined;
+	}
+
+	/** The plugin's own folder, which is where a room's picture goes. */
+	roomFolder(): string {
+		return this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+	}
+
+	/** Which of a room's accepted filenames actually exists — used to load it, to report it in
+	 * settings, and to tell the user in the pane itself when there is none. */
+	async findRoomImage(style: RoomStyle): Promise<string | undefined> {
+		for (const relative of roomImageCandidates(style)) {
+			try {
+				if (await this.app.vault.adapter.exists(`${this.roomFolder()}/${relative}`)) return relative;
+			} catch {
+				// An unreadable path is the same as an absent one as far as the room is concerned.
+			}
 		}
-		return this.app.vault.adapter.getResourcePath(path);
+		return undefined;
 	}
 
 	/** Cycles through the rooms. A dropdown in settings is the discoverable way; this is the one you
@@ -644,7 +655,7 @@ export default class ShimejiPlugin extends Plugin {
 		view?.invalidate();
 		view?.refresh();
 		const style = roomStyle(this.settings.roomStyle);
-		new Notice(`Shimeji room: ${style.label}${style.imageFile && !view ? "" : ""}`);
+		new Notice(`Shimeji room: ${style.label}`);
 	}
 
 	/** Draws the room's collision surfaces over the artwork. The one part of the room that cannot be

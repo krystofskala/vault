@@ -322,9 +322,9 @@ describe("the rooms on offer", () => {
 	it("gives each illustrated room its own file, and the painted one none", () => {
 		// Two rooms sharing a filename would mean switching between them silently showed the wrong
 		// picture over the other's geometry.
-		const files = ROOM_STYLE_IDS.map((id) => ROOM_STYLES[id].imageFile).filter((f): f is string => f !== undefined);
+		const files = ROOM_STYLE_IDS.map((id) => ROOM_STYLES[id].imageBase).filter((f): f is string => f !== undefined);
 		expect(new Set(files).size).toBe(files.length);
-		expect(ROOM_STYLES.painted.imageFile).toBeUndefined();
+		expect(ROOM_STYLES.painted.imageBase).toBeUndefined();
 	});
 
 	it("matches each room's coordinate space to its artwork's shape", () => {

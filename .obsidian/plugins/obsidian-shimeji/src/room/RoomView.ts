@@ -3,7 +3,7 @@ import type { Rect } from "../engine/types";
 import { layoutRoom, shouldMirror, type RoomLayout } from "./RoomGeometry";
 import { drawRoomImage, drawSurfaceOverlay, moodForHour, paintRoom, ROOM_BACKDROP, ROOM_BACKDROP_DUSK, sampleBackdrop } from "./roomArt";
 import { LIVING_ROOM, type RoomDef } from "./roomDef";
-import type { RoomStyle } from "./rooms";
+import { roomImageCandidates, type RoomStyle } from "./rooms";
 
 export const ROOM_VIEW_TYPE = "shimeji-plant-room";
 
@@ -35,6 +35,7 @@ export interface RoomViewOptions {
 export class RoomView extends ItemView {
 	private canvas!: HTMLCanvasElement;
 	private stack!: HTMLDivElement;
+	private missing!: HTMLDivElement;
 	private lastKey = "";
 	private lastMoved = "";
 	private resizeObserver?: ResizeObserver;
@@ -65,7 +66,7 @@ export class RoomView extends ItemView {
 	 * the resident on furniture that is not in the picture. */
 	get def(): RoomDef {
 		const style = this.opts.style();
-		if (!style.imageFile) return style.def;
+		if (!style.imageBase) return style.def;
 		return this.imageState === "ready" ? style.def : LIVING_ROOM;
 	}
 
@@ -77,6 +78,11 @@ export class RoomView extends ItemView {
 		this.canvas = this.stack.createEl("canvas", { cls: "shimeji-room-canvas" });
 		this.canvas.setAttr("role", "img");
 		this.canvas.setAttr("aria-label", "The room a shimeji can live in.");
+		// Shown only when the chosen room expects a picture and has not got one. Falling back
+		// silently is what makes "I only see your original image" a mystery — the pane looks like it
+		// is working, and nothing anywhere says a file was expected or where it should go.
+		this.missing = content.createDiv({ cls: "shimeji-room-missing" });
+		this.missing.hide();
 
 		void this.loadImage();
 
@@ -99,7 +105,7 @@ export class RoomView extends ItemView {
 	async loadImage(): Promise<void> {
 		const style = this.opts.style();
 		this.loadedStyleId = style.id;
-		if (!style.imageFile) {
+		if (!style.imageBase) {
 			this.image = undefined;
 			this.imageState = "none";
 			this.invalidate();
@@ -134,7 +140,7 @@ export class RoomView extends ItemView {
 		img.onerror = () => {
 			if (this.image !== img) return;
 			this.imageState = "failed";
-			console.warn(`[obsidian-shimeji] the room artwork at ${style.imageFile} could not be decoded — falling back to the painted room`);
+			console.warn(`[obsidian-shimeji] the room artwork at ${style.imageBase} could not be decoded — falling back to the painted room`);
 			this.invalidate();
 			this.refresh();
 			this.opts.onLayoutChanged();
@@ -171,16 +177,16 @@ export class RoomView extends ItemView {
 	/** What shimejiDebug.room() reports about the artwork. */
 	get artworkState(): string {
 		const style = this.opts.style();
-		if (!style.imageFile) return `${style.label} — drawn by the plugin, no file needed`;
+		if (!style.imageBase) return `${style.label} — drawn by the plugin, no file needed`;
 		switch (this.imageState) {
 			case "ready":
-				return `${style.label}: ${style.imageFile} loaded (${this.image?.naturalWidth ?? 0}x${this.image?.naturalHeight ?? 0})`;
+				return `${style.label}: loaded (${this.image?.naturalWidth ?? 0}x${this.image?.naturalHeight ?? 0})`;
 			case "loading":
-				return `${style.label}: still loading ${style.imageFile}`;
+				return `${style.label}: still loading`;
 			case "failed":
-				return `${style.label}: ${style.imageFile} exists but could not be decoded`;
+				return `${style.label}: the file exists but could not be decoded`;
 			default:
-				return `${style.label}: no file at ${style.imageFile} — showing the painted room instead`;
+				return `${style.label}: no file found — looked for ${roomImageCandidates(style).join(", ")}`;
 		}
 	}
 
@@ -214,12 +220,39 @@ export class RoomView extends ItemView {
 			if (surfaces) drawSurfaceOverlay(this.canvas, def, { scale: layout.scale, mirrored: layout.mirrored });
 		}
 
+		this.renderMissingNotice();
+
 		if (moved !== this.lastMoved) {
 			this.lastMoved = moved;
 			// Position is what the resident's ledges are derived from, so a move matters even when
 			// the picture is unchanged.
 			this.opts.onLayoutChanged();
 		}
+	}
+
+	/** Says which file the chosen room is waiting for, when it has not got one. */
+	private renderMissingNotice(): void {
+		const style = this.opts.style();
+		const wanted = style.imageBase !== undefined && this.imageState !== "ready";
+		if (!wanted) {
+			this.missing.hide();
+			return;
+		}
+		this.missing.empty();
+		this.missing.show();
+		if (this.imageState === "loading") {
+			this.missing.createDiv({ text: `Loading the ${style.label.toLowerCase()}…` });
+			return;
+		}
+		if (this.imageState === "failed") {
+			this.missing.createDiv({ cls: "shimeji-room-missing-title", text: `The ${style.label} picture could not be read.` });
+			this.missing.createDiv({ text: "It may not be a valid image file. Replace it and run \u201cReload the plant room artwork\u201d." });
+			return;
+		}
+		this.missing.createDiv({ cls: "shimeji-room-missing-title", text: `No picture yet for the ${style.label}.` });
+		this.missing.createDiv({ text: "Save it in the plugin\u2019s folder as:" });
+		this.missing.createEl("code", { text: `${style.imageBase}.png` });
+		this.missing.createDiv({ cls: "shimeji-room-missing-note", text: ".webp, .jpg and .gif work too. Then run \u201cReload the plant room artwork\u201d." });
 	}
 
 	/** Which way the room faces right now, for the settings screen and tests. */

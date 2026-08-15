@@ -115,3 +115,35 @@
 	image-rendering: crisp-edges;
 	display: block;
 }
+
+/* Shown only when the chosen room expects a picture and has not got one. Falling back to the
+   painted room silently is what makes a missing file look like the feature simply working
+   differently than expected — nothing otherwise says a file was wanted, or where it goes. */
+.shimeji-room-missing {
+	padding: 0.75rem 0.9rem;
+	margin: 0.5rem;
+	border-radius: 6px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.5;
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	overflow-wrap: anywhere;
+}
+
+.shimeji-room-missing-title {
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+}
+
+.shimeji-room-missing code {
+	font-size: var(--font-ui-smaller);
+	user-select: all;
+}
+
+.shimeji-room-missing-note {
+	font-size: calc(var(--font-ui-smaller) * 0.92);
+}

@@ -18,8 +18,12 @@ export interface RoomStyle {
 	label: string;
 	description: string;
 	def: RoomDef;
-	/** Relative to the plugin's own folder. Absent for the room this plugin paints. */
-	imageFile?: string;
+	/**
+	 * Where this room's picture goes, relative to the plugin's own folder, without an extension —
+	 * several are accepted, because people save whatever their image already is rather than
+	 * converting it first. Absent for the room this plugin paints.
+	 */
+	imageBase?: string;
 }
 
 export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
@@ -28,14 +32,14 @@ export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
 		label: "Apartment",
 		description: "A square studio flat: bed, bookshelf, desk, a plant on the nightstand.",
 		def: APARTMENT,
-		imageFile: "room/room.png",
+		imageBase: "room/room",
 	},
 	cellar: {
 		id: "cellar",
 		label: "Cellar",
 		description: "A timber grow-room: hydroponic rack, a tank of seedlings, a heater and an armchair.",
 		def: CELLAR,
-		imageFile: "room/room2.png",
+		imageBase: "room/room2",
 	},
 	painted: {
 		id: "painted",
@@ -46,6 +50,15 @@ export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
 };
 
 export const ROOM_STYLE_IDS: RoomStyleId[] = ["apartment", "cellar", "painted"];
+
+/** Tried in order. PNG first because that is what pixel art is normally saved as. */
+export const ROOM_IMAGE_EXTENSIONS = ["png", "webp", "jpg", "jpeg", "gif"] as const;
+
+/** Every filename a room's picture may have — for looking one up, and for telling the user where to
+ * put it when there is none. */
+export function roomImageCandidates(style: RoomStyle): string[] {
+	return style.imageBase ? ROOM_IMAGE_EXTENSIONS.map((ext) => `${style.imageBase}.${ext}`) : [];
+}
 
 export function roomStyle(id: string | undefined): RoomStyle {
 	return ROOM_STYLES[(id ?? "apartment") as RoomStyleId] ?? ROOM_STYLES.apartment;

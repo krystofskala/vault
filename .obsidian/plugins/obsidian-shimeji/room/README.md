@@ -8,10 +8,11 @@ Drop the pictures in this folder and pick a room in the plugin's settings.
 | **Cellar** — timber grow-room | `room2.png` |
 | **Plant nook** — drawn by the plugin | none needed |
 
+`.webp`, `.jpg`, `.jpeg` and `.gif` work as well as `.png` — save whatever you already have.
+
 Nothing else is needed: no import step, no path to type. If the chosen room's file is missing or
-cannot be decoded, the plugin quietly shows the nook it draws itself rather than an empty pane —
-and it checks the file is there before trying to load it, so a missing picture is not an error in
-the console.
+cannot be decoded, the pane says so and names the file it is waiting for, and shows the nook the
+plugin draws itself in the meantime. Settings lists which rooms have their picture.
 
 - **Never distorted.** Each room's box matches its artwork's own shape — the apartment is square,
   the cellar is landscape — and the picture is fitted into it, keeping its proportions at every

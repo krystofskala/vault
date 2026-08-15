@@ -138,6 +138,20 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			cls: "setting-item-description",
 		});
 
+		// Which rooms actually have their picture, so a missing file is visible here rather than only
+		// as the room quietly showing something else.
+		const roomStatus = containerEl.createEl("p", { cls: "setting-item-description" });
+		void (async () => {
+			const lines: string[] = [];
+			for (const id of ROOM_STYLE_IDS) {
+				const style = ROOM_STYLES[id];
+				if (!style.imageBase) continue;
+				const found = await this.plugin.findRoomImage(style);
+				lines.push(`${style.label}: ${found ? `using ${found}` : `no picture yet \u2014 save one as ${style.imageBase}.png`}`);
+			}
+			roomStatus.setText(`${lines.join(" \u00b7 ")}  (inside ${this.plugin.roomFolder()}/)`);
+		})();
+
 		new Setting(containerEl)
 			.setName("Pack folder")
 			.setDesc(
