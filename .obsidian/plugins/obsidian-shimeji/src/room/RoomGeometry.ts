@@ -26,8 +26,22 @@ const MAX_SCALE = 8;
 export interface RoomLayout {
 	scale: number;
 	mirrored: boolean;
-	/** The room's own bounding box in viewport coordinates. */
+	/** Which side of the room faces the rest of the window — where the threshold is, whether or not
+	 * the artwork itself was flipped. */
+	nearSide: "left" | "right";
+	/** The room's own bounding box in viewport coordinates — the drawn picture. */
 	rect: Rect;
+	/**
+	 * The part of that picture a mascot can actually be in: between the outermost walls, below the
+	 * ceiling, above the floor.
+	 *
+	 * Distinct from `rect`, and the distinction is load-bearing for supplied artwork. An isometric
+	 * room is drawn inside a square whose corners are surround, so the picture is wider than the
+	 * floor beneath it — a mascot placed near the square's edge would have nothing under it and fall
+	 * out of the world. Aiming at the room is judged by `rect` (a click on the picture means the
+	 * room); being in it is judged by this.
+	 */
+	walkable: Rect;
 	/** Room pixel -> viewport point. */
 	toViewport(x: number, y: number): Vec2;
 	/** Viewport point -> room pixel. Fractional; callers round if they need whole pixels. */
@@ -61,14 +75,21 @@ export function layoutRoom(def: RoomDef, paneRect: Rect, viewportWidth: number):
 	const availH = paneRect.bottom - paneRect.top;
 	if (availW <= 0 || availH <= 0) return undefined;
 
-	const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min(Math.floor(availW / def.width), Math.floor(availH / def.height))));
+	// Fit, never distort. The room square is scaled by whichever axis runs out first, so the pane's
+	// own background fills whatever is left over — that surround is the only thing that stretches.
+	const fit = Math.min(availW / def.width, availH / def.height);
+	const scale = def.integerScale === false ? fit : Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.floor(fit)));
+	if (scale <= 0) return undefined;
 	const drawnW = def.width * scale;
 	const drawnH = def.height * scale;
 	// Centred horizontally, sat on the bottom: a room rests on its floor, and any spare height
 	// belongs above it as wall rather than below it as a gap.
 	const originX = Math.round(paneRect.left + (availW - drawnW) / 2);
 	const originY = Math.round(paneRect.bottom - drawnH);
-	const mirrored = shouldMirror(paneRect, viewportWidth);
+	// Supplied artwork is never flipped — see RoomDef.mirrorable. The threshold still moves to the
+	// side facing the workspace, which is what `nearSide` below is for.
+	const nearSide: "left" | "right" = shouldMirror(paneRect, viewportWidth) ? "right" : "left";
+	const mirrored = def.mirrorable === false ? false : nearSide === "right";
 
 	const toViewport = (x: number, y: number): Vec2 => ({
 		x: mirrored ? originX + (def.width - x) * scale : originX + x * scale,
@@ -79,13 +100,29 @@ export function layoutRoom(def: RoomDef, paneRect: Rect, viewportWidth: number):
 		y: (y - originY) / scale,
 	});
 	/** A room span [x1,x2] in viewport space, still ordered left-to-right after a mirror. */
-	const spanX = (x1: number, x2: number): { x1: number; x2: number } => {
+	const spanXOf = (x1: number, x2: number): { x1: number; x2: number } => {
 		const a = toViewport(x1, 0).x;
 		const b = toViewport(x2, 0).x;
 		return { x1: Math.min(a, b), x2: Math.max(a, b) };
 	};
+	const spanX = spanXOf;
 
 	const rect: Rect = { left: originX, top: originY, right: originX + drawnW, bottom: originY + drawnH };
+
+	// Derived from the room's own extremes rather than declared, so it cannot fall out of step with
+	// the surfaces: the outermost walls bound it sideways, the lowest floor and highest ceiling
+	// bound it vertically.
+	const allWalls = roomWalls(def);
+	const allSurfaces = roomSurfaces(def);
+	const floors = allSurfaces.filter((s2) => s2.kind === "floor");
+	const ceilings = allSurfaces.filter((s2) => s2.kind === "ceiling");
+	const wx = allWalls.map((w) => w.x);
+	const roomLeft = wx.length > 0 ? Math.min(...wx) : 0;
+	const roomRight = wx.length > 0 ? Math.max(...wx) : def.width;
+	const roomBottom = floors.length > 0 ? Math.max(...floors.map((f) => f.y)) : def.height;
+	const roomTop = ceilings.length > 0 ? Math.min(...ceilings.map((c) => c.y)) : 0;
+	const walkableSpan = spanXOf(roomLeft, roomRight);
+	const walkable: Rect = { left: walkableSpan.x1, top: originY + roomTop * scale, right: walkableSpan.x2, bottom: originY + roomBottom * scale };
 
 	let cached: Ledge[] | undefined;
 	const ledges = (): Ledge[] => {
@@ -106,19 +143,25 @@ export function layoutRoom(def: RoomDef, paneRect: Rect, viewportWidth: number):
 		return out;
 	};
 
-	const doorCentreX = (def.door.x1 + def.door.x2) / 2;
+	// In a mirrored painted room the drawn door has moved with everything else, so the doorway is
+	// still `def.door`. In an unmirrored image room there is no drawn door at all, and the threshold
+	// simply belongs on whichever side of the room faces the workspace.
+	const doorWidth = def.door.x2 - def.door.x1;
+	const doorCentreX = def.mirrorable === false && nearSide === "right" ? def.width - def.door.x1 - doorWidth / 2 : def.door.x1 + doorWidth / 2;
 
 	return {
 		scale,
 		mirrored,
+		nearSide,
 		rect,
+		walkable,
 		toViewport,
 		toRoom,
 		ledges,
 		doorInside: () => toViewport(doorCentreX, def.door.y),
 		// The pane's outward face, not the room art's — the mascot approaching from outside is
 		// climbing the *pane's* wall ledge, which sits at the leaf's own edge.
-		doorOutside: () => ({ x: mirrored ? paneRect.right : paneRect.left, y: toViewport(0, def.door.y).y }),
+		doorOutside: () => ({ x: nearSide === "right" ? paneRect.right : paneRect.left, y: toViewport(0, def.door.y).y }),
 		contains: (p) => p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom,
 	};
 }

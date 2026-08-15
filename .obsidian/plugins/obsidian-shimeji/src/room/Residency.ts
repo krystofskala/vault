@@ -23,10 +23,23 @@ import type { RoomLayout } from "./RoomGeometry";
  * real 0.64px/tick and a mascot that stops two pixels short should still go in. */
 const THRESHOLD_REACH_PX = 52;
 
-/** The resident is drawn at this fraction of its normal size. A 128px sprite in a 300px pane reads
- * as a cupboard; halved, the same pane reads as a room — and the bookshelf's shelves are spaced so
- * that a half-size mascot fits between them. */
-const RESIDENT_SCALE = 0.5;
+/**
+ * How tall the resident stands, as a fraction of the room's own drawn height.
+ *
+ * Derived from the room rather than a fixed multiplier, because "half size" is only the right answer
+ * for one particular room at one particular pane width. The painted room is a tall narrow nook and
+ * the apartment is a whole flat seen in isometric; the same mascot has to look at home in both, and
+ * both change size whenever the sidebar is dragged. Sizing it against the room keeps the proportion
+ * fixed and lets everything else move.
+ *
+ * A sixth of the room's height puts it comfortably between the bookshelf's shelves and makes the
+ * furniture read as furniture.
+ */
+const RESIDENT_HEIGHT_FRACTION = 1 / 6;
+
+/** Never enlarged past its normal size: a mascot bigger indoors than out would look wrong at the
+ * threshold, which is the one moment both sizes are on screen together. */
+const MAX_RESIDENT_SCALE = 1;
 
 export interface ResidencyHost {
 	stage(): Stage | undefined;
@@ -141,6 +154,10 @@ export class Residency {
 			return;
 		}
 
+		// Re-fitted every frame, not only on the way in: dragging the sidebar's edge changes the
+		// room's size, and a resident that kept its old scale would grow or shrink relative to the
+		// furniture it is standing on.
+		this.fitResidentToRoom(layout);
 		this.keepResidentInside(layout);
 		if (!this.resident) return;
 
@@ -150,6 +167,16 @@ export class Residency {
 			if (distance(this.resident.physics, layout.doorInside()) <= THRESHOLD_REACH_PX) this.moveOut(layout);
 			else this.leavingFor = undefined;
 		}
+	}
+
+	/** Sizes the resident against the room it is in — on the way in, and again whenever the room
+	 * changes size under it. */
+	private fitResidentToRoom(layout: RoomLayout): void {
+		const mascot = this.resident;
+		if (!mascot || mascot.height <= 0) return;
+		const roomHeight = layout.rect.bottom - layout.rect.top;
+		const wanted = Math.min(MAX_RESIDENT_SCALE, (roomHeight * RESIDENT_HEIGHT_FRACTION) / mascot.height);
+		if (Math.abs(mascot.scale - wanted) > 0.001) mascot.scale = wanted;
 	}
 
 	/**
@@ -174,13 +201,17 @@ export class Residency {
 		}
 		const justReleased = this.residentWasHeld;
 		this.residentWasHeld = false;
-		if (layout.contains(mascot.physics)) return;
+		// Judged against the walkable box, not the drawn picture: an isometric room's square has
+		// surround in its corners, and a resident sitting in one has nothing beneath it.
+		if (within(layout.walkable, mascot.physics)) return;
 
-		if (justReleased) {
+		// Only a release *outside the picture* is the user putting it down elsewhere. Landing in the
+		// square's corner is still being in the room, just in a part of it with no floor.
+		if (justReleased && !layout.contains(mascot.physics)) {
 			this.moveOut(layout, { placeAtDoor: false });
 			return;
 		}
-		const { rect } = layout;
+		const rect = layout.walkable;
 		mascot.physics.x = Math.min(Math.max(mascot.physics.x, rect.left + 1), rect.right - 1);
 		mascot.physics.y = Math.min(Math.max(mascot.physics.y, rect.top + 1), rect.bottom - 1);
 		mascot.physics.vx = 0;
@@ -203,7 +234,7 @@ export class Residency {
 		this.incoming = undefined;
 		this.resident = mascot;
 		this.scaleBeforeMovingIn = mascot.scale;
-		mascot.scale = mascot.scale * RESIDENT_SCALE;
+		this.fitResidentToRoom(layout);
 		mascot.cancelSpotOrder();
 		mascot.setFollowingMouse(false);
 		mascot.confinement = this.confinement;
@@ -292,4 +323,8 @@ export class Residency {
 
 function distance(a: Vec2, b: Vec2): number {
 	return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function within(rect: { left: number; top: number; right: number; bottom: number }, p: Vec2): boolean {
+	return p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom;
 }

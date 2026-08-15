@@ -16,7 +16,7 @@ import { sounds } from "./shimeji/SoundPlayer";
 import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
 import { Residency } from "./room/Residency";
-import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
+import { ROOM_IMAGE_FILE, ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 
 /** How often to check whether a mascot is currently on the user's active pane and roll for
  * "note mischief" — not tied to any real engine tick, this is Obsidian-layer-only and has no
@@ -157,7 +157,15 @@ export default class ShimejiPlugin extends Plugin {
 
 		this.addSettingTab(new ShimejiSettingTab(this.app, this));
 
-		this.registerView(ROOM_VIEW_TYPE, (leaf) => new RoomView(leaf, () => this.residency.tick()));
+		this.registerView(
+			ROOM_VIEW_TYPE,
+			(leaf) =>
+				new RoomView(leaf, {
+					imageSrc: () => this.roomImageSrc(),
+					onLayoutChanged: () => this.residency.tick(),
+					showSurfaces: () => this.showRoomSurfaces,
+				}),
+		);
 		this.startResidencyLoop();
 
 		this.addRibbonIcon("cat", "Toggle Shimeji mascots", () => this.toggleMascot());
@@ -165,6 +173,8 @@ export default class ShimejiPlugin extends Plugin {
 		this.addCommand({ id: "shimeji-open-room", name: "Open the plant room", callback: () => void this.revealRoom() });
 		this.addCommand({ id: "shimeji-send-home", name: "Send a shimeji home to the plant room", callback: () => void this.sendHome() });
 		this.addCommand({ id: "shimeji-call-out", name: "Call the shimeji out of the plant room", callback: () => this.callOutOfRoom() });
+		this.addCommand({ id: "shimeji-room-surfaces", name: "Show/hide what the shimeji can stand on in the plant room", callback: () => this.toggleRoomSurfaces() });
+		this.addCommand({ id: "shimeji-room-reload-art", name: "Reload the plant room artwork", callback: () => this.reloadRoomArt() });
 		this.addCommand({ id: "shimeji-spawn", name: "Spawn mascot", callback: () => this.spawnMascot() });
 		this.addCommand({ id: "shimeji-remove", name: "Remove mascot", callback: () => this.stage?.removeMascot() });
 		this.addCommand({ id: "shimeji-remove-all", name: "Remove all mascots", callback: () => this.stage?.removeAllMascots() });
@@ -582,6 +592,7 @@ export default class ShimejiPlugin extends Plugin {
 			{ step: "view built", ok: view !== undefined, detail: view ? "RoomView" : "no RoomView on the leaf" },
 			{ step: "pane on screen", ok: layout !== undefined, detail: layout ? `${layout.rect.right - layout.rect.left}x${layout.rect.bottom - layout.rect.top} at (${Math.round(layout.rect.left)}, ${Math.round(layout.rect.top)})` : "collapsed, hidden, or zero-sized" },
 			{ step: "drawn", ok: layout !== undefined, detail: layout ? `${layout.scale}x pixels, door on the ${layout.mirrored ? "right" : "left"}` : "-" },
+			{ step: "artwork", ok: view?.artworkState.startsWith("loaded") ?? false, detail: view?.artworkState ?? "-" },
 			{ step: "resident", ok: this.residency.hasResident, detail: this.settings.roomResident ? `remembered: ${this.settings.roomResident.packId ?? "placeholder"}` : "nobody" },
 		];
 		let note: string | undefined;
@@ -589,6 +600,43 @@ export default class ShimejiPlugin extends Plugin {
 		else if (!view) note = "A leaf exists but carries no RoomView — the plugin was probably reloaded while the pane was open. Close and reopen the pane.";
 		else if (!layout) note = "The pane exists but is not on screen — the sidebar is collapsed, or another tab is showing in that slot.";
 		return { chain, note };
+	}
+
+	/**
+	 * Where the room's artwork comes from: a file the user drops into the plugin's own folder.
+	 *
+	 * A fixed path rather than a setting to fill in first — the whole setup is "put the picture
+	 * here". `getResourcePath` is what turns a vault path into something an <img> will load; it is
+	 * already how every pack sprite is resolved.
+	 */
+	private roomImageSrc(): string | undefined {
+		const dir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+		// Cache-busted by mtime would need a stat; a plain reload command is simpler and is the only
+		// time the file changes under a running plugin.
+		return this.app.vault.adapter.getResourcePath(`${dir}/${ROOM_IMAGE_FILE}`);
+	}
+
+	/** Draws the room's collision surfaces over the artwork. The one part of the room that cannot be
+	 * checked by reasoning — an image knows nothing about the lines authored on top of it — so it is
+	 * made visible instead. */
+	private showRoomSurfaces = false;
+
+	private toggleRoomSurfaces(): void {
+		this.showRoomSurfaces = !this.showRoomSurfaces;
+		const view = this.roomView();
+		view?.invalidate();
+		view?.refresh();
+		new Notice(this.showRoomSurfaces ? "Shimeji: showing what the room can be stood on." : "Shimeji: surfaces hidden.");
+	}
+
+	private reloadRoomArt(): void {
+		const view = this.roomView();
+		if (!view) {
+			new Notice("Shimeji: the plant room is not open.");
+			return;
+		}
+		view.loadImage();
+		new Notice(`Shimeji: reloading ${ROOM_IMAGE_FILE}`);
 	}
 
 	private roomView(): RoomView | undefined {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { layoutRoom, shouldMirror } from "../src/room/RoomGeometry";
 import { LIVING_ROOM, roomSurfaces, roomWalls } from "../src/room/roomDef";
+import { APARTMENT } from "../src/room/apartment";
 import { findRoute } from "../src/engine/Routing";
 import { findFloorBelow } from "../src/engine/Ledges";
 import type { Ledge, Rect } from "../src/engine/types";
@@ -161,5 +162,139 @@ describe("plant room as a world", () => {
 		expect(layout.doorInside().y).toBe(layout.doorOutside().y);
 		expect(layout.contains(layout.doorInside())).toBe(true);
 		expect(layout.contains(layout.doorOutside())).toBe(false);
+	});
+});
+
+/**
+ * The apartment is supplied artwork with geometry authored on top, so unlike the painted room its
+ * picture and its surfaces *can* disagree — an image knows nothing about the lines drawn over it.
+ * Nothing here can check the lines are in the right place on the picture (that is what the surface
+ * overlay is for). What it can check is that they form a coherent world: closed, connected, and
+ * reachable without depending on a jump whose reach changes with the pane's width.
+ */
+describe("the apartment", () => {
+	const layout = layoutRoom(APARTMENT, RIGHT_SIDEBAR, VIEWPORT_W)!;
+	const ledges = layout.ledges();
+
+	it("fills the pane without distorting the artwork", () => {
+		// The user's one requirement about how it is drawn: 1:1, with only the dark surround giving.
+		for (const pane of [RIGHT_SIDEBAR, LEFT_SIDEBAR, { left: 0, top: 0, right: 900, bottom: 400 }]) {
+			const l = layoutRoom(APARTMENT, pane, VIEWPORT_W)!;
+			const drawnW = l.rect.right - l.rect.left;
+			const drawnH = l.rect.bottom - l.rect.top;
+			expect(drawnW / drawnH, "the room square came out non-square").toBeCloseTo(APARTMENT.width / APARTMENT.height, 6);
+			expect(drawnW).toBeLessThanOrEqual(pane.right - pane.left + 0.001);
+			expect(drawnH).toBeLessThanOrEqual(pane.bottom - pane.top + 0.001);
+		}
+	});
+
+	it("is never flipped, but still puts the threshold on the side facing the workspace", () => {
+		// Supplied artwork is not mirrored — there is no drawn door to mirror for, and flipping
+		// somebody's illustration to suit a sidebar takes a liberty with it.
+		const right = layoutRoom(APARTMENT, RIGHT_SIDEBAR, VIEWPORT_W)!;
+		const left = layoutRoom(APARTMENT, LEFT_SIDEBAR, VIEWPORT_W)!;
+		expect(right.mirrored).toBe(false);
+		expect(left.mirrored).toBe(false);
+		// The threshold still moves, so a mascot always arrives at the near side.
+		expect(right.doorOutside().x).toBe(RIGHT_SIDEBAR.left);
+		expect(left.doorOutside().x).toBe(LEFT_SIDEBAR.right);
+		expect(right.doorInside().x).toBeLessThan((right.rect.left + right.rect.right) / 2);
+		expect(left.doorInside().x).toBeGreaterThan((left.rect.left + left.rect.right) / 2);
+	});
+
+	it("has floor under every part a mascot can be in", () => {
+		// The drawn square is wider than the floor — an isometric room's corners are surround — so
+		// this is the walkable box, which is exactly the distinction that keeps a resident dropped
+		// near the edge from falling out of the world.
+		for (let x = layout.walkable.left + 2; x < layout.walkable.right - 2; x += 2) {
+			expect(findFloorBelow(ledges, x, layout.walkable.top + 2), `nothing under x=${Math.round(x)}`).toBeDefined();
+		}
+		expect(layout.walkable.right - layout.walkable.left).toBeLessThan(layout.rect.right - layout.rect.left);
+	});
+
+	it("connects the floor to every piece of furniture without needing a jump", () => {
+		// Jump reach is a fixed number of screen pixels while the room's own scale follows the pane,
+		// so a room that depended on jumps would connect at a wide sidebar and come apart at a
+		// narrow one. Routing with jumps disabled proves every surface has a climbable face.
+		const noJumping = { arriveWithin: 12, travelTimeWeight: 0.05, maxJumpDx: 0, maxJumpUp: 0 };
+		const start = layout.doorInside();
+		const floors = ledges.filter((l): l is Extract<Ledge, { kind: "floor" }> => l.kind === "floor");
+		expect(floors.length).toBeGreaterThan(5);
+		for (const floor of floors) {
+			const target = { x: (floor.x1 + floor.x2) / 2, y: floor.y };
+			const route = findRoute(ledges, start, target, undefined, noJumping);
+			const end = route.length > 0 ? route[route.length - 1] : start;
+			const miss = Math.hypot(end.x - target.x, end.y - target.y);
+			expect(miss, `cannot climb to the surface at y=${Math.round(floor.y)} without jumping`).toBeLessThan(24);
+		}
+	});
+
+	it("holds together at any sidebar width", () => {
+		// The same reachability, checked across the range of widths a sidebar actually takes — the
+		// point being that nothing about the room's connectivity may depend on how big it is drawn.
+		const noJumping = { arriveWithin: 12, travelTimeWeight: 0.05, maxJumpDx: 0, maxJumpUp: 0 };
+		for (const width of [200, 260, 320, 420, 560]) {
+			const l = layoutRoom(APARTMENT, { left: 1420, top: 120, right: 1420 + width, bottom: 1360 }, VIEWPORT_W)!;
+			const ls = l.ledges();
+			const bed = ls.find((x) => x.kind === "floor" && Math.abs(x.y - l.toViewport(0, 53).y) < 1)!;
+			const target = { x: (bed as Extract<Ledge, { kind: "floor" }>).x1 + 10, y: bed.kind === "floor" ? bed.y : 0 };
+			const route = findRoute(ls, l.doorInside(), target, undefined, noJumping);
+			const end = route.length > 0 ? route[route.length - 1] : l.doorInside();
+			expect(Math.hypot(end.x - target.x, end.y - target.y), `the bed is unreachable at a ${width}px sidebar`).toBeLessThan(24);
+		}
+	});
+
+	it("cannot be left", () => {
+		const start = layout.doorInside();
+		for (const target of [
+			{ x: 0, y: 200 },
+			{ x: VIEWPORT_W, y: 200 },
+			{ x: 700, y: 1390 },
+			{ x: 700, y: 40 },
+		]) {
+			const route = findRoute(ledges, start, target, undefined, { arriveWithin: 40, travelTimeWeight: 0.05 });
+			for (const step of route) {
+				expect(step.x).toBeGreaterThanOrEqual(layout.rect.left - 1);
+				expect(step.x).toBeLessThanOrEqual(layout.rect.right + 1);
+				expect(step.y).toBeGreaterThanOrEqual(layout.rect.top - 1);
+				expect(step.y).toBeLessThanOrEqual(layout.rect.bottom + 1);
+			}
+		}
+	});
+
+	it("keeps every authored surface inside the walkable box", () => {
+		// A surface outside the containing walls is a place the resident can be pulled back from but
+		// never legitimately stand, which reads as furniture that cannot be climbed onto.
+		const box = APARTMENT.fixtures.find((f) => f.id === "room")!;
+		const floor = box.surfaces!.find((s) => s.label === "floor")!;
+		for (const fixture of APARTMENT.fixtures) {
+			for (const s of fixture.surfaces ?? []) {
+				expect(s.x1, `${fixture.id}/${s.label} starts outside the room`).toBeGreaterThanOrEqual(floor.x1);
+				expect(s.x2, `${fixture.id}/${s.label} ends outside the room`).toBeLessThanOrEqual(floor.x2);
+				expect(s.y, `${fixture.id}/${s.label} is below the floor`).toBeLessThanOrEqual(floor.y);
+			}
+			for (const w of fixture.walls ?? []) {
+				expect(w.x, `${fixture.id}/${w.label} is outside the room`).toBeGreaterThanOrEqual(floor.x1);
+				expect(w.x).toBeLessThanOrEqual(floor.x2);
+			}
+		}
+	});
+});
+
+describe("the walkable box", () => {
+	it("is where the floor is, in both rooms", () => {
+		// Derived from each room's own extremes rather than declared, so it cannot fall out of step
+		// with the surfaces. The painted room's floor runs wall to wall, so its box is the full
+		// width; the apartment's is narrower than its picture.
+		const painted = layoutRoom(LIVING_ROOM, RIGHT_SIDEBAR, VIEWPORT_W)!;
+		expect(painted.walkable.left).toBe(painted.rect.left);
+		expect(painted.walkable.right).toBe(painted.rect.right);
+		// ...but still above the floorboards drawn below the floor line.
+		expect(painted.walkable.bottom).toBeLessThan(painted.rect.bottom);
+
+		const flat = layoutRoom(APARTMENT, RIGHT_SIDEBAR, VIEWPORT_W)!;
+		expect(flat.walkable.left).toBeGreaterThan(flat.rect.left);
+		expect(flat.walkable.right).toBeLessThan(flat.rect.right);
+		expect(flat.walkable.bottom).toBeLessThan(flat.rect.bottom);
 	});
 });

@@ -18,6 +18,8 @@ const VIEWPORT_W = 1748;
 interface FakeMascot {
 	physics: { x: number; y: number; vx: number; vy: number; grounded: boolean; currentFloor?: unknown; currentWall?: unknown; currentCeiling?: unknown };
 	scale: number;
+	/** The standard pack's sprite height — what the resident's scale is derived from. */
+	height: number;
 	confinement?: unknown;
 	isBeingDragged: boolean;
 	hasSpotOrder: boolean;
@@ -33,6 +35,7 @@ function fakeMascot(x: number, y: number): FakeMascot {
 	const m: FakeMascot = {
 		physics: { x, y, vx: 0, vy: 0, grounded: true },
 		scale: 1,
+		height: 128,
 		isBeingDragged: false,
 		hasSpotOrder: false,
 		orders: [],
@@ -133,7 +136,10 @@ describe("moving into the plant room", () => {
 
 		expect(s.residency.hasResident).toBe(true);
 		expect(m.confinement, "the resident's world was not replaced").toBeDefined();
-		expect(m.scale).toBe(0.5);
+		// Sized against the room, not by a fixed multiplier — see RESIDENT_HEIGHT_FRACTION. What
+		// matters is the proportion, which has to hold whatever the pane's width makes the room.
+		const roomHeight = s.layout().rect.bottom - s.layout().rect.top;
+		expect((m.height * m.scale) / roomHeight).toBeCloseTo(1 / 6, 2);
 		expect(s.layout().contains(m.physics)).toBe(true);
 		// Dropped in rather than pinned: landing is the engine's job.
 		expect(m.physics.grounded).toBe(false);
@@ -225,7 +231,7 @@ describe("leaving the plant room", () => {
 
 		expect(s.residency.hasResident).toBe(false);
 		expect(m.confinement).toBeUndefined();
-		expect(m.scale).toBe(1);
+		expect(m.scale, "left the room still shrunk to its indoor size").toBe(1);
 		expect(m.physics.x).toBe(s.layout().doorOutside().x);
 		expect(m.orders[m.orders.length - 1]).toEqual(target);
 		expect(s.remembered).toBeNull();

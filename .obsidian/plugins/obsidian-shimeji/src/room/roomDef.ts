@@ -103,6 +103,21 @@ export interface RoomDef {
 	ceilingY: number;
 	floorY: number;
 	/**
+	 * Whether flipping the whole room is allowed when the pane sits on the other side of the window.
+	 * True for a room this plugin draws, whose door is part of the drawing and has to face the
+	 * workspace. False for supplied artwork: there is nothing to mirror *for*, and flipping somebody
+	 * else's illustration to suit a sidebar takes a liberty with it. The threshold moves either way.
+	 * Defaults to true.
+	 */
+	mirrorable?: boolean;
+	/** Whether the room must be drawn at a whole-number scale. True for pixel art this plugin paints
+	 * pixel by pixel, where a fractional scale is mush. False for a supplied image, which is larger
+	 * than a sidebar and so only ever has useful scales below 1. Defaults to true. */
+	integerScale?: boolean;
+	/** `painted` draws the fixtures below; `image` fits supplied artwork into the room square and
+	 * treats the fixtures as geometry only. Defaults to painted. */
+	background?: "painted" | "image";
+	/**
 	 * The threshold. Both directions pass through it: a mascot moving in appears here, and one
 	 * called away walks here before the workspace becomes its world again.
 	 *
