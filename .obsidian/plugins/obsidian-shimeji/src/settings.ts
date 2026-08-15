@@ -91,6 +91,14 @@ export interface ShimejiSettings {
 	 * does is a behaviour and they change every few seconds, so this is the difference between an
 	 * occasional remark and a running commentary. */
 	speechChancePercent: number;
+	/** Whether `scale` is read as a fraction of the window rather than a literal pixel multiplier —
+	 * see engine/responsiveScale.ts. On, a size chosen on a laptop still looks right on a phone or
+	 * a large monitor; off, it renders at the same pixel size everywhere. */
+	responsiveScale: boolean;
+	/** Mobile only: only draggable and pokeable while the active note is in reading view, so the
+	 * mascot is not competing with your thumb while you type. Animation and reactions carry on
+	 * regardless — this gates input, not life. */
+	mobileReadingViewOnly: boolean;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -126,11 +134,39 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	speechFilePath: "",
 	speechStyle: "theme",
 	speechChancePercent: 25,
+	responsiveScale: true,
+	mobileReadingViewOnly: true,
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
 	constructor(app: App, private plugin: ShimejiPlugin) {
 		super(app, plugin);
+	}
+
+	/**
+	 * A collapsible group. Nests one level, for sub-groups within a section.
+	 *
+	 * A native `<details>` rather than a hand-rolled toggle, so it opens and closes, remembers
+	 * nothing it should not, and is keyboard-reachable without any of that being written here.
+	 *
+	 * The callback's parameter is deliberately named `containerEl`, shadowing the outer one: every
+	 * setting inside is then written against the container it is genuinely rendered into, and a
+	 * block can be moved between sections without touching a line of it.
+	 *
+	 * Ported from shimeji-buddy, whose settings page was larger than this one and stayed navigable.
+	 */
+	private section(containerEl: HTMLElement, title: string, defaultOpen: boolean, render: (body: HTMLElement) => void): void {
+		const details = containerEl.createEl("details", { cls: "shimeji-section" });
+		if (defaultOpen) details.setAttr("open", "");
+		details.createEl("summary", { cls: "shimeji-section-title", text: title });
+		render(details.createDiv({ cls: "shimeji-section-body" }));
+	}
+
+	/** A short aside that belongs to a group rather than to any one setting in it — the warning at
+	 * the top of a risky section, or the "this is mobile only" that would otherwise have to be
+	 * repeated in every description below it. */
+	private callout(containerEl: HTMLElement, kind: "tip" | "warning" | "info", text: string): void {
+		containerEl.createDiv({ cls: `shimeji-callout shimeji-callout-${kind}`, text });
 	}
 
 	display(): void {
@@ -142,370 +178,432 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		containerEl.createEl("h2", { text: "Shimeji Desktop Mascot" });
 
-		new Setting(containerEl)
-			.setName("Plant room")
-			.setDesc(
-				"Which room the shimeji lives in. The two illustrated rooms each need their picture " +
-					"saved in the plugin's own room/ folder (see the README there); without it, the room " +
-					"the plugin draws itself is shown instead.",
-			)
-			.addDropdown((dropdown) => {
-				for (const id of ROOM_STYLE_IDS) dropdown.addOption(id, ROOM_STYLES[id].label);
-				dropdown.setValue(roomStyle(this.plugin.settings.roomStyle).id).onChange(async (value) => {
-					await this.plugin.setRoomStyle(value);
-					this.display();
-				});
-			});
-
-		containerEl.createEl("p", {
-			text: roomStyle(this.plugin.settings.roomStyle).description,
-			cls: "setting-item-description",
-		});
-
-		// Which rooms actually have their picture, so a missing file is visible here rather than only
-		// as the room quietly showing something else.
-		const roomStatus = containerEl.createEl("p", { cls: "setting-item-description" });
-		void (async () => {
-			const lines: string[] = [];
-			for (const id of ROOM_STYLE_IDS) {
-				const style = ROOM_STYLES[id];
-				if (!style.imageBase) continue;
-				const found = await this.plugin.findRoomImage(style);
-				lines.push(`${style.label}: ${found ? `using ${found}` : `no picture yet \u2014 save one as ${style.imageBase}.png`}`);
-			}
-			roomStatus.setText(`${lines.join(" \u00b7 ")}  (inside ${this.plugin.roomFolder()}/)`);
-		})();
-
-		this.renderSpeechSection(containerEl);
-
-		new Setting(containerEl)
-			.setName("Pack folder")
-			.setDesc(
-				"Vault-relative folder containing your Shimeji-compatible artwork " +
-					"(expects img/ and conf/ inside, following the standard Shimeji-ee layout).",
-			)
-			.addText((text) =>
-				text
-					.setPlaceholder(".obsidian/plugins/obsidian-shimeji/Shimeji")
-					.setValue(this.plugin.settings.packsFolder)
-					.onChange(async (value) => {
-						this.plugin.settings.packsFolder = value.trim();
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName("Rescan pack folder")
-			.setDesc("Look again after adding or changing actions.xml / behaviors.xml / img files.")
-			.addButton((btn) =>
-				btn.setButtonText("Rescan").onClick(async () => {
-					await this.plugin.rescanPacks();
-					this.display();
-				}),
-			);
-
-		containerEl.createEl("h3", { text: "Characters" });
-
-		if (this.plugin.availablePacks.length > 0) {
-			containerEl.createEl("p", {
-				text: "Each newly spawned mascot picks a random character from the ones enabled below. Turn all off to use the built-in placeholder instead.",
-				cls: "setting-item-description",
-			});
-			for (const pack of this.plugin.availablePacks) {
-				new Setting(containerEl).setName(pack.name).addToggle((toggle) =>
-					toggle.setValue(this.plugin.settings.activePackIds.includes(pack.id)).onChange(async (value) => {
-						const ids = this.plugin.settings.activePackIds;
-						this.plugin.settings.activePackIds = value ? [...ids, pack.id] : ids.filter((id) => id !== pack.id);
-						await this.plugin.saveSettings();
-						this.plugin.respawnWithCurrentSettings();
-					}),
-				);
-			}
-		} else {
-			containerEl.createEl("p", {
-				text:
-					"No Shimeji-compatible pack found yet in that folder — using the built-in placeholder mascot. " +
-					"Add your img/ and conf/ files and rescan.",
-				cls: "setting-item-description",
-			});
-		}
-
-		containerEl.createEl("h3", { text: "Custom animations & reactions" });
-
-		if (this.plugin.availablePacks.length > 0) {
-			containerEl.createEl("p", {
-				text:
-					"Add your own actions and behaviors to a character, the same way hand-editing " +
-					"actions.xml/behaviors.xml would — a custom entry with the same name as a " +
-					"standard one replaces it.",
-				cls: "setting-item-description",
-			});
-			for (const pack of this.plugin.availablePacks) {
-				const content = this.plugin.settings.customContent[pack.id];
-				const count = (content?.actions.length ?? 0) + (content?.behaviors.length ?? 0);
+		// Ordered by how often you touch it, not by when it was built. Each section's callback
+		// deliberately shadows `containerEl` with its own body, so everything inside is written
+		// against the container it is actually rendered into.
+		this.section(containerEl, "Characters", true, (containerEl) => {
+			this.section(containerEl, "Your characters", true, (containerEl) => {
 				new Setting(containerEl)
-					.setName(pack.name)
-					.setDesc(count > 0 ? `${count} custom entr${count === 1 ? "y" : "ies"}` : "No custom entries yet")
+					.setName("Pack folder")
+					.setDesc(
+						"Vault-relative folder containing your Shimeji-compatible artwork " +
+							"(expects img/ and conf/ inside, following the standard Shimeji-ee layout).",
+					)
+					.addText((text) =>
+						text
+							.setPlaceholder(".obsidian/plugins/obsidian-shimeji/Shimeji")
+							.setValue(this.plugin.settings.packsFolder)
+							.onChange(async (value) => {
+								this.plugin.settings.packsFolder = value.trim();
+								await this.plugin.saveSettings();
+							}),
+					);
+
+				new Setting(containerEl)
+					.setName("Rescan pack folder")
+					.setDesc("Look again after adding or changing actions.xml / behaviors.xml / img files.")
 					.addButton((btn) =>
-						btn.setButtonText("Edit...").onClick(() => {
-							new CustomContentModal(this.app, this.plugin, pack.id).open();
+						btn.setButtonText("Rescan").onClick(async () => {
+							await this.plugin.rescanPacks();
+							this.display();
 						}),
 					);
-			}
-		} else {
+
+				if (this.plugin.availablePacks.length > 0) {
+					containerEl.createEl("p", {
+						text: "Each newly spawned mascot picks a random character from the ones enabled below. Turn all off to use the built-in placeholder instead.",
+						cls: "setting-item-description",
+					});
+					for (const pack of this.plugin.availablePacks) {
+						new Setting(containerEl).setName(pack.name).addToggle((toggle) =>
+							toggle.setValue(this.plugin.settings.activePackIds.includes(pack.id)).onChange(async (value) => {
+								const ids = this.plugin.settings.activePackIds;
+								this.plugin.settings.activePackIds = value ? [...ids, pack.id] : ids.filter((id) => id !== pack.id);
+								await this.plugin.saveSettings();
+								this.plugin.respawnWithCurrentSettings();
+							}),
+						);
+					}
+				} else {
+					containerEl.createEl("p", {
+						text:
+							"No Shimeji-compatible pack found yet in that folder — using the built-in placeholder mascot. " +
+							"Add your img/ and conf/ files and rescan.",
+						cls: "setting-item-description",
+					});
+				}
+			});
+
+			this.section(containerEl, "Size & number", false, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Size")
+					.setDesc("Scale factor for the mascot.")
+					.addSlider((slider) =>
+						slider
+							.setLimits(0.5, 2, 0.1)
+							.setValue(this.plugin.settings.scale)
+							.setDynamicTooltip()
+							.onChange(async (value) => {
+								this.plugin.settings.scale = value;
+								await this.plugin.saveSettings();
+								this.plugin.applyScale();
+							}),
+					);
+
+				new Setting(containerEl)
+					.setName("Scale with the window")
+					.setDesc(
+						"Reads Size as a fraction of the window rather than a fixed pixel multiplier, so a size " +
+							"chosen on a laptop still looks right on a phone or a large monitor. Off renders at the " +
+							"same pixel size everywhere.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.responsiveScale).onChange(async (value) => {
+							this.plugin.settings.responsiveScale = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyScale();
+						}),
+					);
+
+				new Setting(containerEl)
+					.setName("Spawn one now")
+					.addButton((btn) => btn.setButtonText("Spawn").onClick(() => this.plugin.spawnMascot()));
+
+				new Setting(containerEl)
+					.setName("Remove all now")
+					.addButton((btn) => btn.setButtonText("Remove all").onClick(() => this.plugin.stage?.removeAllMascots()));
+
+				new Setting(containerEl)
+					.setName("Max mascots on screen")
+					.setDesc("Caps manual spawning and pack-driven multiplying (e.g. a Breed action) alike.")
+					.addSlider((slider) =>
+						slider
+							.setLimits(1, 20, 1)
+							.setValue(this.plugin.settings.maxMascots)
+							.setDynamicTooltip()
+							.onChange(async (value) => {
+								this.plugin.settings.maxMascots = value;
+								await this.plugin.saveSettings();
+								this.plugin.stage?.setMaxMascots(value);
+							}),
+					);
+
+				new Setting(containerEl)
+					.setName("Auto-spawn on startup")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.autoSpawn).onChange(async (value) => {
+							this.plugin.settings.autoSpawn = value;
+							await this.plugin.saveSettings();
+						}),
+					);
+
+				new Setting(containerEl)
+					.setName("Number to auto-spawn")
+					.addSlider((slider) =>
+						slider
+							.setLimits(1, 20, 1)
+							.setValue(this.plugin.settings.autoSpawnCount)
+							.setDynamicTooltip()
+							.onChange(async (value) => {
+								this.plugin.settings.autoSpawnCount = value;
+								await this.plugin.saveSettings();
+							}),
+					);
+			});
+
+			this.section(containerEl, "Build your own", false, (containerEl) => {
+				if (this.plugin.availablePacks.length > 0) {
+					containerEl.createEl("p", {
+						text:
+							"Add your own actions and behaviors to a character, the same way hand-editing " +
+							"actions.xml/behaviors.xml would — a custom entry with the same name as a " +
+							"standard one replaces it.",
+						cls: "setting-item-description",
+					});
+					for (const pack of this.plugin.availablePacks) {
+						const content = this.plugin.settings.customContent[pack.id];
+						const count = (content?.actions.length ?? 0) + (content?.behaviors.length ?? 0);
+						new Setting(containerEl)
+							.setName(pack.name)
+							.setDesc(count > 0 ? `${count} custom entr${count === 1 ? "y" : "ies"}` : "No custom entries yet")
+							.addButton((btn) =>
+								btn.setButtonText("Edit...").onClick(() => {
+									new CustomContentModal(this.app, this.plugin, pack.id).open();
+								}),
+							);
+					}
+				} else {
+					containerEl.createEl("p", {
+						text: "Load a character above first — custom actions/behaviors are added on top of a character's own actions.xml/behaviors.xml.",
+						cls: "setting-item-description",
+					});
+				}
+			});
+		});
+
+		this.section(containerEl, "Behaviour", false, (containerEl) => {
+			this.section(containerEl, "Roaming", true, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Wander the whole window")
+					.setDesc(
+						"Mascots occasionally pick somewhere else in the layout and actually route to it — walking, climbing walls, hopping between panes and dropping off edges to get there. Off means they stick to whichever surface they happen to be on, which is closer to how the original behaves on a bare desktop.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.roamEnabled).onChange(async (value) => {
+							this.plugin.settings.roamEnabled = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyRoamEnabled();
+						}),
+					);
+			});
+
+			this.section(containerEl, "Breeding", false, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Allow breeding")
+					.setDesc("Let a pack's own Breed-style actions (e.g. splitting in two) spawn new independent mascots.")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.allowBreeding).onChange(async (value) => {
+							this.plugin.settings.allowBreeding = value;
+							await this.plugin.saveSettings();
+							this.plugin.stage?.setAllowBreeding(value);
+						}),
+					);
+
+				new Setting(containerEl)
+					.setName("Allow transient clones")
+					.setDesc(
+						"Lets a pack spawn short-lived clones (BornTransient) — the mechanism behind effects like a mascot firing a projectile, which is itself just another mascot set to self-destruct. Separate from breeding in real shimeji-ee too, so a pack can use effects like this without you also enabling full self-replication.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.allowTransients).onChange(async (value) => {
+							this.plugin.settings.allowTransients = value;
+							await this.plugin.saveSettings();
+							this.plugin.stage?.setAllowTransients(value);
+						}),
+					);
+			});
+		});
+
+		this.section(containerEl, "Interaction", false, (containerEl) => {
+			this.section(containerEl, "Mouse", true, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Allow dragging")
+					.setDesc("Let mascots be picked up and thrown with the mouse.")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.allowDragging).onChange(async (value) => {
+							this.plugin.settings.allowDragging = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyAllowDragging();
+						}),
+					);
+
+				new Setting(containerEl)
+					.setName("Grab by the feet to dangle upside down")
+					.setDesc(
+						"Picking a mascot up by its lower third holds it by the ankles, hanging upside down; grabbing it anywhere higher pinches it by the head as usual. Not a real shimeji-ee feature — the original engine has no vertical flip at all and always grabs by the head.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.upsideDownFeetDrag).onChange(async (value) => {
+							this.plugin.settings.upsideDownFeetDrag = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyUpsideDownFeetDrag();
+						}),
+					);
+
+				new Setting(containerEl)
+					.setName("Chase the mouse")
+					.setDesc(
+						"Enables the \"Make all Shimejis follow the mouse\" command/menu item (real shimeji-ee's own \"Follow Mouse!\" is an on-demand tray action, not something mascots do spontaneously), and lets a placeholder mascot (no character pack loaded) occasionally dash toward the cursor as one of its idle variations. Always off on mobile (no ambient cursor to chase between touches), regardless of this toggle.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.chaseMouseEnabled).onChange(async (value) => {
+							this.plugin.settings.chaseMouseEnabled = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyChaseMouseEnabled();
+						}),
+					);
+			});
+
+			this.section(containerEl, "Touch & mobile", false, (containerEl) => {
+				this.callout(containerEl, "info", "These only apply on Obsidian mobile. On desktop the mascots are always interactive.");
+				new Setting(containerEl)
+					.setName("Only grabbable in reading view")
+					.setDesc(
+						"A mascot walking across a phone screen sits right where your thumb is trying to type. This " +
+							"lets taps pass straight through to the editor, and keeps it grabbable in reading view where " +
+							"there is nothing to interrupt. It carries on moving and reacting either way.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.mobileReadingViewOnly).onChange(async (value) => {
+							this.plugin.settings.mobileReadingViewOnly = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyMobileInteractivity();
+						}),
+					);
+			});
+		});
+
+		this.section(containerEl, "Voice", false, (containerEl) => {
+			this.renderSpeechSection(containerEl);
+
+			this.section(containerEl, "Sound effects", false, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Play pack sounds")
+					.setDesc(
+						"Real Shimeji packs can attach a sound file to any individual animation pose. Off by default — turn it on only if your character pack actually ships a sound/ folder and you want to hear it.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.soundsEnabled).onChange(async (value) => {
+							this.plugin.settings.soundsEnabled = value;
+							await this.plugin.saveSettings();
+							this.plugin.applySoundSettings();
+						}),
+					);
+
+				new Setting(containerEl)
+					.setName("Volume")
+					.setDesc("Scales every sound on top of whatever volume the pack itself authored for that pose.")
+					.addSlider((slider) =>
+						slider
+							.setLimits(0, 100, 5)
+							.setValue(this.plugin.settings.soundVolume)
+							.setDynamicTooltip()
+							.onChange(async (value) => {
+								this.plugin.settings.soundVolume = value;
+								await this.plugin.saveSettings();
+								this.plugin.applySoundSettings();
+							}),
+					);
+			});
+		});
+
+		this.section(containerEl, "The plant room", false, (containerEl) => {
+			new Setting(containerEl)
+				.setName("Plant room")
+				.setDesc(
+					"Which room the shimeji lives in. The two illustrated rooms each need their picture " +
+						"saved in the plugin's own room/ folder (see the README there); without it, the room " +
+						"the plugin draws itself is shown instead.",
+				)
+				.addDropdown((dropdown) => {
+					for (const id of ROOM_STYLE_IDS) dropdown.addOption(id, ROOM_STYLES[id].label);
+					dropdown.setValue(roomStyle(this.plugin.settings.roomStyle).id).onChange(async (value) => {
+						await this.plugin.setRoomStyle(value);
+						this.display();
+					});
+				});
+
 			containerEl.createEl("p", {
-				text: "Load a character above first — custom actions/behaviors are added on top of a character's own actions.xml/behaviors.xml.",
+				text: roomStyle(this.plugin.settings.roomStyle).description,
 				cls: "setting-item-description",
 			});
-		}
 
-		containerEl.createEl("h3", { text: "Population" });
+			// Which rooms actually have their picture, so a missing file is visible here rather than only
+			// as the room quietly showing something else.
+			const roomStatus = containerEl.createEl("p", { cls: "setting-item-description" });
+			void (async () => {
+				const lines: string[] = [];
+				for (const id of ROOM_STYLE_IDS) {
+					const style = ROOM_STYLES[id];
+					if (!style.imageBase) continue;
+					const found = await this.plugin.findRoomImage(style);
+					lines.push(`${style.label}: ${found ? `using ${found}` : `no picture yet \u2014 save one as ${style.imageBase}.png`}`);
+				}
+				roomStatus.setText(`${lines.join(" \u00b7 ")}  (inside ${this.plugin.roomFolder()}/)`);
+			})();
+		});
 
-		new Setting(containerEl)
-			.setName("Spawn one now")
-			.addButton((btn) => btn.setButtonText("Spawn").onClick(() => this.plugin.spawnMascot()));
-
-		new Setting(containerEl)
-			.setName("Remove all now")
-			.addButton((btn) => btn.setButtonText("Remove all").onClick(() => this.plugin.stage?.removeAllMascots()));
-
-		new Setting(containerEl)
-			.setName("Max mascots on screen")
-			.setDesc("Caps manual spawning and pack-driven multiplying (e.g. a Breed action) alike.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(1, 20, 1)
-					.setValue(this.plugin.settings.maxMascots)
-					.setDynamicTooltip()
-					.onChange(async (value) => {
-						this.plugin.settings.maxMascots = value;
-						await this.plugin.saveSettings();
-						this.plugin.stage?.setMaxMascots(value);
-					}),
+		this.section(containerEl, "What it may touch", false, (containerEl) => {
+			this.callout(
+				containerEl,
+				"warning",
+				"Everything in here lets the mascots reach beyond their own overlay and into your workspace. Most of it is off by default.",
 			);
 
-		new Setting(containerEl)
-			.setName("Auto-spawn on startup")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.autoSpawn).onChange(async (value) => {
-					this.plugin.settings.autoSpawn = value;
-					await this.plugin.saveSettings();
-				}),
-			);
+			this.section(containerEl, "Climbing", true, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Climb panes and status bar")
+					.setDesc("Let mascots land/walk on top of open note panes and the status bar, in addition to the window edges.")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.paneLedgesEnabled).onChange(async (value) => {
+							this.plugin.settings.paneLedgesEnabled = value;
+							await this.plugin.saveSettings();
+							this.plugin.stage?.setPaneLedgesEnabled(value);
+						}),
+					);
+			});
 
-		new Setting(containerEl)
-			.setName("Number to auto-spawn")
-			.addSlider((slider) =>
-				slider
-					.setLimits(1, 20, 1)
-					.setValue(this.plugin.settings.autoSpawnCount)
-					.setDynamicTooltip()
-					.onChange(async (value) => {
-						this.plugin.settings.autoSpawnCount = value;
-						await this.plugin.saveSettings();
-					}),
-			);
+			this.section(containerEl, "Rearranging", false, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Open panes to reach a spot")
+					.setDesc(
+						"Shift + triple-click anywhere to order the nearest mascot to that exact point. If nothing there can be stood on, it splits the pane under your cursor and slides the new divider to your click — so any point is reachable. Turn this off to keep the order but limit it to surfaces that already exist. Use the \u201cClose panes opened by mascots\u201d command to tidy up afterwards.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.allowLayoutSurgery).onChange(async (value) => {
+							this.plugin.settings.allowLayoutSurgery = value;
+							await this.plugin.saveSettings();
+						}),
+					);
 
-		containerEl.createEl("h3", { text: "Behavior" });
+				new Setting(containerEl)
+					.setName("Pane wrangling")
+					.setDesc(
+						"Obsidian's stand-in for the original's window throwing. Mascots squash a stacked pane by landing on it, haul its bottom edge down while hanging underneath, shove side-by-side panes apart, and fold a sidebar shut by sitting on it. They use your pack's existing animations, so this works with any character. Turn it off if you would rather they left your layout alone.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.allowPaneWrangling).onChange(async (value) => {
+							this.plugin.settings.allowPaneWrangling = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyCustomContent();
+						}),
+					);
+			});
 
-		new Setting(containerEl)
-			.setName("Allow dragging")
-			.setDesc("Let mascots be picked up and thrown with the mouse.")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.allowDragging).onChange(async (value) => {
-					this.plugin.settings.allowDragging = value;
-					await this.plugin.saveSettings();
-					this.plugin.applyAllowDragging();
-				}),
-			);
+			this.section(containerEl, "Mischief", false, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Window mischief")
+					.setDesc(
+						"Real shimeji-ee's mascots can pick up, carry, and throw the OS window they're standing next to. Obsidian panes can't be freely moved, so this reinterprets it: a mascot resizes the pane it's carrying, then pops it into its own real OS window and throws that (desktop only). Off by default — this can resize your layout or spawn a flung window with no confirmation.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.allowWindowThrow).onChange(async (value) => {
+							this.plugin.settings.allowWindowThrow = value;
+							await this.plugin.saveSettings();
+						}),
+					);
 
-		new Setting(containerEl)
-			.setName("Grab by the feet to dangle upside down")
-			.setDesc(
-				"Picking a mascot up by its lower third holds it by the ankles, hanging upside down; grabbing it anywhere higher pinches it by the head as usual. Not a real shimeji-ee feature — the original engine has no vertical flip at all and always grabs by the head.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.upsideDownFeetDrag).onChange(async (value) => {
-					this.plugin.settings.upsideDownFeetDrag = value;
-					await this.plugin.saveSettings();
-					this.plugin.applyUpsideDownFeetDrag();
-				}),
-			);
+				new Setting(containerEl)
+					.setName("Restore thrown windows")
+					.setDesc('Bring back every popped-out window a mascot has thrown — the equivalent of real shimeji-ee\'s "Restore IE!" tray item.')
+					.addButton((button) => button.setButtonText("Restore").onClick(() => this.plugin.restoreThrownWindows()));
 
-		new Setting(containerEl)
-			.setName("Allow breeding")
-			.setDesc("Let a pack's own Breed-style actions (e.g. splitting in two) spawn new independent mascots.")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.allowBreeding).onChange(async (value) => {
-					this.plugin.settings.allowBreeding = value;
-					await this.plugin.saveSettings();
-					this.plugin.stage?.setAllowBreeding(value);
-				}),
-			);
+				new Setting(containerEl)
+					.setName("Note mischief")
+					.setDesc(
+						"Not a real shimeji-ee feature — shimeji-ee has no awareness of files or vaults at all. While a mascot happens to be standing on the pane you're actively working in, occasionally swaps in a random other note from the vault. Off by default.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.allowNoteMischief).onChange(async (value) => {
+							this.plugin.settings.allowNoteMischief = value;
+							await this.plugin.saveSettings();
+						}),
+					);
+			});
 
-		new Setting(containerEl)
-			.setName("Allow transient clones")
-			.setDesc(
-				"Lets a pack spawn short-lived clones (BornTransient) — the mechanism behind effects like a mascot firing a projectile, which is itself just another mascot set to self-destruct. Separate from breeding in real shimeji-ee too, so a pack can use effects like this without you also enabling full self-replication.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.allowTransients).onChange(async (value) => {
-					this.plugin.settings.allowTransients = value;
-					await this.plugin.saveSettings();
-					this.plugin.stage?.setAllowTransients(value);
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Chase the mouse")
-			.setDesc(
-				"Enables the \"Make all Shimejis follow the mouse\" command/menu item (real shimeji-ee's own \"Follow Mouse!\" is an on-demand tray action, not something mascots do spontaneously), and lets a placeholder mascot (no character pack loaded) occasionally dash toward the cursor as one of its idle variations. Always off on mobile (no ambient cursor to chase between touches), regardless of this toggle.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.chaseMouseEnabled).onChange(async (value) => {
-					this.plugin.settings.chaseMouseEnabled = value;
-					await this.plugin.saveSettings();
-					this.plugin.applyChaseMouseEnabled();
-				}),
-			);
-
-		containerEl.createEl("h3", { text: "Sound" });
-
-		new Setting(containerEl)
-			.setName("Play pack sounds")
-			.setDesc(
-				"Real Shimeji packs can attach a sound file to any individual animation pose. Off by default — turn it on only if your character pack actually ships a sound/ folder and you want to hear it.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.soundsEnabled).onChange(async (value) => {
-					this.plugin.settings.soundsEnabled = value;
-					await this.plugin.saveSettings();
-					this.plugin.applySoundSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Volume")
-			.setDesc("Scales every sound on top of whatever volume the pack itself authored for that pose.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(0, 100, 5)
-					.setValue(this.plugin.settings.soundVolume)
-					.setDynamicTooltip()
-					.onChange(async (value) => {
-						this.plugin.settings.soundVolume = value;
-						await this.plugin.saveSettings();
-						this.plugin.applySoundSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName("Wander the whole window")
-			.setDesc(
-				"Mascots occasionally pick somewhere else in the layout and actually route to it — walking, climbing walls, hopping between panes and dropping off edges to get there. Off means they stick to whichever surface they happen to be on, which is closer to how the original behaves on a bare desktop.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.roamEnabled).onChange(async (value) => {
-					this.plugin.settings.roamEnabled = value;
-					await this.plugin.saveSettings();
-					this.plugin.applyRoamEnabled();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Open panes to reach a spot")
-			.setDesc(
-				"Shift + triple-click anywhere to order the nearest mascot to that exact point. If nothing there can be stood on, it splits the pane under your cursor and slides the new divider to your click — so any point is reachable. Turn this off to keep the order but limit it to surfaces that already exist. Use the \u201cClose panes opened by mascots\u201d command to tidy up afterwards.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.allowLayoutSurgery).onChange(async (value) => {
-					this.plugin.settings.allowLayoutSurgery = value;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Pane wrangling")
-			.setDesc(
-				"Obsidian's stand-in for the original's window throwing. Mascots squash a stacked pane by landing on it, haul its bottom edge down while hanging underneath, shove side-by-side panes apart, and fold a sidebar shut by sitting on it. They use your pack's existing animations, so this works with any character. Turn it off if you would rather they left your layout alone.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.allowPaneWrangling).onChange(async (value) => {
-					this.plugin.settings.allowPaneWrangling = value;
-					await this.plugin.saveSettings();
-					this.plugin.applyCustomContent();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Window mischief")
-			.setDesc(
-				"Real shimeji-ee's mascots can pick up, carry, and throw the OS window they're standing next to. Obsidian panes can't be freely moved, so this reinterprets it: a mascot resizes the pane it's carrying, then pops it into its own real OS window and throws that (desktop only). Off by default — this can resize your layout or spawn a flung window with no confirmation.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.allowWindowThrow).onChange(async (value) => {
-					this.plugin.settings.allowWindowThrow = value;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Restore thrown windows")
-			.setDesc('Bring back every popped-out window a mascot has thrown — the equivalent of real shimeji-ee\'s "Restore IE!" tray item.')
-			.addButton((button) => button.setButtonText("Restore").onClick(() => this.plugin.restoreThrownWindows()));
-
-		new Setting(containerEl)
-			.setName("Note mischief")
-			.setDesc(
-				"Not a real shimeji-ee feature — shimeji-ee has no awareness of files or vaults at all. While a mascot happens to be standing on the pane you're actively working in, occasionally swaps in a random other note from the vault. Off by default.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.allowNoteMischief).onChange(async (value) => {
-					this.plugin.settings.allowNoteMischief = value;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		containerEl.createEl("h3", { text: "Appearance" });
-
-		new Setting(containerEl)
-			.setName("Size")
-			.setDesc("Scale factor for the mascot.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(0.5, 2, 0.1)
-					.setValue(this.plugin.settings.scale)
-					.setDynamicTooltip()
-					.onChange(async (value) => {
-						this.plugin.settings.scale = value;
-						await this.plugin.saveSettings();
-						this.plugin.applyScale();
-					}),
-			);
-
-		containerEl.createEl("h3", { text: "Layout & debugging" });
-
-		new Setting(containerEl)
-			.setName("Climb panes and status bar")
-			.setDesc("Let mascots land/walk on top of open note panes and the status bar, in addition to the window edges.")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.paneLedgesEnabled).onChange(async (value) => {
-					this.plugin.settings.paneLedgesEnabled = value;
-					await this.plugin.saveSettings();
-					this.plugin.stage?.setPaneLedgesEnabled(value);
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Show debug ledges")
-			.setDesc("Overlay lines where mascots currently think they can stand — useful while tuning a real vault layout.")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.debugLedges).onChange(async (value) => {
-					this.plugin.settings.debugLedges = value;
-					await this.plugin.saveSettings();
-					this.plugin.stage?.setDebugLedges(value);
-				}),
-			);
+			this.section(containerEl, "Troubleshooting", false, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Show debug ledges")
+					.setDesc("Overlay lines where mascots currently think they can stand — useful while tuning a real vault layout.")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.debugLedges).onChange(async (value) => {
+							this.plugin.settings.debugLedges = value;
+							await this.plugin.saveSettings();
+							this.plugin.stage?.setDebugLedges(value);
+						}),
+					);
+			});
+		});
 
 		// After the panel has been rebuilt, not before — the content has to exist for the scroll
 		// offset to be reachable again.
@@ -521,8 +619,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	 * are the only way to tell "working, just quiet" from "broken".
 	 */
 	private renderSpeechSection(containerEl: HTMLElement): void {
-		containerEl.createEl("h3", { text: "Speech" });
-
 		new Setting(containerEl)
 			.setName("Let mascots talk")
 			.setDesc("Shows a bubble when a mascot starts a behaviour you have written a line for.")

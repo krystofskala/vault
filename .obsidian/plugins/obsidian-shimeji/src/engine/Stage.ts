@@ -163,6 +163,19 @@ export class Stage {
 		this.renderDebugLedges();
 	}
 
+	/**
+	 * Makes the mascots ignore pointer input, so taps and drags pass straight through to whatever
+	 * is underneath — used on mobile to keep a mascot from intercepting a thumb aimed at the editor.
+	 *
+	 * A class on the container rather than a style on each mascot, so it applies to mascots spawned
+	 * while it is on without anything having to remember to re-apply it. The container itself is
+	 * already click-through; this is only about the sprites inside it. Nothing else changes: they
+	 * carry on walking, falling and reacting exactly as before, because this gates input, not life.
+	 */
+	setClickThrough(on: boolean): void {
+		this.container.classList.toggle("is-click-through", on);
+	}
+
 	setConfig(config: EngineConfig): void {
 		this.opts.config = config;
 	}

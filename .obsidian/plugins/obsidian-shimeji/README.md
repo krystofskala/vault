@@ -948,6 +948,30 @@ random other note from your vault while a mascot happens to be standing on the p
 actively working in. Purely for fun; nothing is lost (the file you were on is still there,
 autosaved, one click of "back" away).
 
+## Size on different screens
+
+**Size** is a multiplier on the pack's own artwork, and **Scale with the window** (on by default,
+under Characters → Size & number) reads it as a fraction of the window rather than a fixed pixel
+count — driven by the window's *smaller* dimension, so a short wide editor does not decide it has
+room to grow the mascot over the text. A size chosen on a laptop then still looks right on a phone
+and on a large monitor, instead of being identical in literal pixels on all three.
+
+It scales the setting and nothing else. Each pose still renders at its own natural pixel size, the
+way the Java engine draws it — nothing measures the pack's sprites or normalises them against each
+other, so adding one unusually large frame (an effect, a puff of smoke) cannot shrink everything
+else. Turn it off to get a flat multiplier that renders the same everywhere.
+
+## On mobile
+
+A mascot walking across a phone screen sits exactly where your thumb is trying to type, so by
+default it only takes taps and drags while the active note is in **reading view** — everywhere
+else, touches pass straight through to whatever is underneath. It carries on walking, falling and
+reacting either way; this gates input, not life. Turn it off under Interaction → Touch & mobile.
+Desktop is never affected.
+
+Chasing the mouse is skipped on mobile regardless of its setting: there is no ambient pointer
+between touches, so it would only ever be dashing at a stale position.
+
 ## Commands / UI
 
 Real shimeji-ee actually has *two* separate menus, not one — the desktop tray icon (global,
@@ -966,7 +990,10 @@ global/tray equivalent, the per-mascot context menu is character-scoped where th
   "Make all mascots dash to the mouse (once)" — real "Follow Cursor" exactly, see "Following the
   mouse" below — plus its invented sticky counterparts "Keep all mascots following the mouse" and
   "Stop all mascots following the mouse", "Restore thrown windows" (see "Window mischief" above),
-  "Rescan pack folder" (re-reads the pack folder after you add/change files).
+  "Rescan pack folder" (re-reads the pack folder after you add/change files), and "Show the
+  next/previous animation" — steps a live mascot through every action its character has, wrapping
+  in both directions, so you can page through a pack you are building without opening settings
+  (see "Slicing poses out of a sprite sheet" above).
 - Right-click a mascot for its own menu (matching the real per-mascot popup, plus "Switch
   character" — a plugin-only convenience with no real analog, since a real mascot's character is
   fixed for its lifetime): add another *of this character* (real per-mascot "Another One!" —

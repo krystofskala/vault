@@ -6,6 +6,7 @@ import type { PaneActions } from "./engine/PaneActions";
 import { Random } from "./engine/Random";
 import { Stage } from "./engine/Stage";
 import { DEFAULT_ENGINE_CONFIG, type EngineConfig } from "./engine/types";
+import { effectiveScale } from "./engine/responsiveScale";
 import { ObsidianPaneActions } from "./ObsidianPaneActions";
 import { mergeCustomContent } from "./shimeji/CustomContentBuilder";
 import { buildPaneWranglingContent } from "./shimeji/paneWrangling";
@@ -249,6 +250,8 @@ export default class ShimejiPlugin extends Plugin {
 		this.addCommand({ id: "shimeji-room-reload-art", name: "Reload the plant room artwork", callback: () => this.reloadRoomArt() });
 		this.addCommand({ id: "shimeji-room-next", name: "Switch to the next plant room", callback: () => void this.cycleRoomStyle() });
 		this.addCommand({ id: "shimeji-room-clock", name: "Step the plant room's clock through the day", callback: () => this.stepRoomClock() });
+		this.addCommand({ id: "shimeji-cycle-next", name: "Show the next animation", callback: () => this.cycleAction(1) });
+		this.addCommand({ id: "shimeji-cycle-prev", name: "Show the previous animation", callback: () => this.cycleAction(-1) });
 		this.addCommand({ id: "shimeji-spawn", name: "Spawn mascot", callback: () => this.spawnMascot() });
 		this.addCommand({ id: "shimeji-remove", name: "Remove mascot", callback: () => this.stage?.removeMascot() });
 		this.addCommand({ id: "shimeji-remove-all", name: "Remove all mascots", callback: () => this.stage?.removeAllMascots() });
@@ -293,8 +296,16 @@ export default class ShimejiPlugin extends Plugin {
 		// listener on window can be starved by any handler in between calling stopPropagation.
 		this.registerDomEvent(window, "click", (ev) => this.onPossibleSpotOrder(ev), { capture: true });
 
-		this.registerEvent(this.app.workspace.on("resize", () => this.stage?.notifyLayoutChanged()));
+		this.registerEvent(
+			this.app.workspace.on("resize", () => {
+				this.stage?.notifyLayoutChanged();
+				// A responsive scale is a function of the window, so it is stale the moment one resizes.
+				if (this.settings.responsiveScale) this.applyScale();
+			}),
+		);
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.stage?.notifyLayoutChanged()));
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.applyMobileInteractivity()));
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.applyMobileInteractivity()));
 		this.registerInterval(window.setInterval(() => this.maybeTriggerNoteMischief(), NOTE_MISCHIEF_CHECK_MS));
 
 		await this.rescanPacks();
@@ -307,6 +318,7 @@ export default class ShimejiPlugin extends Plugin {
 		// forever after, because the file is only ever created once.
 		await this.ensureSpeechFile();
 		await this.reloadSpeechLines();
+		this.applyMobileInteractivity();
 
 		if (this.settings.autoSpawn) {
 			for (let i = 0; i < this.settings.autoSpawnCount; i++) this.spawnMascot();
@@ -613,8 +625,68 @@ export default class ShimejiPlugin extends Plugin {
 	}
 
 	applyScale(): void {
-		for (const mascot of this.stage?.getMascots() ?? []) mascot.scale = this.settings.scale;
+		const scale = this.currentScale();
+		for (const mascot of this.stage?.getMascots() ?? []) mascot.scale = scale;
 	}
+
+	/** The scale to render at, which is the setting itself or the setting read as a fraction of
+	 * the window — see engine/responsiveScale.ts. */
+	private currentScale(): number {
+		return effectiveScale(this.settings.scale, window.innerWidth, window.innerHeight, this.settings.responsiveScale);
+	}
+
+	/**
+	 * On mobile, stops the mascots taking pointer input unless the active note is in reading view.
+	 *
+	 * A mascot walking across a phone screen is directly in the way of the thumb that is trying to
+	 * type, and a sprite that intercepts that tap is worse than no sprite. Reading view is where
+	 * there is nothing to interrupt, so that is where it stays grabbable.
+	 *
+	 * Gates input only. The mascots carry on walking, falling and reacting in edit view — they are
+	 * just not in the way. Desktop is never affected, whatever the setting says.
+	 */
+	applyMobileInteractivity(): void {
+		if (!this.stage) return;
+		if (!Platform.isMobile || !this.settings.mobileReadingViewOnly) {
+			this.stage.setClickThrough(false);
+			return;
+		}
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		// No markdown view at all counts as reading view: there is no editor to be in the way of.
+		const reading = !view || view.getMode() === "preview";
+		this.stage.setClickThrough(!reading);
+	}
+
+	/**
+	 * Steps a live mascot through every action its pack has, one command press at a time.
+	 *
+	 * For building a character: paging through the whole set to see what each looks like otherwise
+	 * means opening the editor and pressing ▶ on each in turn, and on mobile there is no editor
+	 * worth using at all. Wraps in both directions, and reports the name so you know what you are
+	 * looking at.
+	 */
+	cycleAction(delta: 1 | -1): void {
+		const mascot = this.stage?.getMascots()[0];
+		if (!mascot) {
+			new Notice("Spawn a mascot first.");
+			return;
+		}
+		const names = mascot.listActionNames();
+		if (names.length === 0) {
+			new Notice("This character has no actions to step through.");
+			return;
+		}
+		// Modulo twice, because a negative delta at index 0 lands negative and JS keeps the sign.
+		this.actionCycleIndex = (((this.actionCycleIndex + delta) % names.length) + names.length) % names.length;
+		const name = names[this.actionCycleIndex];
+		mascot.previewAction(name);
+		new Notice(`${this.actionCycleIndex + 1}/${names.length} — ${name}`);
+	}
+
+	/** Where the cycle commands are up to. Deliberately not per-mascot: it is a review tool for one
+	 * character's list, and resetting it every time the first mascot changed would lose your place
+	 * halfway through a pack. */
+	private actionCycleIndex = -1;
 
 	applyAllowDragging(): void {
 		for (const mascot of this.stage?.getMascots() ?? []) mascot.dragEnabled = this.settings.allowDragging;
@@ -1048,7 +1120,7 @@ export default class ShimejiPlugin extends Plugin {
 		parent: Mascot | undefined,
 		forcedPackId: string | null | undefined,
 	): void {
-		mascot.scale = this.settings.scale;
+		mascot.scale = this.currentScale();
 		mascot.dragEnabled = this.settings.allowDragging;
 		// A Breed-spawned sibling inherits its parent's exact character instead of picking a
 		// random active one, matching the original (splitting in two keeps the same look).
