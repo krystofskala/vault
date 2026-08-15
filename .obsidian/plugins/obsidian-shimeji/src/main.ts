@@ -16,7 +16,8 @@ import { sounds } from "./shimeji/SoundPlayer";
 import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
 import { Residency } from "./room/Residency";
-import { ROOM_IMAGE_FILE, ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
+import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
+import { roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
 
 /** How often to check whether a mascot is currently on the user's active pane and roll for
  * "note mischief" — not tied to any real engine tick, this is Obsidian-layer-only and has no
@@ -161,7 +162,8 @@ export default class ShimejiPlugin extends Plugin {
 			ROOM_VIEW_TYPE,
 			(leaf) =>
 				new RoomView(leaf, {
-					imageSrc: () => this.roomImageSrc(),
+					style: () => roomStyle(this.settings.roomStyle),
+					imageSrc: (style) => this.roomImageSrc(style),
 					onLayoutChanged: () => this.residency.tick(),
 					showSurfaces: () => this.showRoomSurfaces,
 				}),
@@ -175,6 +177,7 @@ export default class ShimejiPlugin extends Plugin {
 		this.addCommand({ id: "shimeji-call-out", name: "Call the shimeji out of the plant room", callback: () => this.callOutOfRoom() });
 		this.addCommand({ id: "shimeji-room-surfaces", name: "Show/hide what the shimeji can stand on in the plant room", callback: () => this.toggleRoomSurfaces() });
 		this.addCommand({ id: "shimeji-room-reload-art", name: "Reload the plant room artwork", callback: () => this.reloadRoomArt() });
+		this.addCommand({ id: "shimeji-room-next", name: "Switch to the next plant room", callback: () => void this.cycleRoomStyle() });
 		this.addCommand({ id: "shimeji-spawn", name: "Spawn mascot", callback: () => this.spawnMascot() });
 		this.addCommand({ id: "shimeji-remove", name: "Remove mascot", callback: () => this.stage?.removeMascot() });
 		this.addCommand({ id: "shimeji-remove-all", name: "Remove all mascots", callback: () => this.stage?.removeAllMascots() });
@@ -603,17 +606,45 @@ export default class ShimejiPlugin extends Plugin {
 	}
 
 	/**
-	 * Where the room's artwork comes from: a file the user drops into the plugin's own folder.
+	 * Where a room's artwork comes from: a file the user drops into the plugin's own folder.
 	 *
-	 * A fixed path rather than a setting to fill in first — the whole setup is "put the picture
-	 * here". `getResourcePath` is what turns a vault path into something an <img> will load; it is
+	 * A fixed path per room rather than a setting to fill in first — the whole setup is "put the
+	 * picture here". `getResourcePath` turns a vault path into something an <img> will load, and is
 	 * already how every pack sprite is resolved.
+	 *
+	 * The existence check is not a nicety. Handing an <img> a path with nothing behind it puts a red
+	 * `ERR_FILE_NOT_FOUND` in the console, which reads as a broken plugin rather than as "you have
+	 * not added the picture yet" — reported as exactly that.
 	 */
-	private roomImageSrc(): string | undefined {
+	private async roomImageSrc(style: RoomStyle): Promise<string | undefined> {
+		if (!style.imageFile) return undefined;
 		const dir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
-		// Cache-busted by mtime would need a stat; a plain reload command is simpler and is the only
-		// time the file changes under a running plugin.
-		return this.app.vault.adapter.getResourcePath(`${dir}/${ROOM_IMAGE_FILE}`);
+		const path = `${dir}/${style.imageFile}`;
+		try {
+			if (!(await this.app.vault.adapter.exists(path))) return undefined;
+		} catch {
+			return undefined;
+		}
+		return this.app.vault.adapter.getResourcePath(path);
+	}
+
+	/** Cycles through the rooms. A dropdown in settings is the discoverable way; this is the one you
+	 * reach for while actually looking at the room. */
+	private async cycleRoomStyle(): Promise<void> {
+		const current = roomStyle(this.settings.roomStyle);
+		const next = ROOM_STYLE_IDS[(ROOM_STYLE_IDS.indexOf(current.id) + 1) % ROOM_STYLE_IDS.length];
+		await this.setRoomStyle(next);
+	}
+
+	async setRoomStyle(id: string): Promise<void> {
+		this.settings.roomStyle = roomStyle(id).id;
+		await this.saveSettings();
+		const view = this.roomView();
+		await view?.loadImage();
+		view?.invalidate();
+		view?.refresh();
+		const style = roomStyle(this.settings.roomStyle);
+		new Notice(`Shimeji room: ${style.label}${style.imageFile && !view ? "" : ""}`);
 	}
 
 	/** Draws the room's collision surfaces over the artwork. The one part of the room that cannot be
@@ -635,8 +666,8 @@ export default class ShimejiPlugin extends Plugin {
 			new Notice("Shimeji: the plant room is not open.");
 			return;
 		}
-		view.loadImage();
-		new Notice(`Shimeji: reloading ${ROOM_IMAGE_FILE}`);
+		void view.loadImage();
+		new Notice(`Shimeji: reloading ${roomStyle(this.settings.roomStyle).label}`);
 	}
 
 	private roomView(): RoomView | undefined {

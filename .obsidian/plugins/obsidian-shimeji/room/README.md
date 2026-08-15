@@ -1,13 +1,22 @@
 # The plant room's artwork
 
-Drop a square image in this folder named **`room.png`** and the plant room will use it.
+Drop the pictures in this folder and pick a room in the plugin's settings.
 
-Nothing else is needed — no settings, no import step. If the file is missing or cannot be
-decoded, the room falls back to the small pixel-art nook the plugin draws itself.
+| Room | File to save here |
+|---|---|
+| **Apartment** — square studio flat | `room.png` |
+| **Cellar** — timber grow-room | `room2.png` |
+| **Plant nook** — drawn by the plugin | none needed |
 
-- **Square (1:1).** The picture is fitted into the room's square without distortion, and the
-  colour behind it is sampled from the artwork's own top-left pixel, so the surround matches
-  seamlessly. That surround is the only thing that stretches.
+Nothing else is needed: no import step, no path to type. If the chosen room's file is missing or
+cannot be decoded, the plugin quietly shows the nook it draws itself rather than an empty pane —
+and it checks the file is there before trying to load it, so a missing picture is not an error in
+the console.
+
+- **Never distorted.** Each room's box matches its artwork's own shape — the apartment is square,
+  the cellar is landscape — and the picture is fitted into it, keeping its proportions at every
+  sidebar width. The colour behind it is sampled from the artwork's own corner pixel, so the
+  surround matches seamlessly. That surround is the only thing that stretches.
 - **Any resolution.** The collision geometry is authored in percentages, so it holds whatever
   size the source is and whatever width the sidebar is dragged to.
 - **After replacing it**, run **"Reload the plant room artwork"** from the command palette —
@@ -15,7 +24,8 @@ decoded, the room falls back to the small pixel-art nook the plugin draws itself
 
 ## Making the shimeji stand on the furniture
 
-The surfaces are authored in `src/room/apartment.ts`, in percentages of the square. They are the
+The surfaces are authored in `src/room/apartment.ts` and `src/room/cellar.ts`, in percentages of
+the room's width. They are the
 one part of the room that cannot be checked by reasoning: the plugin draws the painted room's
 picture and its collision lines from a single declaration, so those cannot disagree, but an image
 knows nothing about the lines placed on top of it.

@@ -1,19 +1,22 @@
 import { ItemView, type WorkspaceLeaf } from "obsidian";
 import type { Rect } from "../engine/types";
-import { APARTMENT } from "./apartment";
 import { layoutRoom, shouldMirror, type RoomLayout } from "./RoomGeometry";
 import { drawRoomImage, drawSurfaceOverlay, moodForHour, paintRoom, ROOM_BACKDROP, ROOM_BACKDROP_DUSK, sampleBackdrop } from "./roomArt";
 import { LIVING_ROOM, type RoomDef } from "./roomDef";
+import type { RoomStyle } from "./rooms";
 
 export const ROOM_VIEW_TYPE = "shimeji-plant-room";
 
-/** Where the artwork is looked for, relative to the plugin's own folder. Dropping a file at a fixed
- * path is the whole setup — no import step, no settings to find first. */
-export const ROOM_IMAGE_FILE = "room/room.png";
-
 export interface RoomViewOptions {
-	/** Resolves the room artwork to something an <img> can load, or undefined if there is none. */
-	imageSrc(): string | undefined;
+	/** Which room to show. */
+	style(): RoomStyle;
+	/**
+	 * Resolves the chosen room's artwork to something an <img> can load, or undefined when there is
+	 * no such file. Asynchronous because it has to *check* — handing an <img> a path that is not
+	 * there produces a red ERR_FILE_NOT_FOUND in the console, which reads as a broken plugin rather
+	 * than "you have not put the picture in yet".
+	 */
+	imageSrc(style: RoomStyle): Promise<string | undefined>;
 	/** Redraw-worthy changes to the room's position, for the residency controller. */
 	onLayoutChanged(): void;
 	/** Whether to draw the collision surfaces over the room. */
@@ -38,6 +41,7 @@ export class RoomView extends ItemView {
 	private image?: HTMLImageElement;
 	private imageState: "none" | "loading" | "ready" | "failed" = "none";
 	private backdrop?: string;
+	private loadedStyleId?: string;
 
 	constructor(leaf: WorkspaceLeaf, private opts: RoomViewOptions) {
 		super(leaf);
@@ -55,11 +59,14 @@ export class RoomView extends ItemView {
 		return "sprout";
 	}
 
-	/** The apartment when its artwork is available, the painted room when it is not. Falling back
+	/** The chosen room when its artwork is available, the painted one when it is not. Falling back
 	 * rather than showing an empty pane means the feature works before any file is dropped in, and
-	 * the geometry follows whichever room is actually on screen. */
+	 * the geometry always follows whichever room is actually on screen — a mismatch there would put
+	 * the resident on furniture that is not in the picture. */
 	get def(): RoomDef {
-		return this.imageState === "ready" ? APARTMENT : LIVING_ROOM;
+		const style = this.opts.style();
+		if (!style.imageFile) return style.def;
+		return this.imageState === "ready" ? style.def : LIVING_ROOM;
 	}
 
 	async onOpen(): Promise<void> {
@@ -71,7 +78,7 @@ export class RoomView extends ItemView {
 		this.canvas.setAttr("role", "img");
 		this.canvas.setAttr("aria-label", "The room a shimeji can live in.");
 
-		this.loadImage();
+		void this.loadImage();
 
 		// The pane is resized by dragging the sidebar's edge, which fires no workspace event — only
 		// the element itself knows. Without this the room would keep its old scale until something
@@ -88,12 +95,26 @@ export class RoomView extends ItemView {
 		this.resizeObserver = undefined;
 	}
 
-	/** Reloads the artwork — after it is added, replaced, or its path changed. */
-	loadImage(): void {
-		const src = this.opts.imageSrc();
-		if (!src) {
+	/** Reloads the artwork — after it is added, replaced, or the chosen room changed. */
+	async loadImage(): Promise<void> {
+		const style = this.opts.style();
+		this.loadedStyleId = style.id;
+		if (!style.imageFile) {
+			this.image = undefined;
 			this.imageState = "none";
 			this.invalidate();
+			this.refresh();
+			return;
+		}
+		const src = await this.opts.imageSrc(style);
+		// The chosen room may have changed while the file was being looked up.
+		if (this.loadedStyleId !== style.id) return;
+		if (!src) {
+			this.image = undefined;
+			this.imageState = "none";
+			this.invalidate();
+			this.refresh();
+			this.opts.onLayoutChanged();
 			return;
 		}
 		const img = new Image();
@@ -113,7 +134,7 @@ export class RoomView extends ItemView {
 		img.onerror = () => {
 			if (this.image !== img) return;
 			this.imageState = "failed";
-			console.warn(`[obsidian-shimeji] could not load the room artwork from ${src} — falling back to the painted room`);
+			console.warn(`[obsidian-shimeji] the room artwork at ${style.imageFile} could not be decoded — falling back to the painted room`);
 			this.invalidate();
 			this.refresh();
 			this.opts.onLayoutChanged();
@@ -149,15 +170,17 @@ export class RoomView extends ItemView {
 
 	/** What shimejiDebug.room() reports about the artwork. */
 	get artworkState(): string {
+		const style = this.opts.style();
+		if (!style.imageFile) return `${style.label} — drawn by the plugin, no file needed`;
 		switch (this.imageState) {
 			case "ready":
-				return `loaded (${this.image?.naturalWidth ?? 0}x${this.image?.naturalHeight ?? 0})`;
+				return `${style.label}: ${style.imageFile} loaded (${this.image?.naturalWidth ?? 0}x${this.image?.naturalHeight ?? 0})`;
 			case "loading":
-				return "still loading";
+				return `${style.label}: still loading ${style.imageFile}`;
 			case "failed":
-				return "found but could not be decoded";
+				return `${style.label}: ${style.imageFile} exists but could not be decoded`;
 			default:
-				return `no file at ${ROOM_IMAGE_FILE} — showing the painted room`;
+				return `${style.label}: no file at ${style.imageFile} — showing the painted room instead`;
 		}
 	}
 
@@ -174,7 +197,7 @@ export class RoomView extends ItemView {
 		const layout = layoutRoom(def, rect, window.innerWidth);
 		if (!layout) return;
 		const surfaces = this.opts.showSurfaces();
-		const key = `${def.background ?? "painted"}|${layout.scale}|${layout.mirrored}|${mood.dusk}|${surfaces}`;
+		const key = `${this.opts.style().id}|${def.background ?? "painted"}|${layout.scale}|${layout.mirrored}|${mood.dusk}|${surfaces}`;
 		const moved = `${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.right)}|${Math.round(rect.bottom)}`;
 
 		if (key !== this.lastKey) {

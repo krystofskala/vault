@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type ShimejiPlugin from "./main";
+import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
 import { CustomContentModal } from "./customContentModal";
 import type { CustomPackContent } from "./shimeji/customContent";
 
@@ -68,6 +69,8 @@ export interface ShimejiSettings {
 	 * "the plain white one is".
 	 */
 	roomResident: { packId: string | null } | null;
+	/** Which room the plant-room pane shows — see room/rooms.ts. */
+	roomStyle: string;
 	/** Whether the room's pane has ever been shown. Opened once on the first run that has the
 	 * feature, because an unopened view type appears nowhere but the command palette — after that
 	 * it is Obsidian's own saved layout that decides, so closing it sticks. */
@@ -101,6 +104,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowNoteMischief: false,
 	customContent: {},
 	roomResident: null,
+	roomStyle: "apartment",
 	roomIntroduced: false,
 };
 
@@ -113,6 +117,26 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 		containerEl.createEl("h2", { text: "Shimeji Desktop Mascot" });
+
+		new Setting(containerEl)
+			.setName("Plant room")
+			.setDesc(
+				"Which room the shimeji lives in. The two illustrated rooms each need their picture " +
+					"saved in the plugin's own room/ folder (see the README there); without it, the room " +
+					"the plugin draws itself is shown instead.",
+			)
+			.addDropdown((dropdown) => {
+				for (const id of ROOM_STYLE_IDS) dropdown.addOption(id, ROOM_STYLES[id].label);
+				dropdown.setValue(roomStyle(this.plugin.settings.roomStyle).id).onChange(async (value) => {
+					await this.plugin.setRoomStyle(value);
+					this.display();
+				});
+			});
+
+		containerEl.createEl("p", {
+			text: roomStyle(this.plugin.settings.roomStyle).description,
+			cls: "setting-item-description",
+		});
 
 		new Setting(containerEl)
 			.setName("Pack folder")
