@@ -496,6 +496,31 @@ export default class ShimejiPlugin extends Plugin {
 		new Notice(following ? `Now following the mouse (${targets.length})` : `Stopped following the mouse (${targets.length})`);
 	}
 
+	/**
+	 * Plays one of a pack's actions on a live mascot wearing it, for the custom content editor.
+	 *
+	 * Deliberately does not spawn one when none is wearing that character. A fresh spawn starts
+	 * off the top of the screen and falls in, so the preview would run on a mascot in mid-air —
+	 * and a Floor-bordered action started mid-air loses its ground and goes straight to Fall,
+	 * which looks exactly like the animation being broken. Better to say there is nobody to
+	 * show it on.
+	 *
+	 * Returns a message when it could not run, and undefined on success.
+	 */
+	previewAction(packId: string, actionName: string): string | undefined {
+		const mascots = this.stage?.getMascots() ?? [];
+		if (mascots.length === 0) return "Spawn a mascot first — there is nobody to show it on.";
+		const wearing = mascots.filter((m) => this.packIdOf(m) === packId);
+		if (wearing.length === 0) {
+			const pack = this.availablePacks.find((p) => p.id === packId);
+			return `No mascot is wearing ${pack?.name ?? packId} right now — spawn one, or switch a mascot to that character.`;
+		}
+		// Whichever is grounded, if any: an action bordered to the floor cannot start in mid-air,
+		// and picking a mascot that happens to be falling would make a fine animation look broken.
+		const target = wearing.find((m) => m.physics.grounded) ?? wearing[0];
+		return target.previewAction(actionName) ? undefined : `The pack has no action named "${actionName}".`;
+	}
+
 	/** Which character a mascot wears, or null for the built-in placeholder. */
 	private packIdOf(mascot: Mascot): string | null {
 		return this.mascotPackId.get(mascot) ?? null;

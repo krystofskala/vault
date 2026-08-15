@@ -107,10 +107,15 @@ export interface MascotDriver {
 	/** Jumps straight to a named behavior (e.g. a right-click "Set behavior" menu, or the
 	 * BornBehavior a Breed action starts a new sibling with) instead of the normal weighted pick. */
 	startNamedBehavior?(mascot: Mascot, name: string, ambientPointer: AmbientPointer): void;
+	/** Invented: plays one action by name with no behavior owning it, so the custom content editor
+	 * can show what an animation looks like. Returns false if the pack has no such action. */
+	previewAction?(mascot: Mascot, name: string, ambientPointer: AmbientPointer): boolean;
 	/** The behavior currently running, for the debug readout (shimejiDebug.where/watch). */
 	currentBehaviorName?(): string | undefined;
 	/** Behavior names this driver can run, for building a "Set behavior" menu generically. */
 	listBehaviorNames?(): string[];
+	/** Action names this driver can play, for the editor's preview. */
+	listActionNames?(): string[];
 	/** Behaviors a pack marked `Toggleable`, i.e. offerable as persistent on/off switches. */
 	listToggleableBehaviorNames?(): string[];
 	/** Applies the user's on/off choices; excluded from autonomous selection only. */
@@ -345,6 +350,15 @@ export class Mascot {
 
 	listBehaviorNames(): string[] {
 		return this.driver?.listBehaviorNames?.() ?? [];
+	}
+
+	/** Plays one action right now, bypassing behavior selection — see MascotDriver.previewAction. */
+	previewAction(name: string): boolean {
+		return this.driver?.previewAction?.(this, name, this.deps.getAmbientPointer()) ?? false;
+	}
+
+	listActionNames(): string[] {
+		return this.driver?.listActionNames?.() ?? [];
 	}
 
 	listToggleableBehaviorNames(): string[] {

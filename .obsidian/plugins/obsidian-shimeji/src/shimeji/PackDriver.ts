@@ -85,6 +85,17 @@ export class PackDriver implements MascotDriver {
 		this.ai.forceBehavior(name, mascot, ambientPointer, this.config, this.paneActions);
 	}
 
+	/** Invented, for the custom content editor — see BehaviorAI.previewAction. */
+	previewAction(mascot: Mascot, name: string, ambientPointer: AmbientPointer): boolean {
+		return this.ai.previewAction(name, mascot, ambientPointer, this.config, this.paneActions);
+	}
+
+	/** Action names this pack can play, for the editor's preview and for telling a typo'd
+	 * reference from a real one. */
+	listActionNames(): string[] {
+		return [...this.pack.actions.keys()].sort((a, b) => a.localeCompare(b));
+	}
+
 	setDisabledBehaviors(names: ReadonlySet<string>): void {
 		this.ai.setDisabledBehaviors(names);
 	}

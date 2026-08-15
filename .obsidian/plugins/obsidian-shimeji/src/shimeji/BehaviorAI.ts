@@ -872,6 +872,34 @@ export class BehaviorAI {
 		if (!this.runner.start(name, env)) this.currentBehavior = undefined;
 	}
 
+	/**
+	 * **Invented.** Runs one *action* by name, right now, with no behaviour owning it.
+	 *
+	 * Nothing in the real engine does this: an action is only ever reached through the behaviour
+	 * that names it, so there is no path to "just play Walk once". This exists for the custom
+	 * content editor, where you have to be able to see the animation you are building without
+	 * first inventing a behaviour, giving it a frequency, and waiting for the weighted pick to
+	 * land on it.
+	 *
+	 * `currentBehavior` is deliberately left unset rather than faked: no behaviour *is* running,
+	 * so the debug readout should not claim one, and the next tick finding an idle runner puts the
+	 * mascot straight back into ordinary selection. The preview is therefore a single interruption,
+	 * not a mode to leave.
+	 *
+	 * Returns false when the pack has no action by that name.
+	 */
+	previewAction(name: string, mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): boolean {
+		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);
+		this.roamTarget = undefined;
+		this.currentBehavior = undefined;
+		debugLog("action -> (preview)", name, {
+			x: Math.round(mascot.physics.x),
+			y: Math.round(mascot.physics.y),
+			grounded: mascot.physics.grounded,
+		});
+		return this.runner.start(name, env);
+	}
+
 	private buildEnv(mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): PushEnv {
 		const viewport = mascot.getViewportSize();
 		const ctx = createRuntimeContext(

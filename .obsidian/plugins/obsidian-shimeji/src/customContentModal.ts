@@ -142,6 +142,7 @@ export class CustomContentModal extends Modal {
 			new Setting(contentEl)
 				.setName(spec.name || "(unnamed)")
 				.setDesc(detail)
+				.addExtraButton((b) => b.setIcon("play").setTooltip("Play this on a live mascot").onClick(() => this.playAction(spec.name)))
 				.addButton((b) => b.setButtonText("Edit").onClick(() => this.openActionEditor(spec)))
 				.addButton((b) => b.setButtonText("Duplicate").onClick(() => this.duplicateAction(spec)))
 				.addButton((b) => b.setButtonText("Delete").setWarning().onClick(() => this.deleteAction(spec)));
@@ -360,7 +361,32 @@ export class CustomContentModal extends Modal {
 					.setCta()
 					.onClick(() => this.saveActionDraft()),
 			)
+			.addButton((b) => b.setButtonText("▶ Save & play").onClick(() => this.saveAndPlay()))
 			.addButton((b) => b.setButtonText("Cancel").onClick(() => this.cancelActionDraft()));
+	}
+
+	/**
+	 * Saves the draft and immediately plays it, without leaving the editor.
+	 *
+	 * Saving first is not optional: a mascot plays what is in the built pack, and the draft only
+	 * reaches it via commit(). Previewing without saving would show the previous version of the
+	 * action while the editor displayed the new one, which is worse than not having a preview.
+	 */
+	private async saveAndPlay(): Promise<void> {
+		const name = this.draftAction?.name.trim();
+		if (!(await this.saveActionDraft({ stayOpen: true }))) return;
+		if (name) this.playAction(name);
+	}
+
+	/** Plays a saved action on a live mascot, reporting in a Notice when it cannot. */
+	private playAction(name: string): void {
+		const trimmed = name.trim();
+		if (!trimmed) {
+			new Notice("Give this action a name first.");
+			return;
+		}
+		const problem = this.plugin.previewAction(this.packId, trimmed);
+		if (problem) new Notice(problem);
 	}
 
 	private renderEmbeddedEditor(container: HTMLElement, spec: CustomActionSpec): void {
@@ -639,28 +665,39 @@ export class CustomContentModal extends Modal {
 		this.render();
 	}
 
-	private async saveActionDraft(): Promise<void> {
-		if (!this.draftAction) return;
-		const name = this.draftAction.name.trim();
+	/** Saves the draft action. `stayOpen` keeps the editor showing it — for "Save & play", where
+	 * being thrown back to the list after every preview would make iterating on an animation
+	 * miserable. Returns whether it validated. */
+	private async saveActionDraft(opts?: { stayOpen?: boolean }): Promise<boolean> {
+		const draft = this.draftAction;
+		if (!draft) return false;
+		const name = draft.name.trim();
 		if (!name) {
 			new Notice("Give this action a name first.");
-			return;
+			return false;
 		}
-		if (this.draftAction.type === "Embedded" && !this.draftAction.embeddedClass) {
+		if (draft.type === "Embedded" && !draft.embeddedClass) {
 			new Notice("Pick a native handler for this Embedded action.");
-			return;
+			return false;
 		}
-		if (this.content.actions.some((a) => a.id !== this.draftAction?.id && a.name.trim() === name)) {
+		if (this.content.actions.some((a) => a.id !== draft.id && a.name.trim() === name)) {
 			new Notice(`Another custom action is already named "${name}" — the later one would silently win. Pick a different name, or edit that one instead.`);
-			return;
+			return false;
 		}
-		const idx = this.content.actions.findIndex((a) => a.id === this.draftAction?.id);
-		if (idx >= 0) this.content.actions[idx] = this.draftAction;
-		else this.content.actions.push(this.draftAction);
-		this.draftAction = undefined;
-		this.view = "list";
+		const idx = this.content.actions.findIndex((a) => a.id === draft.id);
+		if (idx >= 0) this.content.actions[idx] = draft;
+		else this.content.actions.push(draft);
+		if (!opts?.stayOpen) {
+			this.draftAction = undefined;
+			this.view = "list";
+		} else {
+			// Kept as the live draft, but re-cloned so further edits do not mutate what was just
+			// committed to `content` behind the editor's back.
+			this.draftAction = cloneJson(draft);
+		}
 		await this.commit();
 		this.render();
+		return true;
 	}
 
 	private cancelActionDraft(): void {
