@@ -593,6 +593,67 @@ sideways as poses change. Adjust it by hand afterwards if a pose needs it.
 the action, not to the picture, so a freshly sliced Walk is a held animation until you fill that
 in — visible and fixable, rather than a guessed speed nothing in the pack asked for.
 
+### Seeing it move
+
+Every action has a **▶** button in the list, and the editor has **Save & play**. Both run that one
+action on a live mascot immediately, with no behavior owning it — so you can watch a set of poses
+you just sliced without first inventing a behavior, giving it a frequency, and waiting for the
+weighted pick to land on it. Save & play commits first and stays in the editor, because a mascot
+plays what is in the built pack; previewing an uncommitted draft would animate the old version
+while the screen showed the new one.
+
+It plays on a mascot already wearing that character, preferring one that is standing on something.
+If none is, it says so rather than spawning one — a fresh spawn falls in from above, and a
+Floor-bordered action started in mid-air immediately loses its ground and turns into a fall, which
+looks exactly like a broken animation.
+
+## Speech
+
+Mascots can say things, from a plain markdown note in your vault that you edit like any other.
+**Settings → Shimeji Desktop Mascot → Speech** has the toggle, the path, and a status readout.
+
+The file is created for you on first run, at wherever your vault puts new notes. Each plain line is
+one thing a mascot can say, tagged with `@` and a **behavior name**:
+
+```markdown
+Put me down! @Dragged
+Wheeeee! @Thrown
+Off I go. @Walk
+Think I'll sit here a while. @SitDown
+```
+
+`@` rather than `#`, because `#` is already an Obsidian tag and this is a real note.
+
+**A tag also matches any behavior starting with it, and the most specific one wins.** That is what
+makes the file writable: the bundled pack has 57 behaviors, eight of them some flavour of walking,
+and nobody is going to write lines for `WalkLeftAlongFloorAndSit` by hand. `@Walk` covers all of
+them; add `@WalkAlongIECeiling` later and it takes over for that one. A line can carry several tags.
+
+The legal tags are whatever your character's `behaviors.xml` defines, so the generated file lists
+every one of them in a callout at the top — a cheat sheet that is correct for the pack you actually
+have, rather than for the one this README was written against.
+
+**Headings, callouts, code blocks and comments are never spoken**, so you can annotate the file
+freely — including writing `@Walk` inside them as an example. Without that, a file explaining its
+own tags would recite the explanation.
+
+Saving the note reloads it immediately; there is no separate step.
+
+### How often it talks
+
+Speech is triggered by a mascot **starting** a behavior it has a line for. Everything a mascot does
+is a behavior and they change every few seconds, so left unchecked it would be a running
+commentary. Three things hold it back:
+
+- **How chatty** (Settings, 25% by default) — the chance an eligible change actually says something.
+- A quiet period per mascot, and a shorter one across all of them so a crowd doesn't talk at once.
+- A line suppressed by either of those is not owed later. The remark was about starting to do
+  something; by the time the mascot could say it, it is already doing it.
+
+If a mascot says nothing, that is indistinguishable from it being broken — so the settings screen
+reports how many lines and tags parsed, flags any tag no behavior could match (a typo), and flags
+lines that forgot their tag.
+
 ## "Get to that spot" — Shift + triple-click
 
 **Shift + triple-click anywhere** in the window and the nearest mascot goes there. Not near there —

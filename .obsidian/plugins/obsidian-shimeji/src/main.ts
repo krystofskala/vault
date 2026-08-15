@@ -20,6 +20,19 @@ import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 import { moodForHour } from "./room/roomArt";
 import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
 import { RoomForeground } from "./room/RoomForeground";
+import { SpeechBubbles } from "./speech/SpeechBubbles";
+import { DEFAULT_SPEECH_OPTIONS } from "./speech/SpeechScheduler";
+import { parseSpeechLines, speechLinesTemplate, unmatchedTags } from "./speech/speechLines";
+
+/** What the settings screen reports about the speech file, so a typo'd tag or an empty file is
+ * visible rather than silently producing a mascot that never says anything. */
+export interface SpeechStats {
+	fileExists: boolean;
+	taggedLineCount: number;
+	tagCount: number;
+	untaggedLines: string[];
+	unmatchedTags: string[];
+}
 
 /** How often to check whether a mascot is currently on the user's active pane and roll for
  * "note mischief" — not tied to any real engine tick, this is Obsidian-layer-only and has no
@@ -38,6 +51,10 @@ const SPOT_ORDER_CLICK_SLOP_PX = 24;
 const SPOT_ORDER_CLICKS = 3;
 
 export default class ShimejiPlugin extends Plugin {
+	/** What the mascots say. Purely an observer of the engine — see SpeechBubbles. */
+	readonly speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS);
+	/** Last parse of the speech file, for the settings screen. Undefined until first read. */
+	speechStats?: SpeechStats;
 	/** Who lives in the plant room. Created unconditionally — it is inert until the room's pane
 	 * is actually open, and having it always present keeps every call site free of a null check. */
 	readonly residency = new Residency({
@@ -184,6 +201,34 @@ export default class ShimejiPlugin extends Plugin {
 		);
 		this.startResidencyLoop();
 
+		this.applySpeechSettings();
+		// Deferred to layout-ready: creating the starter file needs the vault's own "new note"
+		// folder, and the template lists the loaded packs' behaviour names, neither of which is
+		// settled during onload.
+		this.app.workspace.onLayoutReady(() => {
+			void (async () => {
+				await this.ensureSpeechFile();
+				await this.reloadSpeechLines();
+			})();
+		});
+		// Editing the file in Obsidian reloads it on save, so writing a line and watching for it
+		// does not need a trip through settings.
+		this.registerEvent(
+			this.app.vault.on("modify", (file) => {
+				if (this.settings.speechFilePath && file.path === this.settings.speechFilePath) void this.reloadSpeechLines();
+			}),
+		);
+		this.addCommand({
+			id: "shimeji-open-speech-file",
+			name: "Open the speech-lines file",
+			callback: () => void this.openSpeechFile(),
+		});
+		this.addCommand({
+			id: "shimeji-reload-speech",
+			name: "Reload the speech-lines file",
+			callback: () => void this.reloadSpeechLines().then(() => new Notice(`Speech: ${this.speechStats?.taggedLineCount ?? 0} line(s) loaded`)),
+		});
+
 		this.addRibbonIcon("cat", "Toggle Shimeji mascots", () => this.toggleMascot());
 		this.addRibbonIcon("sprout", "Open the Shimeji plant room", () => void this.revealRoom());
 		this.addCommand({ id: "shimeji-open-room", name: "Open the plant room", callback: () => void this.revealRoom() });
@@ -280,6 +325,7 @@ export default class ShimejiPlugin extends Plugin {
 
 	onunload(): void {
 		cancelAnimationFrame(this.residencyRaf);
+		this.speech.destroy();
 		this.roomForeground.destroy();
 		uninstallDebugApi();
 		this.stage?.destroy();
@@ -829,9 +875,109 @@ export default class ShimejiPlugin extends Plugin {
 			const view = this.roomView();
 			view?.refresh();
 			this.roomForeground.update(view?.def, view?.layout(), this.roomHourOverride);
+			this.speech.tick(this.stage?.getMascots() ?? []);
 			this.residencyRaf = requestAnimationFrame(step);
 		};
 		this.residencyRaf = requestAnimationFrame(step);
+	}
+
+	// ---------------------------------------------------------------- speech
+
+	/** The behaviour names the loaded characters answer to — the legal tags for the speech file.
+	 * Pooled across every available pack, so a file written for one character does not report its
+	 * tags as unmatched merely because a different one happens to be on screen. */
+	speechTagVocabulary(): string[] {
+		const names = new Set<string>();
+		for (const pack of this.availablePacks) for (const name of pack.behaviors.keys()) names.add(name);
+		return [...names].sort((a, b) => a.localeCompare(b));
+	}
+
+	/**
+	 * Makes sure there is a file to read.
+	 *
+	 * Created at the vault's own default location for new notes — the same place Obsidian itself
+	 * would put one — so the feature works on first run with nothing to configure, and the file is
+	 * somewhere the user would actually look. Also recreates it if the path is set but the file has
+	 * since been deleted or renamed away.
+	 */
+	async ensureSpeechFile(): Promise<void> {
+		let path = this.settings.speechFilePath.trim();
+		if (!path) {
+			const folder = this.app.fileManager.getNewFileParent("")?.path ?? "";
+			const base = folder && folder !== "/" ? `${folder}/` : "";
+			let candidate = `${base}Shimeji speech.md`;
+			let suffix = 2;
+			while (await this.app.vault.adapter.exists(candidate)) {
+				candidate = `${base}Shimeji speech ${suffix}.md`;
+				suffix++;
+			}
+			path = candidate;
+			this.settings.speechFilePath = path;
+			await this.saveSettings();
+		}
+		if (await this.app.vault.adapter.exists(path)) return;
+		try {
+			await this.app.vault.create(path, speechLinesTemplate(this.speechTagVocabulary()));
+		} catch (e) {
+			console.warn(`[obsidian-shimeji] could not create the speech file at "${path}"`, e);
+		}
+	}
+
+	/** (Re)reads and parses the speech file and pushes the result to the bubbles. Safe to call at
+	 * any time — on load, on a settings change, from the reload command, and automatically
+	 * whenever that exact file is saved. */
+	async reloadSpeechLines(): Promise<void> {
+		const path = this.settings.speechFilePath.trim();
+		if (!path || !(await this.app.vault.adapter.exists(path))) {
+			this.speechStats = { fileExists: false, taggedLineCount: 0, tagCount: 0, untaggedLines: [], unmatchedTags: [] };
+			this.speech.setPool(new Map());
+			return;
+		}
+		try {
+			const parsed = parseSpeechLines(await this.app.vault.adapter.read(path));
+			this.speech.setPool(parsed.pool);
+			this.speechStats = {
+				fileExists: true,
+				taggedLineCount: parsed.taggedLineCount,
+				tagCount: parsed.pool.size,
+				untaggedLines: parsed.untaggedLines,
+				unmatchedTags: unmatchedTags(parsed.pool, this.speechTagVocabulary()),
+			};
+		} catch (e) {
+			console.warn("[obsidian-shimeji] could not read the speech file", e);
+			this.speechStats = { fileExists: true, taggedLineCount: 0, tagCount: 0, untaggedLines: [], unmatchedTags: [] };
+			this.speech.setPool(new Map());
+		}
+	}
+
+	/** Opens the speech file for editing, creating it first if it has gone missing. */
+	async openSpeechFile(): Promise<void> {
+		await this.ensureSpeechFile();
+		const path = this.settings.speechFilePath.trim();
+		const file = path ? this.app.vault.getFileByPath(path) : null;
+		if (!file) {
+			new Notice(`Couldn't open "${path || "the speech file"}".`);
+			return;
+		}
+		await this.app.workspace.getLeaf(true).openFile(file);
+	}
+
+	/** Makes a mascot say something now, ignoring the cooldowns — the settings screen's "try it". */
+	trySpeech(text: string): boolean {
+		const mascot = this.stage?.getMascots()[0];
+		if (!mascot) return false;
+		this.speech.say(mascot, text);
+		return true;
+	}
+
+	/** Pushes the current speech settings to the bubbles. */
+	applySpeechSettings(): void {
+		this.speech.setEnabled(this.settings.speechEnabled);
+		this.speech.setStyle(this.settings.speechStyle);
+		this.speech.setOptions({
+			...DEFAULT_SPEECH_OPTIONS,
+			chancePercent: Math.max(0, Math.min(100, this.settings.speechChancePercent)),
+		});
 	}
 
 	/** The panes a spot order opened are left in place on purpose — closing one the moment the mascot

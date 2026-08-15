@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ShimejiPlugin from "./main";
 import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
 import { CustomContentModal } from "./customContentModal";
@@ -75,6 +75,22 @@ export interface ShimejiSettings {
 	 * feature, because an unopened view type appears nowhere but the command palette — after that
 	 * it is Obsidian's own saved layout that decides, so closing it sticks. */
 	roomIntroduced: boolean;
+	/** Whether mascots say anything at all. */
+	speechEnabled: boolean;
+	/**
+	 * Vault-relative path to the markdown file of `@Behavior`-tagged lines (see
+	 * speech/speechLines.ts) — the only source of speech. Empty means "not set up yet"; main.ts
+	 * creates one at the vault's own default location for new notes on first load, so the feature
+	 * works without anything to configure by hand.
+	 */
+	speechFilePath: string;
+	/** "theme" follows the active Obsidian theme; "comic" is a fixed white bubble with a heavy ink
+	 * outline, the same in light or dark. */
+	speechStyle: "theme" | "comic";
+	/** How often an eligible behaviour change actually produces a line, 0–100. Everything a mascot
+	 * does is a behaviour and they change every few seconds, so this is the difference between an
+	 * occasional remark and a running commentary. */
+	speechChancePercent: number;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -106,6 +122,10 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	roomResident: null,
 	roomStyle: "apartment",
 	roomIntroduced: false,
+	speechEnabled: true,
+	speechFilePath: "",
+	speechStyle: "theme",
+	speechChancePercent: 25,
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
@@ -151,6 +171,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			}
 			roomStatus.setText(`${lines.join(" \u00b7 ")}  (inside ${this.plugin.roomFolder()}/)`);
 		})();
+
+		this.renderSpeechSection(containerEl);
 
 		new Setting(containerEl)
 			.setName("Pack folder")
@@ -480,5 +502,107 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					this.plugin.stage?.setDebugLedges(value);
 				}),
 			);
+	}
+
+	/**
+	 * Speech: the toggle, the file, and — most importantly — what the plugin actually made of it.
+	 *
+	 * The status readout is the part that earns its place. Every failure mode here is silence: a
+	 * typo'd tag, a file saved somewhere else, a line that forgot its tag. All of them look
+	 * identical to a mascot that simply had nothing to say, so the counts and the two problem lists
+	 * are the only way to tell "working, just quiet" from "broken".
+	 */
+	private renderSpeechSection(containerEl: HTMLElement): void {
+		containerEl.createEl("h3", { text: "Speech" });
+
+		new Setting(containerEl)
+			.setName("Let mascots talk")
+			.setDesc("Shows a bubble when a mascot starts a behaviour you have written a line for.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.speechEnabled).onChange(async (value) => {
+					this.plugin.settings.speechEnabled = value;
+					await this.plugin.saveSettings();
+					this.plugin.applySpeechSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Lines file")
+			.setDesc("A note in your vault. Each plain line is one thing a mascot can say, tagged with @ and a behaviour name.")
+			.addText((text) =>
+				text
+					.setPlaceholder("Shimeji speech.md")
+					.setValue(this.plugin.settings.speechFilePath)
+					.onChange(async (value) => {
+						this.plugin.settings.speechFilePath = value.trim();
+						await this.plugin.saveSettings();
+						await this.plugin.reloadSpeechLines();
+					}),
+			)
+			.addExtraButton((b) => b.setIcon("pencil").setTooltip("Open it for editing").onClick(() => void this.plugin.openSpeechFile()))
+			.addExtraButton((b) =>
+				b
+					.setIcon("refresh-cw")
+					.setTooltip("Re-read it now")
+					.onClick(() => void this.plugin.reloadSpeechLines().then(() => this.display())),
+			);
+
+		new Setting(containerEl)
+			.setName("How chatty")
+			.setDesc(
+				"Chance that a behaviour with a line for it actually says something. Everything a mascot does is a " +
+					"behaviour and they change every few seconds, so at 100% it never stops talking.",
+			)
+			.addSlider((slider) =>
+				slider
+					.setLimits(0, 100, 5)
+					.setValue(this.plugin.settings.speechChancePercent)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.speechChancePercent = value;
+						await this.plugin.saveSettings();
+						this.plugin.applySpeechSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Bubble style")
+			.addDropdown((dropdown) => {
+				dropdown.addOption("theme", "Match the Obsidian theme");
+				dropdown.addOption("comic", "Comic — white with an ink outline");
+				dropdown.setValue(this.plugin.settings.speechStyle).onChange(async (value) => {
+					this.plugin.settings.speechStyle = value === "comic" ? "comic" : "theme";
+					await this.plugin.saveSettings();
+					this.plugin.applySpeechSettings();
+					this.plugin.trySpeech("Like this.");
+				});
+			})
+			.addButton((b) =>
+				b.setButtonText("Try it").onClick(() => {
+					if (!this.plugin.trySpeech("Hello!")) new Notice("Spawn a mascot first.");
+				}),
+			);
+
+		const stats = this.plugin.speechStats;
+		const status = containerEl.createEl("p", { cls: "setting-item-description" });
+		if (!stats) {
+			status.setText("Not read yet.");
+		} else if (!stats.fileExists) {
+			status.setText("No file at that path yet — the pencil button creates it.");
+		} else {
+			status.setText(`${stats.taggedLineCount} line(s) across ${stats.tagCount} tag(s).`);
+			if (stats.unmatchedTags.length > 0) {
+				containerEl.createEl("p", {
+					cls: "shimeji-cc-error",
+					text: `No behaviour matches: ${stats.unmatchedTags.map((t) => `@${t}`).join(", ")} — check the spelling against the cheat sheet in the file.`,
+				});
+			}
+			if (stats.untaggedLines.length > 0) {
+				containerEl.createEl("p", {
+					cls: "shimeji-cc-error",
+					text: `${stats.untaggedLines.length} line(s) have no tag and will never be said, starting with “${stats.untaggedLines[0]}”.`,
+				});
+			}
+		}
 	}
 }
