@@ -547,6 +547,52 @@ its editor.
 A custom action/behavior with the same name as a standard one (or another custom one) replaces
 it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml` directly.
 
+### Slicing poses out of a sprite sheet
+
+Poses are one image each, the way a real pack is built — but sprites are usually distributed as
+a single sheet with every frame on it. The editor cuts one up for you.
+
+**Images** on the editor's main screen is the pack's own image folder: **Upload images…** copies
+files in from anywhere on your computer (several at once), and each one can be deleted, or
+cleaned up with **Remove background…** — colour-key transparency for a sheet that came with a
+flat coloured background instead of a transparent one. Pick as many background colours as it
+takes (click the live preview to sample one straight off the image), set a tolerance, and
+everything close to any of them goes see-through. It only matches colours rather than trying to
+work out what is foreground, so it copes with art of any quality — but set the tolerance too
+high and it starts eating the character. The result overwrites the image in place, so poses
+already pointing at it keep working.
+
+Then, inside any action's pose list, **Slice from a sheet…** opens the sheet with a grid over it:
+
+- Set **Columns/Rows**, plus **Gap X/Y** if the sheet has padding around each frame (excluded
+  from every cell and shaded red so you can see it is accounted for).
+- **Drag any grid line** to move it, resizing the two cells it separates, for sheets whose frames
+  aren't quite uniform. It snaps to whole source pixels and to match another cell's width, so
+  landing on a consistent size is easy. **Double-click a line** to delete it and merge those
+  cells back into one.
+- **Click a cell** to select it. The numbers are the order the poses come out in; click again to
+  drop it. **Shift-click** to use the same frame again later in the sequence, for a symmetric
+  cycle like 1, 2, 3, 2 — a frame used twice is still only saved once.
+- For a messy sheet with no usable grid, **Auto-detect frames** finds each sprite's own bounding
+  box instead: it treats the chosen colours (and anything already transparent) as empty space and
+  flood-fills what's left. **Min area** ignores dithering specks, and **Merge gap** reunites a
+  sprite whose limbs got separated by background-coloured gaps inside its own silhouette.
+- **Even strip** is the shortcut for a single row of equal-width frames.
+
+**Add poses** writes each selected frame into the pack folder as its own PNG, named after the
+action (`Walk-1.png`, `Walk-2.png`, …), and appends them to the animation. The sheet itself stays
+put, so you can always come back and slice it differently.
+
+Each pose's **anchor** — the point that actually stands on the floor — is set automatically to
+the feet of the art inside its frame: the horizontal centre of the opaque pixels, at the bottom
+of them. That is measured rather than assumed to be the middle of the cell, because a sprite is
+rarely centred in its own frame, and a guessed anchor leaves the mascot hovering or drifting
+sideways as poses change. Adjust it by hand afterwards if a pose needs it.
+
+**Velocity is left at zero** on every sliced pose. How far a step carries the mascot belongs to
+the action, not to the picture, so a freshly sliced Walk is a held animation until you fill that
+in — visible and fixable, rather than a guessed speed nothing in the pack asked for.
+
 ## "Get to that spot" — Shift + triple-click
 
 **Shift + triple-click anywhere** in the window and the nearest mascot goes there. Not near there —

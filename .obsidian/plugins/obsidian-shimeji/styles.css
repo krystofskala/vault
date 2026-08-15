@@ -162,3 +162,142 @@
 	z-index: 61;
 	image-rendering: pixelated;
 }
+
+/* ---------- sprite sheet editor ---------- */
+
+.shimeji-sheet-modal {
+	width: 1040px;
+	max-width: 95vw;
+}
+
+.shimeji-sheet-layout {
+	display: flex;
+	gap: 16px;
+	align-items: flex-start;
+	flex-wrap: wrap;
+}
+
+.shimeji-sheet-canvas-col {
+	flex: 1 1 420px;
+	min-width: 0;
+}
+
+.shimeji-sheet-side-col {
+	flex: 0 1 320px;
+	min-width: 260px;
+}
+
+.shimeji-sheet-side-col h4 {
+	margin: 16px 0 4px 0;
+}
+
+/* The sheet can be far larger than the modal, and magnified up to 24x on top of that, so it
+   scrolls inside its own box rather than stretching the dialog off the screen. */
+.shimeji-slicer {
+	max-height: 520px;
+	overflow: auto;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	background: var(--background-secondary);
+}
+
+.shimeji-slicer canvas {
+	display: block;
+	/* Nearest-neighbour, so a magnified pixel-art sheet shows its real pixels instead of a blur. */
+	image-rendering: pixelated;
+	cursor: crosshair;
+}
+
+.shimeji-slicer-placeholder {
+	padding: 24px 12px;
+	text-align: center;
+	color: var(--text-muted);
+	font-size: 0.9em;
+}
+
+.shimeji-sheet-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: 8px;
+	margin: 6px 0;
+}
+
+.shimeji-sheet-field {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.shimeji-sheet-field label {
+	font-size: 0.8em;
+	color: var(--text-muted);
+}
+
+.shimeji-sheet-field input[type="number"] {
+	width: 84px;
+}
+
+.shimeji-bg-preview {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	background: var(--background-secondary);
+	overflow: auto;
+	max-height: 520px;
+	cursor: crosshair;
+}
+
+.shimeji-color-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 4px 0;
+}
+
+.shimeji-color-chip {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	font-size: 0.78em;
+	font-variant-numeric: tabular-nums;
+}
+
+.shimeji-color-swatch {
+	width: 13px;
+	height: 13px;
+	border-radius: 3px;
+	border: 1px solid var(--background-modifier-border);
+}
+
+.shimeji-color-remove {
+	padding: 0 4px;
+	line-height: 1;
+	background: none;
+	border: none;
+	box-shadow: none;
+	cursor: pointer;
+	color: var(--text-muted);
+}
+
+/* A real <label> wrapping a hidden <input type="file">: Electron will not open a file dialog from
+   a scripted .click(), so the input has to be genuinely present and genuinely clicked. Hidden by
+   clipping rather than display:none, which would take it out of the accessibility tree. */
+.shimeji-upload-label {
+	display: inline-block;
+	cursor: pointer;
+}
+
+.shimeji-upload-input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}

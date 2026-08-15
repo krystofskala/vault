@@ -2,6 +2,9 @@ import { App, Modal, Notice, Setting } from "obsidian";
 import type ShimejiPlugin from "./main";
 import { EXPR_WRAPPER, parseExpression } from "./shimeji/Expression";
 import { listPackImages } from "./shimeji/PackLoader";
+import { RemoveBackgroundModal } from "./sprites/RemoveBackgroundModal";
+import { SpriteSheetModal } from "./sprites/SpriteSheetModal";
+import { deletePackImage, importPackImage } from "./sprites/imageIo";
 import type { ActionType, BorderType } from "./shimeji/types";
 import {
 	emptyCustomPackContent,
@@ -126,6 +129,8 @@ export class CustomContentModal extends Modal {
 			cls: "setting-item-description",
 		});
 
+		this.renderImagesSection(contentEl);
+
 		contentEl.createEl("h3", { text: "Actions" });
 		if (this.content.actions.length === 0) {
 			contentEl.createEl("p", { text: "No custom actions yet.", cls: "setting-item-description" });
@@ -159,6 +164,112 @@ export class CustomContentModal extends Modal {
 		new Setting(contentEl).addButton((b) => b.setButtonText("+ New behavior").setCta().onClick(() => this.openBehaviorEditor()));
 
 		new Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
+	}
+
+	/**
+	 * The pack's images: what is in the folder, how to add more, and how to clean one up.
+	 *
+	 * Here rather than buried in the pose editor because images are the raw material for every
+	 * action in the pack — and because until this existed the only way to get a sprite into a pack
+	 * was to find the folder in a file manager and drop it in by hand.
+	 */
+	private renderImagesSection(contentEl: HTMLElement): void {
+		contentEl.createEl("h3", { text: "Images" });
+		if (!this.imgDir) {
+			contentEl.createEl("p", {
+				cls: "setting-item-description",
+				text: "This pack has no image folder, so images cannot be added from here.",
+			});
+			return;
+		}
+
+		const uploadRow = new Setting(contentEl)
+			.setName("Add images")
+			.setDesc(`Copied into ${this.imgDir}. Sprite sheets are fine — slice them into poses from an action's pose list.`);
+		// A real <label for> wrapping a hidden <input type="file">, not a programmatic .click():
+		// Electron blocks a file dialog opened from script without a user gesture it recognises, and
+		// the simulated version fails silently.
+		const label = uploadRow.controlEl.createEl("label", { cls: "shimeji-upload-label mod-cta", text: "Upload images…" });
+		const input = label.createEl("input", { cls: "shimeji-upload-input" });
+		input.type = "file";
+		input.accept = "image/png,image/jpeg,image/gif,image/webp";
+		input.multiple = true;
+		input.onchange = async () => {
+			const files = Array.from(input.files ?? []);
+			input.value = "";
+			if (files.length === 0 || !this.imgDir) return;
+			try {
+				for (const file of files) await importPackImage(this.app, this.imgDir, file.name, await file.arrayBuffer());
+				this.images = await listPackImages(this.app, this.imgDir);
+				new Notice(`Added ${files.length} image(s).`);
+				this.render();
+			} catch (e) {
+				console.error("[obsidian-shimeji] image import failed", e);
+				new Notice(`Couldn't add that image: ${e instanceof Error ? e.message : String(e)}`);
+			}
+		};
+
+		if (this.images.length === 0) {
+			contentEl.createEl("p", { text: "No images in this pack yet.", cls: "setting-item-description" });
+			return;
+		}
+
+		for (const image of this.images) {
+			const used = this.posesUsing(image);
+			new Setting(contentEl)
+				.setName(image.replace(/^\//, ""))
+				.setDesc(used === 0 ? "Not used by any pose" : `Used by ${used} pose(s)`)
+				.addButton((b) =>
+					b.setButtonText("Remove background…").onClick(() =>
+						new RemoveBackgroundModal(this.app, {
+							imgDir: this.imgDir!,
+							image,
+							onApplied: async (newPath) => {
+								// Keying a .jpg produces a .png, so any pose pointing at the old name
+								// has to follow it or it would silently render nothing.
+								if (newPath !== image) this.repointPoses(image, newPath);
+								this.images = await listPackImages(this.app, this.imgDir);
+								this.render();
+							},
+						}).open(),
+					),
+				)
+				.addButton((b) =>
+					b
+						.setButtonText("Delete")
+						.setWarning()
+						.onClick(async () => {
+							if (used > 0) {
+								new Notice(`"${image.replace(/^\//, "")}" is still used by ${used} pose(s) — repoint them first.`);
+								return;
+							}
+							await deletePackImage(this.app, this.imgDir!, image);
+							this.images = await listPackImages(this.app, this.imgDir);
+							this.render();
+						}),
+				);
+		}
+	}
+
+	/** How many poses across the whole pack reference an image — the guard against deleting a file
+	 * still in use, and the reason a rename has to be followed. */
+	private posesUsing(image: string): number {
+		let count = 0;
+		for (const action of this.content.actions) {
+			for (const variant of action.animations) {
+				for (const pose of variant.poses) if (pose.image === image) count++;
+			}
+		}
+		return count;
+	}
+
+	private repointPoses(from: string, to: string): void {
+		for (const action of this.content.actions) {
+			for (const variant of action.animations) {
+				for (const pose of variant.poses) if (pose.image === from) pose.image = to;
+			}
+		}
+		void this.commit();
 	}
 
 	private openActionEditor(spec?: CustomActionSpec): void {
@@ -382,12 +493,48 @@ export class CustomContentModal extends Modal {
 				);
 		});
 
-		new Setting(container).addButton((b) =>
-			b.setButtonText("+ Add pose").onClick(() => {
-				variant.poses.push(newPoseSpec());
+		new Setting(container)
+			.addButton((b) =>
+				b.setButtonText("+ Add pose").onClick(() => {
+					variant.poses.push(newPoseSpec());
+					this.render();
+				}),
+			)
+			.addButton((b) =>
+				b
+					.setButtonText("Slice from a sheet…")
+					.setCta()
+					.onClick(() => this.openSlicer(variant)),
+			);
+	}
+
+	/**
+	 * Cuts poses out of a sprite sheet and appends them to this variant.
+	 *
+	 * Appends rather than replaces: a walk cycle is often assembled from more than one sheet, and
+	 * losing the poses already placed because a second slice was needed would be its own bug.
+	 */
+	private openSlicer(variant: CustomAnimationVariantSpec): void {
+		if (!this.imgDir) {
+			new Notice("This pack has no image folder, so there is nowhere to save sliced frames.");
+			return;
+		}
+		if (this.images.length === 0) {
+			new Notice("Add an image to the pack first — use “Upload images…” on the main screen.");
+			return;
+		}
+		new SpriteSheetModal(this.app, {
+			imgDir: this.imgDir,
+			images: this.images,
+			initialImage: variant.poses.find((p) => p.image)?.image ?? this.images[0],
+			actionName: this.draftAction?.name ?? "pose",
+			onPoses: async (poses) => {
+				variant.poses.push(...poses);
+				// A slice writes new files, so the picker's list is now out of date.
+				this.images = await listPackImages(this.app, this.imgDir);
 				this.render();
-			}),
-		);
+			},
+		}).open();
 	}
 
 	private updateThumb(img: HTMLImageElement, path: string): void {
