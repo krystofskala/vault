@@ -176,6 +176,12 @@ export function installDebugApi(getStage: () => Stage | undefined, getPaneAction
 					facing: m.physics.facing === 1 ? "right" : "left",
 					on: describeSurface(m.physics),
 					behavior: m.currentBehaviorName ?? "-",
+					// A spot order belongs to one mascot, and a new order goes to whichever is *nearest*
+					// the point clicked — so several orders given in a row can land on several different
+					// mascots and be carried out at once. That reads, from across the room, as one mascot
+					// touring the spots in turn, which is why this column exists: it says plainly which
+					// mascot is currently under orders and which are idling.
+					ordered: m.hasSpotOrder ? "yes" : "-",
 				})),
 			);
 		},

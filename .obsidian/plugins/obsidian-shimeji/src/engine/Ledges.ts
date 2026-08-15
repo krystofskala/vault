@@ -168,10 +168,29 @@ export function findWallAt(ledges: Ledge[], x: number, y: number, side: "left" |
 	return undefined;
 }
 
+/**
+ * How far past a ceiling's own end still counts as being under it.
+ *
+ * Deliberately the same slack the router's corner joins use (Routing's JOIN_EPS), because the two
+ * have to agree: the router will happily plan "climb this wall, then traverse the ceiling it meets"
+ * for surfaces that meet within that slack, and if the physics is stricter the mascot arrives at the
+ * top of the wall, finds no ceiling, loses its border and falls — then climbs, and falls, forever.
+ *
+ * Card-style themes make that the normal case rather than an edge case. They inset every pane, so a
+ * pane's underside stops a few pixels short of the window's own wall; a mascot pinned to that wall by
+ * clampToWalls is 3px outside the span of the ceiling it is plainly touching. Live, a mascot ordered
+ * across the window climbed the window's right wall to the pane underside and dropped back to the
+ * floor 40 times in a row without ever getting on.
+ *
+ * Cheap to allow: the sprite is well over a hundred pixels wide, so a few pixels of overhang is not
+ * something a viewer could see, let alone something that reads as hanging off thin air.
+ */
+const CEILING_SPAN_SLACK_PX = 6;
+
 export function findCeilingAt(ledges: Ledge[], x: number, y: number, reach: number): CeilingLedge | undefined {
 	for (const ledge of ledges) {
 		if (ledge.kind !== "ceiling") continue;
-		if (x < ledge.x1 || x > ledge.x2) continue;
+		if (x < ledge.x1 - CEILING_SPAN_SLACK_PX || x > ledge.x2 + CEILING_SPAN_SLACK_PX) continue;
 		if (Math.abs(ledge.y - y) <= reach) return ledge;
 	}
 	return undefined;

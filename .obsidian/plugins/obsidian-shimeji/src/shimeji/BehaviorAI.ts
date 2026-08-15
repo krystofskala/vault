@@ -3,7 +3,7 @@ import type { Mascot } from "../engine/Mascot";
 import { updateWallCeilingAdherence } from "../engine/nativeBehaviors";
 import type { PaneActions } from "../engine/PaneActions";
 import type { Random } from "../engine/Random";
-import { fallDurationTicks, findRoute, planDropThrough, pointOn, routeDurationTicks, type RouteOptions, type RouteVia } from "../engine/Routing";
+import { edgeStepOffX, fallDurationTicks, findRoute, planDropThrough, pointOn, routeDurationTicks, type RouteOptions, type RouteVia } from "../engine/Routing";
 import type { EngineConfig, Ledge, PaneRef, Vec2 } from "../engine/types";
 import { ActionRunner, type PushEnv } from "./ActionRunner";
 import { evaluateCondition } from "./Expression";
@@ -93,8 +93,13 @@ const ROUTE_ACTIONS: Record<Exclude<RouteVia, "drop">, string[]> = {
 	jump: ["Jumping"],
 };
 
-/** How far past a ledge's edge to step before letting go — enough to clear the floor being left. */
-const EDGE_STEP_OFF_PX = 3;
+/**
+ * How far from a floor's end the mascot may be and still be understood as letting go *of that end*.
+ *
+ * Route drops arrive dead on the edge, but a spot order's own drop phase only routes to within
+ * SPOT_ARRIVAL_PX of it, so the step-off has to close whatever is left rather than assume zero.
+ */
+const EDGE_LETGO_REACH_PX = 64;
 
 export class BehaviorAI {
 	private runner: ActionRunner;
@@ -255,10 +260,10 @@ export class BehaviorAI {
 					this.spotPhase = undefined;
 					this.spotSpentDrops.push(phase.from);
 					debugLog("spot order: letting go to fall through", { from: [Math.round(phase.from.x), Math.round(phase.from.y)], spot });
-					return this.letGoAndFall(env);
+					return this.letGoAndFall(env, ledges);
 				}
 				const leg = routeTo(phase.from)[0];
-				if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
+				if (leg) return this.startRouteAction(env, ledges, leg.via, leg.x, leg.y, 1);
 				this.spotPhase = undefined; // can't get there after all; re-plan
 			} else if (phase.kind === "toControl") {
 				if (arrivedAt(phase.point)) {
@@ -272,7 +277,7 @@ export class BehaviorAI {
 					return false;
 				}
 				const leg = routeTo(phase.point)[0];
-				if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
+				if (leg) return this.startRouteAction(env, ledges, leg.via, leg.x, leg.y, 1);
 				this.spotPhase = undefined; // unreachable button; re-plan
 			} else {
 				// Shove the new pane's own top edge to where the spot is, by standing on it and leaning.
@@ -286,7 +291,7 @@ export class BehaviorAI {
 					const standing = physics.grounded && physics.currentFloor?.paneRef === phase.paneRef;
 					if (!standing) {
 						const leg = routeTo(pointOn(divider, spot))[0];
-						if (leg) return this.startRouteAction(env, leg.via, leg.x, leg.y, 1);
+						if (leg) return this.startRouteAction(env, ledges, leg.via, leg.x, leg.y, 1);
 						this.spotPhase = undefined; // can't get onto it; re-plan
 					} else {
 						// Negative shrinks the pane, which moves its top edge — and the mascot riding it —
@@ -320,7 +325,7 @@ export class BehaviorAI {
 		}
 
 		const next = route[0];
-		if (next) return this.startRouteAction(env, next.via, next.x, next.y, route.length);
+		if (next) return this.startRouteAction(env, ledges, next.via, next.x, next.y, route.length);
 
 		// Standing at the closest the layout can be persuaded to get. Give the order up rather than
 		// holding the mascot hostage to a spot it will never reach.
@@ -460,7 +465,7 @@ export class BehaviorAI {
 			this.roamTarget = undefined;
 			return false;
 		}
-		return this.startRouteAction(env, next.via, next.x, next.y, route.length);
+		return this.startRouteAction(env, ledges, next.via, next.x, next.y, route.length);
 	}
 
 	/**
@@ -494,10 +499,10 @@ export class BehaviorAI {
 			if (ledges.length > 0) return false;
 			const flatX = physics.x + Math.sign(cursor.x - physics.x) * Math.min(Math.abs(cursor.x - physics.x), FOLLOW_LEG_PX);
 			if (Math.abs(cursor.x - physics.x) <= FOLLOW_ARRIVAL_PX) return false;
-			return this.startRouteAction(env, "walk", flatX, undefined, 0, this.pack.behaviors.get("ChaseMouse"));
+			return this.startRouteAction(env, ledges, "walk", flatX, undefined, 0, this.pack.behaviors.get("ChaseMouse"));
 		}
 
-		return this.startRouteAction(env, next.via, next.x, next.y, route.length, this.pack.behaviors.get("ChaseMouse"));
+		return this.startRouteAction(env, ledges, next.via, next.x, next.y, route.length, this.pack.behaviors.get("ChaseMouse"));
 	}
 
 	/**
@@ -515,13 +520,33 @@ export class BehaviorAI {
 	 * Stops holding on and lets gravity do the rest — how a mascot gets *down* from anything.
 	 *
 	 * Fall is one of the four behaviors the engine requires of every pack, so this needs no
-	 * pack-specific action to exist. The small nudge past the edge matters: a route's departure point
-	 * is clamped to the ledge it leaves, so letting go exactly there can drop the mascot down the side
-	 * of the very floor it was standing on, or miss a landing floor that only begins past the edge.
+	 * pack-specific action to exist.
+	 *
+	 * Stepping clear of the floor first is the whole substance of this function, and getting the
+	 * direction right took a live report to notice. A route's drop step names where the mascot will
+	 * *land*, and the landing point is nearly always back under the middle of the floor being left —
+	 * so nudging "toward the target", which is what this used to do, steps **inward**. The mascot let
+	 * go one pixel inside the ledge it was standing on, gravity put it straight back, the order
+	 * re-planned the identical drop, and it repeated: a mascot shuffling on the spot at a pane's
+	 * corner, forever. Every "go to a spot lower down" order failed this way, because getting lower
+	 * always ends in a drop somewhere.
+	 *
+	 * The direction is therefore taken from the *floor*, not the target: step past whichever of its
+	 * two ends the mascot is at. Ceiling and wall releases need no step at all — letting go of those
+	 * already leaves nothing underfoot.
 	 */
-	private letGoAndFall(env: PushEnv, towardX?: number): boolean {
+	private letGoAndFall(env: PushEnv, ledges: Ledge[]): boolean {
 		const { physics } = env.mascot;
-		if (towardX !== undefined && towardX !== physics.x) physics.x += Math.sign(towardX - physics.x) * EDGE_STEP_OFF_PX;
+		const floor = physics.currentFloor?.kind === "floor" ? physics.currentFloor : undefined;
+		if (floor && physics.grounded) {
+			const toLeft = Math.abs(physics.x - floor.x1);
+			const toRight = Math.abs(physics.x - floor.x2);
+			// Absolute, not relative: the mascot may still be up to SPOT_ARRIVAL_PX short of the edge
+			// when a drop phase decides it has arrived, and a fixed-size nudge would leave it standing.
+			const offX = Math.min(toLeft, toRight) <= EDGE_LETGO_REACH_PX ? edgeStepOffX(ledges, floor, toLeft <= toRight ? "x1" : "x2") : undefined;
+			if (offX !== undefined) physics.x = offX;
+			else debugLog("letting go with nothing to step off onto — expect an immediate landing", { x: Math.round(physics.x), floor: [floor.x1, floor.x2] });
+		}
 		physics.currentCeiling = undefined;
 		physics.currentWall = undefined;
 		physics.currentFloor = undefined;
@@ -532,6 +557,7 @@ export class BehaviorAI {
 
 	private startRouteAction(
 		env: PushEnv,
+		ledges: Ledge[],
 		via: RouteVia,
 		targetX: number,
 		targetY: number | undefined,
@@ -549,7 +575,7 @@ export class BehaviorAI {
 		if (via === "drop") {
 			debugLog("pursuit leg -> drop (letting go)", { from: [Math.round(physics.x), Math.round(physics.y)], to: [Math.round(targetX), Math.round(targetY ?? 0)], remainingSteps: remaining });
 			this.currentBehavior = attributeTo;
-			return this.letGoAndFall(env, targetX);
+			return this.letGoAndFall(env, ledges);
 		}
 
 		for (const name of ROUTE_ACTIONS[via]) {

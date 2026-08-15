@@ -159,14 +159,33 @@ function transfersFrom(ledge: Ledge, at: Vec2, goal: Vec2, ledges: Ledge[], opts
 		// Corner joins: surfaces that physically meet, so the mascot simply changes which one it is
 		// attached to. These are the backbone of vertical movement — a floor meeting a wall is how a
 		// mascot gets off the ground at all without jumping.
+		//
+		// Departure and arrival are computed **separately, each clamped onto its own surface**, rather
+		// than as one shared corner point. They coincide when the surfaces meet exactly, which is what
+		// a tiled layout gives — but `spansX`/`spansY` deliberately tolerate JOIN_EPS of slack, and a
+		// card-style theme spends every pixel of it: panes are inset, so a pane's underside stops 3px
+		// short of the window wall and one pane's bottom edge sits 6px above the next one's top.
+		//
+		// A single corner point then names a coordinate that is on neither surface, and the mascot is
+		// told to travel to somewhere it cannot be. Both halves of that were observed: a climb ordered
+		// 6px past the end of its own wall never completes (the mascot hangs at the wall's end
+		// forever), and — worse — the pair of them oscillate, because from the surface it lands on the
+		// router immediately plans the reverse leg. Live, that was a mascot ping-ponging across a 6px
+		// pane gap for the whole 320s of a test run.
+		//
+		// Clamped, each leg asks only for a point on the surface it travels along, and the few pixels
+		// left over are bridged by ordinary physics — gravity for a floor, adherence reach for a wall
+		// or ceiling — which is what those tolerances are for.
 		if (ledge.kind !== "wall" && other.kind === "wall" && spansX(ledge, other.x) && spansY(other, ledge.y)) {
-			const corner = { x: other.x, y: ledge.y };
-			out.push({ from: corner, to: other, at: corner, via: "climb" });
+			const from = { x: clamp(other.x, ledge.x1, ledge.x2), y: ledge.y };
+			const at = { x: other.x, y: clamp(ledge.y, other.y1, other.y2) };
+			out.push({ from, to: other, at, via: "climb" });
 			continue;
 		}
 		if (ledge.kind === "wall" && other.kind !== "wall" && spansY(ledge, other.y) && spansX(other, ledge.x)) {
-			const corner = { x: ledge.x, y: other.y };
-			out.push({ from: corner, to: other, at: corner, via: alongVia(other) });
+			const from = { x: ledge.x, y: clamp(other.y, ledge.y1, ledge.y2) };
+			const at = { x: clamp(ledge.x, other.x1, other.x2), y: other.y };
+			out.push({ from, to: other, at, via: alongVia(other) });
 			continue;
 		}
 
@@ -185,14 +204,51 @@ function transfersFrom(ledge: Ledge, at: Vec2, goal: Vec2, ledges: Ledge[], opts
 	// Drops: walk off either end of a floor and let gravity do the rest. Only the two ends, because
 	// anywhere in the middle of a floor there is by definition floor underfoot.
 	if (ledge.kind === "floor") {
-		for (const edgeX of [ledge.x1 - 1, ledge.x2 + 1]) {
-			const below = findFloorBelow(ledges, edgeX, ledge.y + 1);
+		for (const end of ["x1", "x2"] as const) {
+			const offX = edgeStepOffX(ledges, ledge, end);
+			if (offX === undefined) continue;
+			const below = findFloorBelow(ledges, offX, ledge.y + 1);
 			if (!below) continue;
-			out.push({ from: { x: clamp(edgeX, ledge.x1, ledge.x2), y: ledge.y }, to: below, at: pointOn(below, goal), via: "drop" });
+			out.push({ from: { x: ledge[end], y: ledge.y }, to: below, at: pointOn(below, goal), via: "drop" });
 		}
 	}
 
 	return out;
+}
+
+/**
+ * How far past a floor's end a mascot has to be for the floor to no longer be underfoot.
+ *
+ * Exported because the router and the mascot that carries out its plans have to agree on it: the
+ * router may only offer a drop the mascot can actually perform, and the mascot may only step off
+ * where the router assumed it would. Above `WALL_CEILING_ADHERENCE_REACH` so the step also breaks
+ * contact with any wall at that edge — under a card theme a pane's wall sits a few pixels inside the
+ * window's, and a smaller step leaves the mascot clinging to one while ostensibly falling past it.
+ */
+export const EDGE_STEP_OFF_PX = 6;
+
+/**
+ * Where a mascot stepping off one end of `floor` ends up — or `undefined` when that is outside the
+ * window, in which case there is no such drop and the router must not offer one.
+ *
+ * The window's own walls are a hard clamp on position (see clampToWalls), so "step off the right-hand
+ * end" is only a real move when there is room to the right of that end. A card-style theme is exactly
+ * the case where there often isn't: it insets panes, so the topmost pane's floor stops 3px short of
+ * the window wall, and a mascot stepping off it is pushed straight back and catches the wall two
+ * pixels into its fall. Observed as a mascot walking to the top-right corner, twitching, climbing
+ * back, and repeating for the full five minutes of a test — every "go somewhere below me" order on
+ * the right-hand side of the window failed this way, because getting lower always ends in a drop.
+ */
+export function edgeStepOffX(ledges: Ledge[], floor: FloorLedge, end: "x1" | "x2"): number | undefined {
+	const offX = end === "x1" ? floor.x1 - EDGE_STEP_OFF_PX : floor.x2 + EDGE_STEP_OFF_PX;
+	let minX = -Infinity;
+	let maxX = Infinity;
+	for (const l of ledges) {
+		if (l.kind !== "wall" || l.source !== "window") continue;
+		if (l.side === "left" && l.x > minX) minX = l.x;
+		if (l.side === "right" && l.x < maxX) maxX = l.x;
+	}
+	return offX > minX && offX < maxX ? offX : undefined;
 }
 
 /** Estimated ticks to perform this step — see RouteOptions.speeds for why this is time, not distance. */
@@ -454,9 +510,13 @@ export function planDropThrough(ledges: Ledge[], spot: Vec2, options?: Partial<R
 		}
 
 		// A floor: only its two ends are departure points, and the spot has to be on that fall line.
-		for (const edgeX of [ledge.x1, ledge.x2]) {
-			if (Math.abs(edgeX - spot.x) > DROP_LINE_TOLERANCE) continue;
-			const from = { x: edgeX, y: ledge.y };
+		// The fall line is where the mascot ends up *after* stepping clear, not the edge itself — and
+		// an end with no room to step past is not a departure point at all.
+		for (const end of ["x1", "x2"] as const) {
+			const offX = edgeStepOffX(ledges, ledge, end);
+			if (offX === undefined) continue;
+			if (Math.abs(offX - spot.x) > DROP_LINE_TOLERANCE) continue;
+			const from = { x: ledge[end], y: ledge.y };
 			if (rejected(from)) continue;
 			const fall = spot.y - ledge.y;
 			if (fall < bestFall) {
