@@ -38,7 +38,7 @@ export class RoomView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
-		const content = this.containerEl.children[1] as HTMLElement;
+		const content = this.contentEl;
 		content.empty();
 		content.addClass("shimeji-room-pane");
 		this.stack = content.createDiv({ cls: "shimeji-room-stack" });
@@ -61,9 +61,10 @@ export class RoomView extends ItemView {
 		this.resizeObserver = undefined;
 	}
 
-	/** The area the room is drawn into, in viewport coordinates. */
+	/** The area the room is drawn into, in viewport coordinates. Undefined when the pane is not on
+	 * screen — collapsed sidebar, another tab showing in the same slot, or not open at all. */
 	private contentRect(): Rect | undefined {
-		const el = this.containerEl.children[1] as HTMLElement | undefined;
+		const el = this.contentEl;
 		if (!el || el.offsetParent === null) return undefined;
 		const r = el.getBoundingClientRect();
 		if (r.width <= 0 || r.height <= 0) return undefined;
@@ -85,6 +86,8 @@ export class RoomView extends ItemView {
 	 * from a ResizeObserver and from workspace events, both of which fire far more often than the
 	 * room changes. */
 	refresh(): void {
+		// onOpen may not have run yet when a workspace event arrives during restore.
+		if (!this.canvas) return;
 		const rect = this.contentRect();
 		if (!rect) return;
 		const mood = moodForHour(new Date().getHours());
@@ -95,7 +98,7 @@ export class RoomView extends ItemView {
 		if (key !== this.lastKey) {
 			this.lastKey = key;
 			paintRoom(this.canvas, LIVING_ROOM, mood, { scale: layout.scale, mirrored: layout.mirrored });
-			(this.containerEl.children[1] as HTMLElement).style.backgroundColor = mood.dusk ? ROOM_BACKDROP_DUSK : ROOM_BACKDROP;
+			this.contentEl.style.backgroundColor = mood.dusk ? ROOM_BACKDROP_DUSK : ROOM_BACKDROP;
 		}
 		if (moved !== this.lastMoved) {
 			this.lastMoved = moved;

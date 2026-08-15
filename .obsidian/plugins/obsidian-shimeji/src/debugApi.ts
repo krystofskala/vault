@@ -4,6 +4,11 @@ import type { PaneActions } from "./engine/PaneActions";
 import { findRoute, fallDurationTicks, planDropThrough, routeDurationTicks } from "./engine/Routing";
 import type { Stage } from "./engine/Stage";
 
+/** What debugApi needs to explain the plant room, without importing the room itself. */
+export interface RoomDiagnostics {
+	report(): { chain: Array<Record<string, string | number | boolean>>; note?: string };
+}
+
 export interface ShimejiDebugApi {
 	setVerbose(on: boolean): void;
 	stageCount(): number;
@@ -15,6 +20,7 @@ export interface ShimejiDebugApi {
 	where(): void;
 	watch(seconds?: number): void;
 	explainOrder(x: number, y: number): void;
+	room(): void;
 }
 
 declare global {
@@ -31,7 +37,11 @@ declare global {
  * Installed once from main.ts's onload; getStage is a thunk (not a captured value) so it keeps
  * working across a settings-triggered Stage recreation, if that's ever added.
  */
-export function installDebugApi(getStage: () => Stage | undefined, getPaneActions: () => PaneActions | undefined = () => undefined): void {
+export function installDebugApi(
+	getStage: () => Stage | undefined,
+	getPaneActions: () => PaneActions | undefined = () => undefined,
+	getRoom: () => RoomDiagnostics | undefined = () => undefined,
+): void {
 	window.shimejiDebug = {
 		setVerbose(on) {
 			setVerboseLogging(on);
@@ -155,6 +165,25 @@ export function installDebugApi(getStage: () => Stage | undefined, getPaneAction
 
 		/** Where every mascot is right now, and what it is standing on / clinging to. The first thing
 		 * to reach for when movement looks wrong: it names the surface, not just the coordinates. */
+		/**
+		 * Why the plant room is or is not on screen, one line per link in the chain.
+		 *
+		 * The room is invisible when it fails — there is no half-drawn version to notice — so
+		 * "I don't see it" is the same symptom whether the view type never registered, the leaf
+		 * never opened, the sidebar is collapsed, or the pane is simply too small. This separates
+		 * them.
+		 */
+		room() {
+			const room = getRoom();
+			if (!room) {
+				console.info("[obsidian-shimeji] the plugin is not loaded, or is an older build with no plant room");
+				return;
+			}
+			const report = room.report();
+			console.table(report.chain);
+			if (report.note) console.info(`[obsidian-shimeji] ${report.note}`);
+		},
+
 		where() {
 			const stage = getStage();
 			if (!stage) {

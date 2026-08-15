@@ -151,6 +151,7 @@ export default class ShimejiPlugin extends Plugin {
 		installDebugApi(
 			() => this.stage,
 			() => this.paneActionsGate,
+			() => ({ report: () => this.roomDiagnostics() }),
 		);
 		this.applySoundSettings();
 
@@ -219,7 +220,17 @@ export default class ShimejiPlugin extends Plugin {
 		// After the auto-spawn, and deferred until the workspace has finished restoring its own
 		// layout — the room's pane is part of that layout, and asking for its rect before it exists
 		// gets nothing.
-		if (this.settings.roomResident) this.app.workspace.onLayoutReady(() => void this.restoreResident());
+		this.app.workspace.onLayoutReady(() => {
+			// A view type nobody has ever opened exists only in the command palette, which is not
+			// where anyone looks for a room. Shown once, then it is the workspace's business —
+			// closing it is remembered by Obsidian's own layout, and this never reopens it.
+			if (!this.settings.roomIntroduced) {
+				this.settings.roomIntroduced = true;
+				void this.saveSettings();
+				void this.revealRoom();
+			}
+			if (this.settings.roomResident) void this.restoreResident();
+		});
 	}
 
 	/**
@@ -554,19 +565,58 @@ export default class ShimejiPlugin extends Plugin {
 
 	// ---- the plant room -------------------------------------------------
 
+	/**
+	 * Every link between "the plugin loaded" and "the room is on screen", separately.
+	 *
+	 * The room has no partial state a user could describe: it is either there or it is not, so a
+	 * report of "I don't see it" is the same sentence whether the view type never registered, no
+	 * leaf was ever opened, the sidebar is collapsed, or the pane is too small to draw into.
+	 */
+	private roomDiagnostics(): { chain: Array<Record<string, string | number | boolean>>; note?: string } {
+		const leaves = this.app.workspace.getLeavesOfType(ROOM_VIEW_TYPE);
+		const view = this.roomView();
+		const layout = view?.layout();
+		const chain: Array<Record<string, string | number | boolean>> = [
+			{ step: "view type registered", ok: true, detail: ROOM_VIEW_TYPE },
+			{ step: "pane open", ok: leaves.length > 0, detail: `${leaves.length} leaf/leaves` },
+			{ step: "view built", ok: view !== undefined, detail: view ? "RoomView" : "no RoomView on the leaf" },
+			{ step: "pane on screen", ok: layout !== undefined, detail: layout ? `${layout.rect.right - layout.rect.left}x${layout.rect.bottom - layout.rect.top} at (${Math.round(layout.rect.left)}, ${Math.round(layout.rect.top)})` : "collapsed, hidden, or zero-sized" },
+			{ step: "drawn", ok: layout !== undefined, detail: layout ? `${layout.scale}x pixels, door on the ${layout.mirrored ? "right" : "left"}` : "-" },
+			{ step: "resident", ok: this.residency.hasResident, detail: this.settings.roomResident ? `remembered: ${this.settings.roomResident.packId ?? "placeholder"}` : "nobody" },
+		];
+		let note: string | undefined;
+		if (leaves.length === 0) note = 'No pane is open. Run "Open the plant room" from the command palette, or click the sprout in the ribbon.';
+		else if (!view) note = "A leaf exists but carries no RoomView — the plugin was probably reloaded while the pane was open. Close and reopen the pane.";
+		else if (!layout) note = "The pane exists but is not on screen — the sidebar is collapsed, or another tab is showing in that slot.";
+		return { chain, note };
+	}
+
 	private roomView(): RoomView | undefined {
 		const leaf = this.app.workspace.getLeavesOfType(ROOM_VIEW_TYPE)[0];
 		return leaf?.view instanceof RoomView ? leaf.view : undefined;
 	}
 
-	/** Opens the room in the right sidebar, or reveals it if it is already open somewhere. */
+	/**
+	 * Opens the room in the right sidebar, or reveals it if it is already open somewhere.
+	 *
+	 * Every failure here says so out loud. A view type that will not open is invisible by
+	 * definition — there is no half-drawn room to notice — so a silent return leaves the user
+	 * clicking a button that appears to do nothing, with nowhere to look for why. The sidebar can
+	 * genuinely be unavailable (a workspace with the right split removed, some mobile layouts), so
+	 * this falls back to a main-area tab rather than giving up.
+	 */
 	async revealRoom(): Promise<RoomView | undefined> {
 		const existing = this.app.workspace.getLeavesOfType(ROOM_VIEW_TYPE)[0];
-		const leaf = existing ?? this.app.workspace.getRightLeaf(false);
-		if (!leaf) return undefined;
+		const leaf = existing ?? this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf("tab");
+		if (!leaf) {
+			new Notice("Shimeji: could not open the plant room — no pane was available for it.");
+			return undefined;
+		}
 		if (!existing) await leaf.setViewState({ type: ROOM_VIEW_TYPE, active: true });
-		await this.app.workspace.revealLeaf(leaf);
-		return this.roomView();
+		this.app.workspace.revealLeaf(leaf);
+		const view = this.roomView();
+		if (!view) new Notice("Shimeji: the plant room pane did not open. Check the console for an error.");
+		return view;
 	}
 
 	/** "Send a shimeji home": opens the room if it is closed, then orders the nearest mascot to the

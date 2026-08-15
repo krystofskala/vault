@@ -68,6 +68,10 @@ export interface ShimejiSettings {
 	 * "the plain white one is".
 	 */
 	roomResident: { packId: string | null } | null;
+	/** Whether the room's pane has ever been shown. Opened once on the first run that has the
+	 * feature, because an unopened view type appears nowhere but the command palette — after that
+	 * it is Obsidian's own saved layout that decides, so closing it sticks. */
+	roomIntroduced: boolean;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -97,6 +101,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowNoteMischief: false,
 	customContent: {},
 	roomResident: null,
+	roomIntroduced: false,
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
