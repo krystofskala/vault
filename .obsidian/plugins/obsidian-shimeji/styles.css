@@ -91,3 +91,27 @@
 .shimeji-cc-error:empty {
 	display: none;
 }
+
+/* ---- the plant room -------------------------------------------------- */
+
+/* The room is drawn bottom-anchored inside its pane: a room rests on its floor, and any spare
+   height belongs above it as wall rather than below it as a gap. The pane's own background is set
+   to the room's wall colour from RoomView, so the art doesn't read as a picture hung in a void. */
+.shimeji-room-pane {
+	padding: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.shimeji-room-stack {
+	margin-top: auto;
+	display: flex;
+	justify-content: center;
+}
+
+.shimeji-room-canvas {
+	image-rendering: pixelated;
+	image-rendering: crisp-edges;
+	display: block;
+}

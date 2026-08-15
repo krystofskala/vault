@@ -213,7 +213,16 @@ export class Stage {
 	/** Per-mascot, since the cutoff depends on that specific mascot's own rendered height/scale —
 	 * see withoutFloorsTooCloseToTop's own comment for why this is needed at all. */
 	private ledgesFor(mascot: Mascot): Ledge[] {
+		// A confined mascot's world is substituted wholesale rather than filtered: the title-bar
+		// cutoff below is about Obsidian's own chrome, which is not above a room's ceiling.
+		if (mascot.confinement) return mascot.confinement.getLedges();
 		return withoutFloorsTooCloseToTop(this.ledges, this.worldTop, mascot.height * mascot.scale);
+	}
+
+	/** Whether this mascot's world is currently on screen at all — false only for a confined
+	 * mascot whose room has been closed or collapsed. */
+	private isPresent(mascot: Mascot): boolean {
+		return mascot.confinement === undefined || mascot.confinement.isVisible();
 	}
 
 	private renderDebugLedges(): void {
@@ -373,7 +382,9 @@ export class Stage {
 			this.ledgeRecomputeTimer = 0;
 			this.recomputeLedges();
 		}
-		for (const m of this.mascots) m.simulate(dt, this.ledgesFor(m));
+		for (const m of this.mascots) {
+			if (this.isPresent(m)) m.simulate(dt, this.ledgesFor(m));
+		}
 	}
 
 	/** Fixed-timestep accumulator: physics always advances in ENGINE_FIXED_TICK_MS-sized steps
@@ -391,7 +402,11 @@ export class Stage {
 				this.stepSimulation(FIXED_DT);
 				this.accumulator -= FIXED_DT;
 			}
-			for (const m of this.mascots) m.render();
+			for (const m of this.mascots) {
+				const present = this.isPresent(m);
+				m.setHidden(!present);
+				if (present) m.render();
+			}
 			this.rafHandle = requestAnimationFrame(loop);
 		};
 		this.rafHandle = requestAnimationFrame(loop);

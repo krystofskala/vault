@@ -79,6 +79,20 @@ function hotspotContains(h: HotspotDef, x: number, y: number): boolean {
 	return dx * dx + dy * dy <= 1;
 }
 
+/**
+ * A world substituted for the ordinary one — see Mascot.confinement.
+ *
+ * `isVisible` is separate from "has surfaces" because a confined mascot's world can legitimately
+ * stop being on screen: close the room's pane, or collapse the sidebar, and the room still exists,
+ * it just is not anywhere. The mascot is then neither simulated nor drawn, and resumes exactly where
+ * it was when the pane comes back — rather than being stranded at the top-left corner, which is
+ * where a mascot handed an empty ledge list ends up.
+ */
+export interface Confinement {
+	getLedges(): Ledge[];
+	isVisible(): boolean;
+}
+
 export interface MascotDriver {
 	/** Advances one frame. Implementations mutate `mascot.physics` and call
 	 * `mascot.setVisualState`/`setVisualImage` themselves. */
@@ -178,6 +192,17 @@ export class Mascot {
 	state: NativeStateName = "fall";
 	stateElapsedMs = 0;
 	scale = 1;
+	/**
+	 * When set, the only world this mascot has. Stage hands it these surfaces instead of the
+	 * workspace's, which is what confines a mascot to the plant room (see room/Residency.ts).
+	 *
+	 * Deliberately a substitution rather than a rule that gets enforced. There is no "may I leave"
+	 * check anywhere, because a route out cannot be planned over a graph that has no edge leading
+	 * out — the router, the pack's own behaviours and the physics all agree without any of them
+	 * knowing the room exists. A check would have to be repeated at every one of those sites and
+	 * would be wrong the first time one was missed.
+	 */
+	confinement?: Confinement;
 	width = PLACEHOLDER_WIDTH;
 	height = PLACEHOLDER_HEIGHT;
 	/** Settings-level "allow dragging" toggle; checked on pointerdown rather than removing the
@@ -756,6 +781,12 @@ export class Mascot {
 		// standing mascot rendered on its head.
 		const flips = [this.physics.facing === 1 ? "scaleX(-1)" : "", this.isDraggedUpsideDown ? "scaleY(-1)" : ""].filter(Boolean);
 		this.inner.style.transform = flips.length > 0 ? flips.join(" ") : "none";
+	}
+
+	/** Hides the sprite without disturbing anything about it — used while a confined mascot's world
+	 * is off screen, so it can be resumed rather than respawned. */
+	setHidden(hidden: boolean): void {
+		this.el.style.display = hidden ? "none" : "";
 	}
 
 	destroy(): void {

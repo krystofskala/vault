@@ -58,6 +58,16 @@ export interface ShimejiSettings {
 	/** Hand-authored actions/behaviors, keyed by pack id, overlaid onto that pack's parsed
 	 * actions.xml/behaviors.xml — see CustomContentBuilder. */
 	customContent: Record<string, CustomPackContent>;
+	/**
+	 * Who lives in the plant room, or null when nobody does. Persisted so the room still has its
+	 * resident after a restart rather than respawning it into the workspace — a room you have to
+	 * re-populate every launch is a widget, not a home.
+	 *
+	 * A wrapper rather than a bare pack id because `packId: null` is itself meaningful: it is the
+	 * built-in placeholder character, so a bare null could not tell "nobody is home" apart from
+	 * "the plain white one is".
+	 */
+	roomResident: { packId: string | null } | null;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -86,6 +96,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowLayoutSurgery: true,
 	allowNoteMischief: false,
 	customContent: {},
+	roomResident: null,
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {

@@ -1636,3 +1636,56 @@ queue — `orderToSpot` replaces. Orders go to whichever mascot is *nearest* the
 in a row land on several different mascots and run at once. `shimejiDebug.where()` now has an `ordered`
 column to make that visible. Whether a new order should instead always go to the same mascot is an open
 design question, not a defect.
+
+## Invented: the plant room (2026-08-15)
+
+A sidebar pane that is a place a mascot can live in. **Invented**, and it could not be otherwise:
+shimeji-ee's mascots live on the desktop among tracked application windows, and there is nowhere for
+one to *be* other than that desktop. Obsidian gives us a pane we control completely.
+
+**The furniture is the level.** `room/roomDef.ts` declares each fixture's `paint` and its `surfaces`
+together, so one declaration produces both the picture and the collision geometry. Nothing can look
+standable and not be, or the reverse. It also means a second room is a second data file — the same
+road as authoring animations in-vault. Nine standable surfaces and six hangable ones: floor, sofa
+seat/back/both arms, three bookshelf levels and three shelf undersides, windowsill top and underside,
+a snake-plant pot rim as the step from floor to shelf, the hanging pothos, and the ceiling.
+
+**Confinement is the absence of an edge, not a rule.** `Mascot.confinement` substitutes the resident's
+whole world (`Stage.ledgesFor` consults it first). There is no "may I leave" check anywhere, because a
+route out cannot be planned over a graph with no edge leading out — router, pack behaviours and
+physics all agree without any of them knowing rooms exist. A check would have to be repeated at every
+one of those sites and would be wrong the first time one was missed. Asserted directly in
+test/plantRoom.test.ts by routing at five points far outside and requiring every step to stay inside.
+
+**Both sidebars.** The door faces the workspace the mascot came from, so the whole room — art *and*
+geometry — mirrors when the pane is on the other side. Decided from the pane's own rect rather than by
+asking which sidebar it is in, because the question that matters is "which side is the rest of the
+window on", and that answers the same way even if the room is dragged into the main area. Mirroring a
+wall also swaps its `side`: get that wrong and the pack's `lookRight ? leftBorder : rightBorder`
+checks answer about the wrong face, leaving nothing eligible and ending in the respawn safety net.
+
+**The two transitions** are the only parts that need arranging, and both go through the threshold.
+Moving in aims the order at the *outside* of the door (a point on the pane's own edge, which is a wall
+the workspace graph already has) because the room's interior is not in that graph. Called out, the
+resident walks to the door first; crossing it is what returns it to the workspace, and the original
+destination is re-issued on the far side. Dropping a mascot in moves it in; carrying one out moves it
+out and leaves it where it was put.
+
+**One resident.** The first arrival removes every other mascot from the screen — the user asked for
+exactly this. Nothing on disk is touched; it is the same removal "Remove all mascots" performs.
+
+Edges handled: pane closed or sidebar collapsed → the resident is neither simulated nor drawn, and
+resumes where it was (a confined mascot handed an empty ledge list would fall out of the world);
+resident removed by something that never heard of the room → noticed in the residency tick rather than
+by hooking every removal path; thrown out by release velocity → pulled back, since `clampToWalls` is
+deliberately window-only and cannot cover a room; restart → `roomResident` persists *who* lives there,
+wrapped rather than a bare pack id because `packId: null` is itself meaningful (the placeholder
+character), so a bare null could not distinguish "nobody home" from "the plain white one is".
+
+31 tests across test/plantRoom.test.ts and test/roomResidency.test.ts. The geometry suite was
+mutation-checked: unordered mirrored spans, unflipped wall sides, and a door that ignores mirroring
+each fail exactly one test.
+
+**Deferred, and why:** the room does not track vault activity, tend its own plants, or put the
+resident to bed — all proposed, none asked for. It also does not let the resident come home on its own,
+matching the user's one-way rule.

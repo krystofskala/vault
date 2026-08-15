@@ -15,6 +15,8 @@ import { loadPacksFromFolder } from "./shimeji/PackLoader";
 import { sounds } from "./shimeji/SoundPlayer";
 import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
+import { Residency } from "./room/Residency";
+import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 
 /** How often to check whether a mascot is currently on the user's active pane and roll for
  * "note mischief" — not tied to any real engine tick, this is Obsidian-layer-only and has no
@@ -33,6 +35,21 @@ const SPOT_ORDER_CLICK_SLOP_PX = 24;
 const SPOT_ORDER_CLICKS = 3;
 
 export default class ShimejiPlugin extends Plugin {
+	/** Who lives in the plant room. Created unconditionally — it is inert until the room's pane
+	 * is actually open, and having it always present keeps every call site free of a null check. */
+	readonly residency = new Residency({
+		stage: () => this.stage,
+		layout: () => this.roomView()?.layout(),
+		notify: (message) => new Notice(message),
+		rememberResident: (resident) => {
+			const before = JSON.stringify(this.settings.roomResident ?? null);
+			if (before === JSON.stringify(resident ?? null)) return;
+			this.settings.roomResident = resident;
+			void this.saveSettings();
+		},
+		packIdOf: (mascot) => this.packIdOf(mascot),
+	});
+	private residencyRaf = 0;
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
 	stage?: Stage;
 	/** What everything (settings UI, spawning, the context menu) actually consumes: basePacks
@@ -139,7 +156,14 @@ export default class ShimejiPlugin extends Plugin {
 
 		this.addSettingTab(new ShimejiSettingTab(this.app, this));
 
+		this.registerView(ROOM_VIEW_TYPE, (leaf) => new RoomView(leaf, () => this.residency.tick()));
+		this.startResidencyLoop();
+
 		this.addRibbonIcon("cat", "Toggle Shimeji mascots", () => this.toggleMascot());
+		this.addRibbonIcon("sprout", "Open the Shimeji plant room", () => void this.revealRoom());
+		this.addCommand({ id: "shimeji-open-room", name: "Open the plant room", callback: () => void this.revealRoom() });
+		this.addCommand({ id: "shimeji-send-home", name: "Send a shimeji home to the plant room", callback: () => void this.sendHome() });
+		this.addCommand({ id: "shimeji-call-out", name: "Call the shimeji out of the plant room", callback: () => this.callOutOfRoom() });
 		this.addCommand({ id: "shimeji-spawn", name: "Spawn mascot", callback: () => this.spawnMascot() });
 		this.addCommand({ id: "shimeji-remove", name: "Remove mascot", callback: () => this.stage?.removeMascot() });
 		this.addCommand({ id: "shimeji-remove-all", name: "Remove all mascots", callback: () => this.stage?.removeAllMascots() });
@@ -192,9 +216,31 @@ export default class ShimejiPlugin extends Plugin {
 		if (this.settings.autoSpawn) {
 			for (let i = 0; i < this.settings.autoSpawnCount; i++) this.spawnMascot();
 		}
+		// After the auto-spawn, and deferred until the workspace has finished restoring its own
+		// layout — the room's pane is part of that layout, and asking for its rect before it exists
+		// gets nothing.
+		if (this.settings.roomResident) this.app.workspace.onLayoutReady(() => void this.restoreResident());
+	}
+
+	/**
+	 * Puts the remembered resident back in the room after a restart, with no journey — it never
+	 * left, so watching it walk home would be a lie about what happened.
+	 */
+	private async restoreResident(): Promise<void> {
+		const remembered = this.settings.roomResident;
+		if (!remembered || this.residency.hasResident) return;
+		const view = (await this.revealRoom()) ?? this.roomView();
+		if (!view?.layout()) return;
+		// Its own character, not a random one: a room whose occupant changes each launch is not
+		// somebody's home.
+		const existing = (this.stage?.getMascots() ?? []).find((m) => this.packIdOf(m) === remembered.packId);
+		if (!existing) this.stage?.spawnMascot(undefined, undefined, undefined, undefined, remembered.packId);
+		const mascot = existing ?? (this.stage?.getMascots() ?? []).slice(-1)[0];
+		if (mascot) this.residency.placeDirectly(mascot);
 	}
 
 	onunload(): void {
+		cancelAnimationFrame(this.residencyRaf);
 		uninstallDebugApi();
 		this.stage?.destroy();
 		// The clip registry is a module-level singleton (as the real `Sounds` is a static class),
@@ -410,6 +456,11 @@ export default class ShimejiPlugin extends Plugin {
 		new Notice(following ? `Now following the mouse (${targets.length})` : `Stopped following the mouse (${targets.length})`);
 	}
 
+	/** Which character a mascot wears, or null for the built-in placeholder. */
+	private packIdOf(mascot: Mascot): string | null {
+		return this.mascotPackId.get(mascot) ?? null;
+	}
+
 	/** True when `other` wears the same character (pack, including "no pack"/placeholder) as
 	 * `mascot` — the filter both of the per-mascot menu's character-scoped items use. */
 	private sameCharacter(mascot: Mascot, other: Mascot): boolean {
@@ -493,8 +544,85 @@ export default class ShimejiPlugin extends Plugin {
 				nearest = mascot;
 			}
 		}
+		// The plant room gets first refusal, because an order that crosses its threshold in either
+		// direction is not an ordinary order — it is a move, and has to route to the door rather
+		// than to the point. Everything else falls through unchanged.
+		if (this.residency.handleOrder(point, this.residency.residentMascot ?? nearest)) return;
 		nearest.orderToSpot(point);
 		new Notice(`On my way to (${Math.round(point.x)}, ${Math.round(point.y)})`);
+	}
+
+	// ---- the plant room -------------------------------------------------
+
+	private roomView(): RoomView | undefined {
+		const leaf = this.app.workspace.getLeavesOfType(ROOM_VIEW_TYPE)[0];
+		return leaf?.view instanceof RoomView ? leaf.view : undefined;
+	}
+
+	/** Opens the room in the right sidebar, or reveals it if it is already open somewhere. */
+	async revealRoom(): Promise<RoomView | undefined> {
+		const existing = this.app.workspace.getLeavesOfType(ROOM_VIEW_TYPE)[0];
+		const leaf = existing ?? this.app.workspace.getRightLeaf(false);
+		if (!leaf) return undefined;
+		if (!existing) await leaf.setViewState({ type: ROOM_VIEW_TYPE, active: true });
+		await this.app.workspace.revealLeaf(leaf);
+		return this.roomView();
+	}
+
+	/** "Send a shimeji home": opens the room if it is closed, then orders the nearest mascot to the
+	 * threshold. Falls back to placing it directly when it cannot get there under its own steam —
+	 * which is also how a remembered resident is restored on load. */
+	async sendHome(): Promise<void> {
+		const view = (await this.revealRoom()) ?? this.roomView();
+		const layout = view?.layout();
+		if (!layout) {
+			new Notice("Shimeji: the plant room could not be opened.");
+			return;
+		}
+		if (this.residency.hasResident) {
+			new Notice("Shimeji: someone already lives there.");
+			return;
+		}
+		let mascots = this.stage?.getMascots() ?? [];
+		if (mascots.length === 0) {
+			this.spawnMascot();
+			mascots = this.stage?.getMascots() ?? [];
+		}
+		const door = layout.doorOutside();
+		let nearest: Mascot | undefined;
+		let bestD = Infinity;
+		for (const mascot of mascots) {
+			const d = Math.hypot(mascot.physics.x - door.x, mascot.physics.y - door.y);
+			if (d < bestD) {
+				bestD = d;
+				nearest = mascot;
+			}
+		}
+		if (!nearest) {
+			new Notice("Shimeji: no mascot to send home.");
+			return;
+		}
+		this.residency.handleOrder(layout.doorInside(), nearest);
+	}
+
+	callOutOfRoom(): void {
+		if (!this.residency.callOut()) new Notice("Shimeji: nobody is home.");
+	}
+
+	/**
+	 * Watches for the two thresholds being crossed, every frame.
+	 *
+	 * Its own loop rather than a hook inside Stage's, so the engine keeps knowing nothing about
+	 * rooms. A frame of lag either way is invisible at the sizes involved, and the work is a couple
+	 * of distance comparisons.
+	 */
+	private startResidencyLoop(): void {
+		const step = (): void => {
+			this.residency.tick();
+			this.roomView()?.refresh();
+			this.residencyRaf = requestAnimationFrame(step);
+		};
+		this.residencyRaf = requestAnimationFrame(step);
 	}
 
 	/** The panes a spot order opened are left in place on purpose — closing one the moment the mascot

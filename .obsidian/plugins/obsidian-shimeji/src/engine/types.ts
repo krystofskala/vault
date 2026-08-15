@@ -10,7 +10,10 @@ export interface Rect {
 	bottom: number;
 }
 
-export type LedgeSource = "window" | "pane" | "statusbar";
+/** Where a surface came from. `room` is the hand-authored furniture of the plant room (see
+ * room/roomDef.ts) rather than anything measured from the DOM — kept distinct from `pane` because
+ * the pack's own `activeIE` predicates key off that one, and a sofa is not a window. */
+export type LedgeSource = "window" | "pane" | "statusbar" | "room";
 
 /** Opaque handle identifying a specific real pane, meaningless to engine/ or shimeji/ — neither
  * layer ever looks inside it, only carries it from Environment.getPlatformRects() through to
