@@ -9,13 +9,66 @@ import { PALETTE, roomSurfaces, roomWalls, type Painter, type RoomDef, type Room
  * between neighbouring shapes.
  */
 
-/** After dark. Chosen rather than sampled from Obsidian's theme on purpose — the window looks out of
- * the building, and a light theme at 11pm should still show a night sky. */
-const DUSK_START_HOUR = 19;
-const DUSK_END_HOUR = 6;
+/**
+ * The day, as a handful of keyframes interpolated between.
+ *
+ * Chosen rather than sampled from Obsidian's theme on purpose: the room's window looks out of the
+ * building, and a light theme at 11pm should still show a night sky.
+ *
+ * The transitions are the interesting part, which is why this is a curve rather than the boolean it
+ * replaced. Dawn and sunset are the two moments the light is deeply warm; midday is neutral and
+ * bright; the blue hour after sunset is dim *and* cold, which is a different look from either.
+ */
+const DAY: Array<{ h: number; light: number; warm: number }> = [
+	{ h: 0, light: 0, warm: -0.35 },
+	{ h: 5, light: 0.02, warm: -0.3 },
+	{ h: 6.5, light: 0.35, warm: 0.7 },
+	{ h: 8, light: 0.72, warm: 0.3 },
+	{ h: 11, light: 1, warm: 0 },
+	{ h: 15, light: 0.95, warm: 0.1 },
+	{ h: 17.5, light: 0.65, warm: 0.55 },
+	{ h: 19, light: 0.3, warm: 0.75 },
+	{ h: 20.5, light: 0.06, warm: -0.1 },
+	{ h: 22, light: 0, warm: -0.35 },
+	{ h: 24, light: 0, warm: -0.35 },
+];
 
-export function moodForHour(hour: number): RoomMood {
-	return { dusk: hour >= DUSK_START_HOUR || hour < DUSK_END_HOUR };
+/** Below this it counts as dark out, for the rooms that only want the one bit. Placed to land at
+ * roughly the 7pm/6am boundary the old boolean used, so their appearance is unchanged. */
+const DUSK_BELOW = 0.35;
+
+export function moodForHour(hour: number, t = 0): RoomMood {
+	const h = ((hour % 24) + 24) % 24;
+	let i = 0;
+	while (i < DAY.length - 2 && DAY[i + 1].h <= h) i++;
+	const a = DAY[i];
+	const b = DAY[i + 1];
+	const k = b.h === a.h ? 0 : (h - a.h) / (b.h - a.h);
+	const daylight = a.light + (b.light - a.light) * k;
+	return { dusk: daylight < DUSK_BELOW, hour: h, daylight, warmth: a.warm + (b.warm - a.warm) * k, t };
+}
+
+/** The mood right now — the clock for the light, and a monotonic timer for the animation. */
+export function moodNow(hourOverride?: number): RoomMood {
+	const now = new Date();
+	const hour = hourOverride ?? now.getHours() + now.getMinutes() / 60;
+	return moodForHour(hour, performance.now() / 1000);
+}
+
+/** How often an animated room repaints. Deliberately low: the room is pixel art, a lamp that fails
+ * at sixty frames a second reads as noise rather than as a failing lamp, and this is a full repaint
+ * of every fixture. */
+export const ROOM_ANIMATION_FPS = 10;
+
+/** Blends two `#rrggbb` colours. Rooms use it to move their palette through the day rather than
+ * carrying a separate set of colours per hour. */
+export function mixHex(from: string, to: string, k: number): string {
+	const t = Math.max(0, Math.min(1, k));
+	const parse = (hex: string) => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+	const [r1, g1, b1] = parse(from);
+	const [r2, g2, b2] = parse(to);
+	const ch = (a: number, b: number) => Math.round(a + (b - a) * t);
+	return `rgb(${ch(r1, r2)}, ${ch(g1, g2)}, ${ch(b1, b2)})`;
 }
 
 function painterFor(ctx: CanvasRenderingContext2D): Painter {

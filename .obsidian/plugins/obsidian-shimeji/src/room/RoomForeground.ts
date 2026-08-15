@@ -1,4 +1,4 @@
-import { hasForeground, moodForHour, paintRoom } from "./roomArt";
+import { hasForeground, moodNow, paintRoom, ROOM_ANIMATION_FPS } from "./roomArt";
 import type { RoomDef } from "./roomDef";
 import type { RoomLayout } from "./RoomGeometry";
 
@@ -28,14 +28,17 @@ export class RoomForeground {
 	 * Redraws and repositions to match `layout`, or hides when there is nothing to draw — the room
 	 * is off screen, or it simply has no foreground.
 	 */
-	update(def: RoomDef | undefined, layout: RoomLayout | undefined): void {
+	update(def: RoomDef | undefined, layout: RoomLayout | undefined, hourOverride?: number): void {
 		if (!def || !layout || !hasForeground(def)) {
 			this.hide();
 			return;
 		}
 		const canvas = this.ensure();
-		const mood = moodForHour(new Date().getHours());
-		const key = `${def.width}x${def.height}|${layout.scale}|${layout.mirrored}|${mood.dusk}`;
+		const mood = moodNow(hourOverride);
+		// Must advance in step with the background layer's own key, or the desk would be lit for one
+		// moment of the day while the wall behind it was lit for another.
+		const frame = def.animated ? Math.floor(mood.t * ROOM_ANIMATION_FPS) : Math.round(mood.daylight * 40);
+		const key = `${def.width}x${def.height}|${layout.scale}|${layout.mirrored}|${frame}`;
 		if (key !== this.lastKey) {
 			this.lastKey = key;
 			paintRoom(canvas, def, mood, { scale: layout.scale, mirrored: layout.mirrored, layer: "foreground" });

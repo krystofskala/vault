@@ -17,6 +17,7 @@ import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
 import { Residency } from "./room/Residency";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
+import { moodForHour } from "./room/roomArt";
 import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
 import { RoomForeground } from "./room/RoomForeground";
 
@@ -157,7 +158,14 @@ export default class ShimejiPlugin extends Plugin {
 		installDebugApi(
 			() => this.stage,
 			() => this.paneActionsGate,
-			() => ({ report: () => this.roomDiagnostics() }),
+			() => ({
+				report: () => this.roomDiagnostics(),
+				setHour: (hour) => this.setRoomHour(hour),
+				describeHour: (hour) => {
+					const m = moodForHour(hour);
+					return { hour, daylight: Math.round(m.daylight * 100) / 100, warmth: Math.round(m.warmth * 100) / 100, dark: m.dusk ? "yes" : "no" };
+				},
+			}),
 		);
 		this.applySoundSettings();
 
@@ -171,6 +179,7 @@ export default class ShimejiPlugin extends Plugin {
 					imageSrc: (style) => this.roomImageSrc(style),
 					onLayoutChanged: () => this.residency.tick(),
 					showSurfaces: () => this.showRoomSurfaces,
+					hourOverride: () => this.roomHourOverride,
 				}),
 		);
 		this.startResidencyLoop();
@@ -183,6 +192,7 @@ export default class ShimejiPlugin extends Plugin {
 		this.addCommand({ id: "shimeji-room-surfaces", name: "Show/hide what the shimeji can stand on in the plant room", callback: () => this.toggleRoomSurfaces() });
 		this.addCommand({ id: "shimeji-room-reload-art", name: "Reload the plant room artwork", callback: () => this.reloadRoomArt() });
 		this.addCommand({ id: "shimeji-room-next", name: "Switch to the next plant room", callback: () => void this.cycleRoomStyle() });
+		this.addCommand({ id: "shimeji-room-clock", name: "Step the plant room's clock through the day", callback: () => this.stepRoomClock() });
 		this.addCommand({ id: "shimeji-spawn", name: "Spawn mascot", callback: () => this.spawnMascot() });
 		this.addCommand({ id: "shimeji-remove", name: "Remove mascot", callback: () => this.stage?.removeMascot() });
 		this.addCommand({ id: "shimeji-remove-all", name: "Remove all mascots", callback: () => this.stage?.removeAllMascots() });
@@ -669,6 +679,32 @@ export default class ShimejiPlugin extends Plugin {
 	 * made visible instead. */
 	private showRoomSurfaces = false;
 
+	/** A forced clock hour for the room's lighting. The day cycle is only visible over a real day,
+	 * which is no way to find out whether dawn looks right. */
+	roomHourOverride?: number;
+
+	/** Steps the room's lighting through the day in three-hour jumps, then back to the real clock.
+	 * The cycle is otherwise only visible over a real day, which is no way to find out whether dawn
+	 * looks right. */
+	private stepRoomClock(): void {
+		const next = this.roomHourOverride === undefined ? 6 : this.roomHourOverride + 3;
+		if (next >= 27) {
+			this.setRoomHour(undefined);
+			new Notice("Shimeji room: back on the real clock.");
+			return;
+		}
+		const hour = next % 24;
+		this.setRoomHour(hour);
+		new Notice(`Shimeji room: showing ${String(Math.floor(hour)).padStart(2, "0")}:00`);
+	}
+
+	setRoomHour(hour: number | undefined): void {
+		this.roomHourOverride = hour;
+		const view = this.roomView();
+		view?.invalidate();
+		view?.refresh();
+	}
+
 	private toggleRoomSurfaces(): void {
 		this.showRoomSurfaces = !this.showRoomSurfaces;
 		const view = this.roomView();
@@ -767,7 +803,7 @@ export default class ShimejiPlugin extends Plugin {
 			this.residency.tick();
 			const view = this.roomView();
 			view?.refresh();
-			this.roomForeground.update(view?.def, view?.layout());
+			this.roomForeground.update(view?.def, view?.layout(), this.roomHourOverride);
 			this.residencyRaf = requestAnimationFrame(step);
 		};
 		this.residencyRaf = requestAnimationFrame(step);

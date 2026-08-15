@@ -1,7 +1,7 @@
 import { ItemView, type WorkspaceLeaf } from "obsidian";
 import type { Rect } from "../engine/types";
 import { layoutRoom, shouldMirror, type RoomLayout } from "./RoomGeometry";
-import { drawRoomImage, drawSurfaceOverlay, moodForHour, paintRoom, ROOM_BACKDROP, ROOM_BACKDROP_DUSK, sampleBackdrop } from "./roomArt";
+import { drawRoomImage, drawSurfaceOverlay, moodNow, paintRoom, ROOM_ANIMATION_FPS, ROOM_BACKDROP, ROOM_BACKDROP_DUSK, sampleBackdrop } from "./roomArt";
 import { LIVING_ROOM, type RoomDef } from "./roomDef";
 import { roomImageCandidates, type RoomStyle } from "./rooms";
 
@@ -21,6 +21,8 @@ export interface RoomViewOptions {
 	onLayoutChanged(): void;
 	/** Whether to draw the collision surfaces over the room. */
 	showSurfaces(): boolean;
+	/** A forced clock hour, for looking at the room's lighting without waiting for the day. */
+	hourOverride(): number | undefined;
 }
 
 /**
@@ -199,11 +201,15 @@ export class RoomView extends ItemView {
 		const rect = this.contentRect();
 		if (!rect) return;
 		const def = this.def;
-		const mood = moodForHour(new Date().getHours());
+		const mood = moodNow(this.opts.hourOverride());
 		const layout = layoutRoom(def, rect, window.innerWidth);
 		if (!layout) return;
 		const surfaces = this.opts.showSurfaces();
-		const key = `${this.opts.style().id}|${def.background ?? "painted"}|${layout.scale}|${layout.mirrored}|${mood.dusk}|${surfaces}`;
+		// An animated room advances its own frame counter into the key, which is what turns "redraw
+		// when something changed" into "redraw ten times a second" without either path knowing about
+		// the other. Still rounded, so a still room repaints when the pane moves and not otherwise.
+		const frame = def.animated ? Math.floor(mood.t * ROOM_ANIMATION_FPS) : Math.round(mood.daylight * 40);
+		const key = `${this.opts.style().id}|${def.background ?? "painted"}|${layout.scale}|${layout.mirrored}|${frame}|${surfaces}`;
 		const moved = `${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.right)}|${Math.round(rect.bottom)}`;
 
 		if (key !== this.lastKey) {

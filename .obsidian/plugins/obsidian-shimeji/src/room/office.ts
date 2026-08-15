@@ -1,4 +1,5 @@
-import type { Painter, RoomDef, RoomFixture } from "./roomDef";
+import { mixHex } from "./roomArt";
+import type { Painter, RoomDef, RoomFixture, RoomMood } from "./roomDef";
 
 /**
  * The office after everything else stopped: a desk still running, in a room the outside is coming
@@ -116,6 +117,40 @@ const P = {
 
 const LAMP = "#e2b260";
 
+/**
+ * What the window is showing, and what that light does to the room.
+ *
+ * Everything the day changes goes through here, so the room has one lighting model rather than a
+ * `mood.dusk ?` scattered through ten fixtures. Warmth is applied *in proportion to daylight*: a
+ * sunset is deeply amber, but the small amount of light at 3am is not warm at all, it is just small.
+ */
+function light(mood: RoomMood): { sky: string; glass: string; wash: string; lamp: number; spill: number } {
+	const day = mood.daylight;
+	const base = mixHex("#141c26", "#8fa8a0", day);
+	const sky = mixHex(base, "#d98f4a", Math.max(0, mood.warmth) * day * 0.75);
+	// The gloom deepens as the light goes, and turns from cold blue-grey towards near-black.
+	const washAlpha = 0.14 + 0.42 * (1 - day);
+	const cold = Math.max(0, -mood.warmth);
+	const wash = `rgba(${Math.round(14 + cold * 4)}, ${Math.round(20 - cold * 4)}, ${Math.round(22 + cold * 10)}, ${washAlpha.toFixed(3)})`;
+
+	/*
+	 * The lamp is the room's one working thing and it is not working well.
+	 *
+	 * Three sines of unrelated periods give a flicker that never visibly repeats — a single sine
+	 * reads as a pulse, which is a lamp doing something rhythmic on purpose rather than a lamp about
+	 * to fail. The fourth term is the occasional near-dropout, rare enough to be startling.
+	 */
+	const on = day < 0.5 ? 1 - day / 0.5 : 0;
+	const jitter = 0.82 + 0.1 * Math.sin(mood.t * 7.3) + 0.06 * Math.sin(mood.t * 11.9) + 0.04 * Math.sin(mood.t * 23.1);
+	const dropout = Math.sin(mood.t * 0.61) > 0.987 ? 0.25 : 1;
+	const lamp = Math.max(0, Math.min(1, on * jitter * dropout));
+
+	// The screen never sleeps. Slow, shallow, and always on: it is the only clue the machine is
+	// still running, and the mascot's face is lit by it.
+	const spill = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(mood.t * 1.35));
+	return { sky, glass: mixHex(sky, "#0f1518", 0.25), wash, lamp, spill };
+}
+
 /** Ragged edge: a run of pixels whose height wobbles, for broken plaster and torn material. */
 function ragged(p: Painter, x: number, y: number, w: number, depth: number, color: string, seed: number): void {
 	for (let i = 0; i < w; i++) {
@@ -126,11 +161,13 @@ function ragged(p: Painter, x: number, y: number, w: number, depth: number, colo
 
 const shell: RoomFixture = {
 	id: "shell",
-	paint(p) {
+	paint(p, mood) {
 		p.px(0, 0, W, GROUND_Y, P.wall);
 		// Damp creeping up from the floor, and a lit band where the window falls on the wall.
 		p.px(0, GROUND_Y - 14, W, 14, P.wallDamp);
-		p.px(30, 0, 26, GROUND_Y - 14, P.wallLit);
+		// The patch of wall the window falls on, which brightens and warms with the day.
+		const L = light(mood);
+		p.px(30, 0, 26, GROUND_Y - 14, mixHex(P.wall, L.sky, 0.22 + 0.3 * mood.daylight));
 		for (let x = 5; x < W; x += 13) p.px(x, 6, 1, GROUND_Y - 20, P.wallStain);
 
 		// Plaster gone in two patches, exposing brick.
@@ -164,11 +201,13 @@ const brokenWindow: RoomFixture = {
 	id: "window",
 	paint(p, mood) {
 		p.px(30, 4, 26, 22, P.caseDark);
-		p.px(32, 6, 22, 18, mood.dusk ? P.skyDusk : P.sky);
-		// What is left of the glass: two panes intact, one starred, one gone entirely.
-		p.px(32, 6, 10, 8, mood.dusk ? P.skyDusk : P.glassPale);
-		p.px(44, 6, 10, 8, P.glass);
-		p.px(32, 16, 10, 8, P.glass);
+		const L = light(mood);
+		p.px(32, 6, 22, 18, L.sky);
+		// What is left of the glass: two panes intact, one starred, one gone entirely. The intact
+		// ones are dirty, so they read a shade darker than the open one.
+		p.px(32, 6, 10, 8, L.glass);
+		p.px(44, 6, 10, 8, L.glass);
+		p.px(32, 16, 10, 8, mixHex(L.glass, "#0f1518", 0.15));
 		p.px(46, 17, 2, 2, P.caseDark);
 		p.px(49, 20, 3, 1, P.caseDark);
 		p.px(42, 6, 2, 18, P.caseDark);
@@ -180,6 +219,16 @@ const brokenWindow: RoomFixture = {
 			p.px(46 + i, 24 + ((i * 2) % 4), 1, 3, P.moss);
 		}
 		p.px(30, 26, 26, 1, P.moss);
+
+		// Dust drifting through the open pane, only visible when there is light to catch it. Falls
+		// slowly and wraps, so the column is never empty and never repeats obviously.
+		if (mood.daylight > 0.12) {
+			for (let i = 0; i < 12; i++) {
+				const x = 33 + ((i * 7) % 21);
+				const y = 7 + ((i * 5 + mood.t * 3) % 18);
+				p.px(x, Math.floor(y), 1, 1, `rgba(220,232,224,${(0.06 + 0.1 * mood.daylight).toFixed(3)})`);
+			}
+		}
 	},
 };
 
@@ -201,13 +250,17 @@ const vines: RoomFixture = {
 const deskLamp: RoomFixture = {
 	id: "lamp",
 	paint(p, mood) {
-		// The one warm thing in the room. Clamped to the wall, still working.
+		// The one warm thing in the room, clamped to the wall and on its way out.
+		const { lamp } = light(mood);
 		p.px(20, 12, 2, 14, P.metal);
 		p.px(14, 10, 10, 3, P.caseBody);
-		p.px(15, 13, 8, 2, mood.dusk ? LAMP : P.caseLit);
-		if (mood.dusk) {
-			p.px(16, 15, 6, 2, P.lampGlow);
-			p.px(13, 15, 12, 8, P.lampGlow);
+		p.px(15, 13, 8, 2, lamp > 0.05 ? mixHex(P.caseLit, LAMP, lamp) : P.caseLit);
+		if (lamp > 0.05) {
+			// Three rings of falling opacity, all scaled by the flicker, so the pool of light
+			// breathes as a whole rather than the bulb blinking inside a static glow.
+			p.px(16, 15, 6, 3, `rgba(226,178,96,${(0.3 * lamp).toFixed(3)})`);
+			p.px(13, 15, 12, 8, `rgba(226,178,96,${(0.16 * lamp).toFixed(3)})`);
+			p.px(9, 14, 20, 15, `rgba(226,178,96,${(0.07 * lamp).toFixed(3)})`);
 		}
 	},
 };
@@ -232,7 +285,7 @@ const tower: RoomFixture = {
 		p.px(6, 38, 11, GROUND_Y - 38, P.caseBody);
 		p.px(6, 38, 11, 1, P.caseLit);
 		for (let i = 0; i < 4; i++) p.px(8, 41 + i * 2, 7, 1, P.vent);
-		p.px(8, 51, 2, 2, mood.dusk ? P.screenSpill : P.leaf);
+		p.px(8, 51, 2, 2, mixHex(P.leaf, P.screenSpill, light(mood).spill));
 		p.px(6, 44, 1, 8, P.rust);
 	},
 };
@@ -286,12 +339,15 @@ const monitorBack: RoomFixture = {
 		p.px(60, 29, 6, 4, P.sticker3);
 		p.px(61, 24, 4, 4, P.sticker4);
 		p.px(62, 25, 2, 2, P.caseDark);
-		// Screen light spilling round the edges, which is the only clue it is still on.
-		if (mood.dusk) {
-			p.px(49, 18, 1, 17, P.screenSpill);
-			p.px(74, 18, 1, 17, P.screenSpill);
-			p.px(50, 16, 24, 1, P.screenSpill);
-		}
+		// Screen light spilling round the edges — the only clue it is still on, and the one thing in
+		// the room that never goes off. Brightest at night, when there is nothing to compete with it.
+		const { spill } = light(mood);
+		const a = (spill * (0.35 + 0.65 * (1 - mood.daylight))).toFixed(3);
+		p.px(49, 18, 1, 17, `rgba(95,143,168,${a})`);
+		p.px(74, 18, 1, 17, `rgba(95,143,168,${a})`);
+		p.px(50, 16, 24, 1, `rgba(95,143,168,${a})`);
+		p.px(48, 20, 1, 13, `rgba(95,143,168,${(Number(a) * 0.45).toFixed(3)})`);
+		p.px(75, 20, 1, 13, `rgba(95,143,168,${(Number(a) * 0.45).toFixed(3)})`);
 	},
 };
 
@@ -325,11 +381,12 @@ const atmosphere: RoomFixture = {
 	layer: "foreground",
 	paint(p, mood) {
 		// Painted last and over everything, resident included: gloom is in the air of the room, not
-		// behind the things in it.
-		p.px(0, 0, W, H, P.gloom);
-		if (mood.dusk) p.px(0, 0, W, H, P.gloom);
-		// Dust in the window's light.
-		for (let i = 0; i < 14; i++) p.px(30 + ((i * 7) % 26), 6 + ((i * 11) % 46), 1, 1, P.dust);
+		// behind the things in it. Which is also why it belongs on the foreground layer — a wash that
+		// stopped at the mascot would leave it lit as if by a light nothing else in the room has.
+		const L = light(mood);
+		p.px(0, 0, W, H, L.wash);
+		// The lamp's pool survives the gloom, so the corner it lights stays warm as the room darkens.
+		if (L.lamp > 0.05) p.px(6, 12, 26, 20, `rgba(226,178,96,${(0.06 * L.lamp).toFixed(3)})`);
 	},
 };
 
@@ -341,6 +398,8 @@ export const OFFICE: RoomDef = {
 	mirrorable: true,
 	integerScale: true,
 	background: "painted",
+	// The lamp flickers, the screen breathes, and dust drifts through the window. See `light()`.
+	animated: true,
 	residentHeightFraction: RESIDENT_FRACTION,
 	residentMaxScale: RESIDENT_MAX_SCALE,
 	// Facing one way and staying there. Shimeji artwork is side-on and the real engine has no

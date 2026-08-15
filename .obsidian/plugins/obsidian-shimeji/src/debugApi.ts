@@ -7,6 +7,10 @@ import type { Stage } from "./engine/Stage";
 /** What debugApi needs to explain the plant room, without importing the room itself. */
 export interface RoomDiagnostics {
 	report(): { chain: Array<Record<string, string | number | boolean>>; note?: string };
+	/** Forces the room's clock, or returns it to real time when given nothing. */
+	setHour(hour: number | undefined): void;
+	/** How the light looks at a given hour, without changing anything. */
+	describeHour(hour: number): Record<string, string | number>;
 }
 
 export interface ShimejiDebugApi {
@@ -21,6 +25,7 @@ export interface ShimejiDebugApi {
 	watch(seconds?: number): void;
 	explainOrder(x: number, y: number): void;
 	room(): void;
+	roomHour(hour?: number): void;
 }
 
 declare global {
@@ -182,6 +187,24 @@ export function installDebugApi(
 			const report = room.report();
 			console.table(report.chain);
 			if (report.note) console.info(`[obsidian-shimeji] ${report.note}`);
+		},
+
+		/** Forces the room's lighting to a given hour, or with no argument prints the whole day and
+		 * returns to real time. The cycle is otherwise only observable over a real day. */
+		roomHour(hour) {
+			const room = getRoom();
+			if (!room) {
+				console.info("[obsidian-shimeji] no plant room");
+				return;
+			}
+			if (hour === undefined) {
+				console.table(Array.from({ length: 12 }, (_, i) => room.describeHour(i * 2)));
+				room.setHour(undefined);
+				console.info("[obsidian-shimeji] room clock back on real time");
+				return;
+			}
+			room.setHour(hour);
+			console.info(`[obsidian-shimeji] room lit as ${hour}:00`, room.describeHour(hour));
 		},
 
 		where() {

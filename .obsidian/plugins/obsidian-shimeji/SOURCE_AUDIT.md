@@ -1763,3 +1763,38 @@ two warm things left, the lamp and the screen-glow leaking round the monitor, ca
 the air of the room, not behind the things in it.
 
 410 tests.
+
+## Pass 33: the room's light moves, and the office is alive in it (2026-08-15)
+
+**The day was a boolean.** `RoomMood` carried `dusk` and nothing else, so a room had two appearances
+and flipped between them at 7pm. It is now a curve — `daylight` 0–1 and `warmth` −1..+1, interpolated
+between eleven keyframes. The transitions are the point: the blue hour after sunset is *dim and cold*
+and looks nothing like the equally dim sunset twenty minutes earlier, which one brightness value
+cannot express. `dusk` survives as a derived convenience for the three rooms that only want the one
+bit, with its threshold placed so their appearance is unchanged.
+
+**Animation is opt-in, and free for rooms that decline.** `RoomDef.animated` puts a frame counter
+into the redraw key, which turns "repaint when the pane moves" into "repaint ten times a second"
+without either path knowing about the other. Both layers derive that counter identically — a
+foreground on a different frame from its background would light the desk at one moment of the day
+and the wall behind it at another. Ten frames a second on purpose: this is a full repaint of every
+fixture, and a lamp failing at sixty reads as noise rather than as a failing lamp.
+
+**Three things move in the office**, all driven from one `light()` function so the room has a single
+lighting model rather than a `mood.dusk ?` in ten fixtures:
+- the lamp flickers on three sines of unrelated period plus a rare near-dropout. One sine reads as a
+  pulse — a lamp doing something rhythmic on purpose, rather than one about to fail;
+- the screen glow breathes slowly and never goes out, being the only sign the machine still runs;
+- dust drifts down the shaft of window light, in proportion to how much light there is to catch it.
+
+Warmth is applied *scaled by daylight*: sunset is deeply amber, but the little light at 3am is not
+warm, it is just little.
+
+The cycle is only observable over a real day, which is no way to find out whether dawn looks right —
+so there is a command that steps the clock in three-hour jumps and `shimejiDebug.roomHour(h)`, which
+with no argument prints the whole day as a table and hands the room back to real time.
+
+Mutation-checked: freezing the flicker, dropping `animated`, and flattening the curve back to a
+boundary at 7pm each fail exactly one test.
+
+418 tests.

@@ -68,9 +68,30 @@ export interface Painter {
 	polygon(points: Array<[number, number]>, color: string): void;
 }
 
-/** Whether it is dark outside. Drives the window, and the lamplight that comes on with it. */
+/**
+ * What the room's light is doing right now.
+ *
+ * Was a single `dusk` boolean, which gave a room exactly two states and a hard switch between them
+ * at 7pm. A day has more than two states, and the interesting ones are the transitions — so this
+ * carries the light as continuous quantities and lets each room decide what to do with them.
+ */
 export interface RoomMood {
+	/** Kept for the rooms that only want to know whether it is dark out. Derived from `daylight`. */
 	dusk: boolean;
+	/** Fractional hour, 0–24. */
+	hour: number;
+	/** How much light is coming in: 0 in the dead of night, 1 at midday. */
+	daylight: number;
+	/** The colour of that light: −1 cold blue, 0 neutral, +1 the deep amber of dawn and sunset. */
+	warmth: number;
+	/**
+	 * Seconds, advancing continuously — the clock animation runs off.
+	 *
+	 * Separate from `hour` because they move at completely different rates: `hour` changes over
+	 * minutes and drives the lighting, while this changes every frame and drives a flickering lamp.
+	 * A room that used one for the other would either animate imperceptibly or strobe.
+	 */
+	t: number;
 }
 
 export interface RoomSurface {
@@ -161,6 +182,15 @@ export interface RoomDef {
 	 * office ended up with only a scalp showing above its desk.
 	 */
 	residentMaxScale?: number;
+	/**
+	 * Whether this room's picture changes on its own, and so has to be repainted continuously rather
+	 * than only when the pane moves.
+	 *
+	 * Opt-in because most rooms are still pictures: repainting a supplied photograph sixty times a
+	 * second to no visible effect is pure waste, and the room canvas is otherwise redrawn perhaps
+	 * once a minute.
+	 */
+	animated?: boolean;
 	/**
 	 * The threshold. Both directions pass through it: a mascot moving in appears here, and one
 	 * called away walks here before the workspace becomes its world again.

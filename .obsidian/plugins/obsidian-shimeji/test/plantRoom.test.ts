@@ -4,7 +4,7 @@ import { LIVING_ROOM, roomSurfaces, roomWalls } from "../src/room/roomDef";
 import { APARTMENT } from "../src/room/apartment";
 import { CELLAR } from "../src/room/cellar";
 import { OFFICE, OFFICE_DESK_Y } from "../src/room/office";
-import { hasForeground } from "../src/room/roomArt";
+import { hasForeground, moodForHour } from "../src/room/roomArt";
 import { ROOM_STYLES, ROOM_STYLE_IDS, roomStyle } from "../src/room/rooms";
 import { findRoute } from "../src/engine/Routing";
 import { findFloorBelow } from "../src/engine/Ledges";
@@ -457,5 +457,83 @@ describe("the office", () => {
 		expect(front).toContain("atmosphere");
 		// The gloom wash is painted over the resident too, so it has to come last of the foreground.
 		expect(front[front.length - 1]).toBe("atmosphere");
+	});
+});
+
+describe("the room's daylight", () => {
+	it("moves continuously through the day rather than switching once", () => {
+		// It was a boolean with a hard flip at 7pm. A day has more than two states, and the ones worth
+		// looking at are the transitions.
+		const samples = Array.from({ length: 48 }, (_, i) => moodForHour(i / 2).daylight);
+		const distinct = new Set(samples.map((v) => v.toFixed(2)));
+		expect(distinct.size, "the day only has a handful of light levels").toBeGreaterThan(12);
+		// And it moves smoothly — no step bigger than a fifth between half-hours.
+		for (let i = 1; i < samples.length; i++) {
+			expect(Math.abs(samples[i] - samples[i - 1]), `a jump at ${i / 2}:00`).toBeLessThan(0.2);
+		}
+	});
+
+	it("is brightest around midday and dark in the small hours", () => {
+		expect(moodForHour(12).daylight).toBeGreaterThan(0.9);
+		expect(moodForHour(3).daylight).toBeLessThan(0.05);
+		expect(moodForHour(23).daylight).toBeLessThan(0.05);
+	});
+
+	it("is warm at dawn and sunset, and cold in between and after", () => {
+		// The two moments the light is amber, which is what a single brightness value cannot express:
+		// the blue hour is dim *and* cold, and looks nothing like the equally dim sunset before it.
+		expect(moodForHour(6.5).warmth).toBeGreaterThan(0.5);
+		expect(moodForHour(19).warmth).toBeGreaterThan(0.5);
+		expect(moodForHour(12).warmth).toBeLessThan(0.2);
+		expect(moodForHour(21.5).warmth, "the blue hour came out warm").toBeLessThan(0.1);
+	});
+
+	it("wraps, and survives an hour outside the day", () => {
+		expect(moodForHour(24).daylight).toBeCloseTo(moodForHour(0).daylight, 5);
+		expect(() => moodForHour(-3)).not.toThrow();
+		expect(() => moodForHour(99)).not.toThrow();
+		expect(moodForHour(-3).daylight).toBeGreaterThanOrEqual(0);
+	});
+
+	it("still answers the one question the older rooms ask", () => {
+		// The painted nook and both photographed rooms only want to know whether it is dark out, and
+		// their appearance should not have shifted when this became a curve.
+		expect(moodForHour(2).dusk).toBe(true);
+		expect(moodForHour(13).dusk).toBe(false);
+		expect(moodForHour(21).dusk).toBe(true);
+	});
+});
+
+describe("the office's animation", () => {
+	it("declares itself animated, unlike the still rooms", () => {
+		// Opt-in: repainting a supplied photograph ten times a second to no visible effect is waste.
+		expect(OFFICE.animated).toBe(true);
+		expect(APARTMENT.animated ?? false).toBe(false);
+		expect(CELLAR.animated ?? false).toBe(false);
+		expect(LIVING_ROOM.animated ?? false).toBe(false);
+	});
+
+	it("paints differently from one moment to the next", () => {
+		// The actual claim: two frames a fifth of a second apart are not the same picture. Compared by
+		// what the fixtures draw rather than by a rendered canvas, since there is no canvas here.
+		const drawnAt = (t: number) => {
+			const calls: string[] = [];
+			const painter = { px: (x: number, y: number, w: number, h: number, c: string) => calls.push(`${x},${y},${w},${h},${c}`), polygon: () => {} };
+			for (const f of OFFICE.fixtures) f.paint(painter, moodForHour(21, t));
+			return calls.join("|");
+		};
+		expect(drawnAt(0)).not.toBe(drawnAt(0.2));
+		expect(drawnAt(0)).not.toBe(drawnAt(1.7));
+	});
+
+	it("paints differently at different times of day", () => {
+		const drawnAt = (hour: number) => {
+			const calls: string[] = [];
+			const painter = { px: (x: number, y: number, w: number, h: number, c: string) => calls.push(`${x},${y},${w},${h},${c}`), polygon: () => {} };
+			for (const f of OFFICE.fixtures) f.paint(painter, moodForHour(hour, 0));
+			return calls.join("|");
+		};
+		const hours = [3, 6.5, 12, 17.5, 21].map(drawnAt);
+		expect(new Set(hours).size, "some hours of the day look identical").toBe(hours.length);
 	});
 });
