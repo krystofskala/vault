@@ -135,6 +135,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 
 	display(): void {
 		const { containerEl } = this;
+		// Every toggle and every text change rebuilds this whole panel, which resets the scroll to
+		// the top — so changing one setting halfway down throws away your place. Restoring it
+		// afterwards is the difference between a panel you can work in and one that fights you.
+		const scrollTop = containerEl.scrollTop;
 		containerEl.empty();
 		containerEl.createEl("h2", { text: "Shimeji Desktop Mascot" });
 
@@ -502,6 +506,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					this.plugin.stage?.setDebugLedges(value);
 				}),
 			);
+
+		// After the panel has been rebuilt, not before — the content has to exist for the scroll
+		// offset to be reachable again.
+		containerEl.scrollTop = scrollTop;
 	}
 
 	/**

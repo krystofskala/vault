@@ -316,7 +316,9 @@
 
 .shimeji-bubble {
 	position: fixed;
-	max-width: 200px;
+	/* 170px is the width shimeji-buddy used, and it is the right one: a bubble much wider than the
+	   sprite stops reading as coming from the sprite. */
+	max-width: 170px;
 	width: max-content;
 	padding: 6px 10px;
 	background: var(--background-primary);
