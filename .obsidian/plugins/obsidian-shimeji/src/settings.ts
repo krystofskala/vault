@@ -91,6 +91,13 @@ export interface ShimejiSettings {
 	 * does is a behaviour and they change every few seconds, so this is the difference between an
 	 * occasional remark and a running commentary. */
 	speechChancePercent: number;
+	/** Invented — shimeji-ee has no awareness of files or vaults at all. Lets a mascot on the active
+	 * pane remark on a note being opened, created, deleted, renamed, or edited, using the same lines
+	 * file as ordinary behaviour speech (tagged `@note:open` and so on — see speech/vaultReactions.ts).
+	 * Named to match speechEnabled rather than the allow*-family flags in "What it may touch": this
+	 * never reaches into the workspace, it only ever calls the same speech.say() ordinary speech
+	 * already uses. Off by default so `@note:open` alone does not start talking the moment this ships. */
+	vaultReactionsEnabled: boolean;
 	/** Whether `scale` is read as a fraction of the window rather than a literal pixel multiplier —
 	 * see engine/responsiveScale.ts. On, a size chosen on a laptop still looks right on a phone or
 	 * a large monitor; off, it renders at the same pixel size everywhere. */
@@ -134,6 +141,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	speechFilePath: "",
 	speechStyle: "theme",
 	speechChancePercent: 25,
+	vaultReactionsEnabled: false,
 	responsiveScale: true,
 	mobileReadingViewOnly: true,
 };
@@ -473,6 +481,25 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								await this.plugin.saveSettings();
 								this.plugin.applySoundSettings();
 							}),
+					);
+			});
+
+			this.section(containerEl, "Vault events", false, (containerEl) => {
+				this.callout(
+					containerEl,
+					"info",
+					"Not a real shimeji-ee feature — shimeji-ee has no awareness of files or vaults at all. Uses the same lines file as ordinary speech above, tagged with @note:open, @note:create, @note:delete, @note:rename, or @note:edit instead of a behaviour name.",
+				);
+				new Setting(containerEl)
+					.setName("React to vault events")
+					.setDesc(
+						"Lets a mascot on the pane you're working in say a line when you open, create, delete, rename, or edit a note — if you've written one tagged for it.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.vaultReactionsEnabled).onChange(async (value) => {
+							this.plugin.settings.vaultReactionsEnabled = value;
+							await this.plugin.saveSettings();
+						}),
 					);
 			});
 		});

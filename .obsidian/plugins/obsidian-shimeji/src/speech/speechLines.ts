@@ -3,10 +3,12 @@
  *
  * Ported from the shimeji-buddy plugin's `src/speechLines.ts`. The scanner is nearly unchanged —
  * it was already small, pure and careful — but the *vocabulary* is not: buddy's tags were its own
- * invented trigger ids (`@mood:happy`, `@note:open`), and this engine has no such thing. What it
- * has is the pack's own behaviour names, straight out of `behaviors.xml`, so those are the tags.
- * That means the vocabulary is discoverable rather than documented: the plugin knows every legal
- * tag for the loaded character and can list them (see `speechLinesTemplate`).
+ * invented trigger ids (`@mood:happy`, `@note:open`), and this engine mostly has no such thing.
+ * What it mostly has is the pack's own behaviour names, straight out of `behaviors.xml`, so those
+ * are the tags. That means the vocabulary is discoverable rather than documented: the plugin knows
+ * every legal tag for the loaded character and can list them (see `speechLinesTemplate`). The one
+ * deliberate exception is vault reactions (see `vaultReactions.ts`), whose `note:open`-style ids
+ * are exactly the invented kind buddy used — which is why `TAG_PATTERN` below still accepts `:`.
  *
  * `@` and not `#`, because `#` is already an Obsidian tag and the file is a real note in the vault.
  */
@@ -23,7 +25,9 @@ export interface ParsedSpeechLines {
 	untaggedLines: string[];
 }
 
-const TAG_PATTERN = /@([A-Za-z0-9_-]+)/g;
+// The colon is only for vault-reaction ids like "note:open" — no real behaviour name has ever
+// needed one, so this can't collide with anything in a loaded pack's own tag vocabulary.
+const TAG_PATTERN = /@([A-Za-z0-9:_-]+)/g;
 const LIST_PREFIX_PATTERN = /^(?:[-*+]|\d+[.)])\s+/;
 const TRAILING_SEPARATOR_PATTERN = /[-–—:]\s*$/;
 const HTML_COMMENT_PATTERN = /<!--[\s\S]*?-->/g;

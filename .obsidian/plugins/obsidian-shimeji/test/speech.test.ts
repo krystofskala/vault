@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags } from "../src/speech/speechLines";
 import { SpeechScheduler } from "../src/speech/SpeechScheduler";
+import { DEFAULT_VAULT_REACTION_OPTIONS } from "../src/speech/vaultReactions";
 
 /** A deterministic stand-in for Math.random: hands back the given values in order, then repeats
  * the last one, so a test states exactly the rolls it means. */
@@ -34,6 +35,26 @@ describe("parseSpeechLines", () => {
 	it("strips list markers and trailing separators", () => {
 		const { pool } = parseSpeechLines("- Off I go — @Walk");
 		expect(pool.get("walk")).toEqual(["Off I go"]);
+	});
+
+	it("accepts a colon in a tag, for vault-reaction ids like @note:open", () => {
+		// No real behaviour name ever needs one, so this is purely for the invented note:* family
+		// (see vaultReactions.ts) — the exact regression TAG_PATTERN shipped with once already.
+		const { pool } = parseSpeechLines("Welcome back! @note:open");
+		expect(pool.get("note:open")).toEqual(["Welcome back!"]);
+	});
+
+	it("keeps consuming past the colon into whatever directly follows it", () => {
+		// TAG_PATTERN has no word-boundary concept: it stops at the first character outside its own
+		// class, which now includes ":" — so "@note:opened" is one continuous token, not "@note:"
+		// plus separate trailing word "opened". A tag meant to mean "note:open" but glued straight
+		// into more text with no separating space or punctuation becomes a different, longer tag
+		// instead — silently unmatched rather than resolving to the trigger that was intended.
+		// Every real example/template in this codebase puts a tag at the very end of its line, so
+		// this never fires on real content; documented here so it's known, not discovered.
+		const { pool } = parseSpeechLines("Welcome @note:opened the file");
+		expect(pool.has("note:open")).toBe(false);
+		expect(pool.get("note:opened")).toEqual(["Welcome the file"]);
 	});
 
 	describe("safe zones", () => {
@@ -281,5 +302,99 @@ describe("SpeechScheduler", () => {
 		s.consider(m, "Fall", many, 0, rolls(0));
 		// Second roll picks the line: 0.99 lands on the last of three.
 		expect(s.consider(m, "Walk", many, 10_000, rolls(0, 0.99))).toBe("Three");
+	});
+
+	describe("considerEvent", () => {
+		it("reacts on the first note:open, unlike consider()'s first-behaviour silence", () => {
+			// consider() deliberately stays silent the first time it sees a mascot, because nothing
+			// "changed" — the observer just arrived. A vault event has no such warm-up: the first
+			// open a mascot ever sees is exactly as real an event as any later one.
+			const { pool: eventPool } = parseSpeechLines("Welcome back! @note:open");
+			const s = new SpeechScheduler(OPTS);
+			expect(s.considerEvent(mascot(), "note:open", eventPool, 0, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe(
+				"Welcome back!",
+			);
+		});
+
+		it("reacts again on a second consecutive note:open, once the per-mascot gap has passed", () => {
+			// The bug considerEvent exists to avoid: consider() treats two identical trigger ids in a
+			// row as "still doing the same thing" and stays quiet on the second one forever. Two file
+			// opens are two separate events, and both deserve their own chance to be spoken about.
+			const { pool: eventPool } = parseSpeechLines("Welcome back! @note:open");
+			const s = new SpeechScheduler(OPTS);
+			const m = mascot();
+			expect(s.considerEvent(m, "note:open", eventPool, 0, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe("Welcome back!");
+			expect(s.considerEvent(m, "note:open", eventPool, 50_000, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe(
+				"Welcome back!",
+			);
+		});
+
+		it("holds its tongue on a vault event until the mascot's own gap has passed", () => {
+			const { pool: eventPool } = parseSpeechLines("Welcome back! @note:open");
+			const s = new SpeechScheduler(OPTS);
+			const m = mascot();
+			expect(s.considerEvent(m, "note:open", eventPool, 0, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe("Welcome back!");
+			// 20s later: past the 15s global gap, well short of the 45s per-mascot one.
+			expect(s.considerEvent(m, "note:open", eventPool, 20_000, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBeUndefined();
+			expect(s.considerEvent(m, "note:open", eventPool, 45_001, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe(
+				"Welcome back!",
+			);
+		});
+
+		it("does not let two mascots' vault events talk over each other", () => {
+			const { pool: eventPool } = parseSpeechLines("Welcome back! @note:open\nBye for now @note:delete");
+			const s = new SpeechScheduler(OPTS);
+			const a = mascot();
+			const b = mascot();
+			expect(s.considerEvent(a, "note:open", eventPool, 0, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe("Welcome back!");
+			// b has its own untouched per-mascot gap, but the global one still applies.
+			expect(s.considerEvent(b, "note:delete", eventPool, 100, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBeUndefined();
+			// ...and it can speak again once the global gap has passed.
+			expect(s.considerEvent(b, "note:delete", eventPool, 15_001, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe(
+				"Bye for now",
+			);
+		});
+
+		it("stays quiet on a vault event nothing is written for", () => {
+			const { pool: eventPool } = parseSpeechLines("Welcome back! @note:open");
+			const s = new SpeechScheduler(OPTS);
+			expect(
+				s.considerEvent(mascot(), "note:delete", eventPool, 0, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS),
+			).toBeUndefined();
+		});
+
+		it("respects the chance for vault events, and a failed roll does not start a cooldown", () => {
+			const { pool: eventPool } = parseSpeechLines("Welcome back! @note:open\nBye for now @note:delete");
+			const lowChance = { ...DEFAULT_VAULT_REACTION_OPTIONS, chancePercent: 50 };
+			const s = new SpeechScheduler(OPTS);
+			const m = mascot();
+			expect(s.considerEvent(m, "note:open", eventPool, 0, rolls(0.9), lowChance)).toBeUndefined();
+			expect(s.considerEvent(m, "note:delete", eventPool, 100, rolls(0.1), lowChance)).toBe("Bye for now");
+		});
+
+		it("does not let a considerEvent() cooldown gate consider() on the same mascot", () => {
+			const { pool: eventPool } = parseSpeechLines("Welcome back! @note:open");
+			const s = new SpeechScheduler(OPTS); // perMascotGapMs 9000, globalGapMs 2500
+			const m = mascot();
+			expect(s.considerEvent(m, "note:open", eventPool, 0, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe("Welcome back!");
+			// If the two cooldowns shared state, OPTS's 2500ms global / 9000ms per-mascot gaps would
+			// both still read as "just used" from the call above, and consider() would wrongly stay
+			// silent instead of recording its first-ever behaviour and then speaking on the next change.
+			s.consider(m, "Fall", pool, 50, rolls(0));
+			expect(s.consider(m, "Walk", pool, 100, rolls(0))).toBe("Off I go");
+		});
+
+		it("does not let a consider() cooldown gate considerEvent() on the same mascot", () => {
+			const { pool: eventPool } = parseSpeechLines("Welcome back! @note:open");
+			const s = new SpeechScheduler(OPTS);
+			const m = mascot();
+			s.consider(m, "Fall", pool, 0, rolls(0));
+			expect(s.consider(m, "Walk", pool, 50, rolls(0))).toBe("Off I go");
+			// consider() just spoke and is deep inside its own 9000ms per-mascot gap. If considerEvent
+			// shared that state, it would wrongly stay silent here too.
+			expect(s.considerEvent(m, "note:open", eventPool, 100, rolls(0), DEFAULT_VAULT_REACTION_OPTIONS)).toBe(
+				"Welcome back!",
+			);
+		});
 	});
 });

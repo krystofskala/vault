@@ -1,6 +1,7 @@
 import type { Mascot } from "../engine/Mascot";
 import { SpeechScheduler, type SpeechOptions } from "./SpeechScheduler";
 import type { SpeechPool } from "./speechLines";
+import { DEFAULT_VAULT_REACTION_OPTIONS } from "./vaultReactions";
 
 /** How long a line stays up. Long enough to read a short sentence, short enough not to follow the
  * mascot halfway across the window. */
@@ -59,6 +60,19 @@ export class SpeechBubbles {
 	/** Says something immediately, whatever the cooldowns — the "try a line" button in settings. */
 	say(mascot: Mascot, text: string): void {
 		this.show(mascot, text);
+	}
+
+	/**
+	 * Offers a vault event (a note opened, created, deleted, renamed, or edited — see
+	 * `vaultReactions.ts`) to the scheduler, cooldown-gated same as ordinary behaviour speech but
+	 * kept on its own separate cooldown so one kind of remark never silently uses up the other's
+	 * turn. Called once per eligible mascot per event, from main.ts's own vault-event listeners —
+	 * this class still never reaches back into the engine to find out anything for itself.
+	 */
+	announceEvent(mascot: Mascot, triggerId: string): void {
+		if (!this.enabled || this.pool.size === 0) return;
+		const line = this.scheduler.considerEvent(mascot, triggerId, this.pool, performance.now(), this.rng, DEFAULT_VAULT_REACTION_OPTIONS);
+		if (line) this.show(mascot, line);
 	}
 
 	/**

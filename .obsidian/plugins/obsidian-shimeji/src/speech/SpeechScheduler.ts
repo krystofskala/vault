@@ -32,6 +32,11 @@ export class SpeechScheduler {
 	private lastBehavior = new WeakMap<Speaker, string>();
 	private lastSpokeAt = new WeakMap<Speaker, number>();
 	private lastAnySpokeAt = Number.NEGATIVE_INFINITY;
+	/** `considerEvent`'s own cooldown state, kept apart from `consider`'s above — a vault-event
+	 * remark and a behaviour-change remark are different enough in kind that one speaking shouldn't
+	 * silently use up the other's turn. */
+	private eventLastSpokeAt = new WeakMap<Speaker, number>();
+	private eventLastAnySpokeAt = Number.NEGATIVE_INFINITY;
 
 	constructor(private opts: SpeechOptions = DEFAULT_SPEECH_OPTIONS) {}
 
@@ -72,9 +77,37 @@ export class SpeechScheduler {
 		return lines[Math.min(lines.length - 1, Math.floor(rng() * lines.length))];
 	}
 
+	/**
+	 * Offers a *discrete event* — something that happened once, not a state the mascot is in.
+	 *
+	 * `consider`'s whole first check is "did this change from what it was doing before", which is
+	 * the right question for a continuous thing like a behaviour and the wrong one for an event: two
+	 * separate file-opens are not "the same behaviour continuing," they're two separate things that
+	 * happened, and both deserve an equal chance to be spoken about. So this skips that comparison
+	 * entirely instead of manufacturing a fake "change" to satisfy it — the cooldowns below are the
+	 * only throttle, which is what a discrete event actually wants.
+	 *
+	 * `opts` is taken per call rather than fixed at construction, so a caller can give events their
+	 * own pacing (see `DEFAULT_VAULT_REACTION_OPTIONS`) without a second `SpeechScheduler` instance.
+	 */
+	considerEvent(mascot: Speaker, triggerId: string, pool: SpeechPool, now: number, rng: () => number, opts: SpeechOptions): string | undefined {
+		if (now - this.eventLastAnySpokeAt < opts.globalGapMs) return undefined;
+		if (now - (this.eventLastSpokeAt.get(mascot) ?? Number.NEGATIVE_INFINITY) < opts.perMascotGapMs) return undefined;
+
+		const lines = linesFor(pool, triggerId);
+		if (lines.length === 0) return undefined;
+		if (rng() * 100 >= opts.chancePercent) return undefined;
+
+		this.eventLastSpokeAt.set(mascot, now);
+		this.eventLastAnySpokeAt = now;
+		return lines[Math.min(lines.length - 1, Math.floor(rng() * lines.length))];
+	}
+
 	/** Forgets the quiet periods — for a settings change that should take effect at once. */
 	reset(): void {
 		this.lastSpokeAt = new WeakMap();
 		this.lastAnySpokeAt = Number.NEGATIVE_INFINITY;
+		this.eventLastSpokeAt = new WeakMap();
+		this.eventLastAnySpokeAt = Number.NEGATIVE_INFINITY;
 	}
 }

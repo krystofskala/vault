@@ -654,6 +654,32 @@ If a mascot says nothing, that is indistinguishable from it being broken — so 
 reports how many lines and tags parsed, flags any tag no behavior could match (a typo), and flags
 lines that forgot their tag.
 
+### Vault reactions
+
+*Not a port of anything* — shimeji-ee has no concept of files or vaults at all. A mascot standing on
+the pane you're actively working in can also remark on the vault itself, not just on what it's
+doing: a note opened, created, deleted, renamed, or edited. **Settings → Voice → Vault events** has
+the toggle — off by default, so `@note:open` doesn't start talking the moment this ships.
+
+It's the same speech file as above, not a second system: tag a line with one of these five instead
+of (or alongside) a behavior name.
+
+```markdown
+Welcome back! @note:open
+New page, let's go! @note:create
+Aw, it's gone... @note:delete
+Nice edit! @note:edit
+Ooh, a new name! @note:rename
+```
+
+Same rules as everywhere else in the file — longest-prefix matching (a bare `@note` catches all
+five if you'd rather write one line than five), several tags on one line, headings/callouts/code/
+comments never spoken. A mascot currently living in the plant room stays quiet; it isn't standing on
+any pane at all.
+
+Edits are debounced rather than cooldown-only, since Obsidian autosaves as you type: a remark for
+`@note:edit` only fires once you actually pause, never mid-keystroke.
+
 ## "Get to that spot" — Shift + triple-click
 
 **Shift + triple-click anywhere** in the window and the nearest mascot goes there. Not near there —

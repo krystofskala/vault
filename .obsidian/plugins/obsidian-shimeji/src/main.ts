@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Notice, Platform, Plugin } from "obsidian";
+import { MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { ObsidianDomEnvironment } from "./engine/Environment";
 import { Mascot } from "./engine/Mascot";
@@ -24,6 +24,7 @@ import { RoomForeground } from "./room/RoomForeground";
 import { SpeechBubbles } from "./speech/SpeechBubbles";
 import { DEFAULT_SPEECH_OPTIONS } from "./speech/SpeechScheduler";
 import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, type SpeechPool } from "./speech/speechLines";
+import { VaultReactionTrigger, vaultReactionsTemplateFragment } from "./speech/vaultReactions";
 
 /** What the settings screen reports about the speech file, so a typo'd tag or an empty file is
  * visible rather than silently producing a mascot that never says anything. */
@@ -42,6 +43,13 @@ const NOTE_MISCHIEF_CHECK_MS = 15_000;
 /** Chance per check, while eligible, of actually swapping the note — tuned to feel like a rare
  * surprise (roughly once every several minutes of continuous editing) rather than a nuisance. */
 const NOTE_MISCHIEF_CHANCE = 0.03;
+
+/** How long an editor has to sit still before a "note:edit" vault reaction fires — ported from the
+ * shimeji-buddy plugin's own MODIFY_DEBOUNCE_MS. `vault.on("modify")` fires on every autosave
+ * pause, far more often than a discrete event; without this a mascot would try to interrupt
+ * mid-typing every time the per-mascot cooldown reopened. Reset on every modify, so it only ever
+ * fires once edits have actually gone quiet. */
+const VAULT_EDIT_DEBOUNCE_MS = 1500;
 
 /** Shift + three clicks in roughly the same place within this window orders the nearest mascot to
  * that spot. Shift is what makes the gesture safe to listen for passively: a plain triple-click is
@@ -101,6 +109,8 @@ export default class ShimejiPlugin extends Plugin {
 	private mascotOpenedPanes: unknown[] = [];
 	/** Rolling shift-click tally behind the spot-order gesture. */
 	private spotClicks: { x: number; y: number; at: number; count: number } = { x: 0, y: 0, at: 0, count: 0 };
+	/** Reset on every vault "modify" event — see VAULT_EDIT_DEBOUNCE_MS. */
+	private vaultEditDebounceTimer: number | null = null;
 	/** What every PackDriver actually receives: gates obsidianPaneActions' resize/throw methods
 	 * behind the "Window mischief" setting live (read fresh on every call, not captured once),
 	 * so flipping the toggle takes effect immediately without reattaching every mascot's driver.
@@ -308,6 +318,42 @@ export default class ShimejiPlugin extends Plugin {
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.applyMobileInteractivity()));
 		this.registerInterval(window.setInterval(() => this.maybeTriggerNoteMischief(), NOTE_MISCHIEF_CHECK_MS));
 
+		// Vault reactions — see reactToVaultEvent/vaultReactionsEnabled. Deliberately no "note:open"
+		// fired here at startup (shimeji-buddy's own onLayoutReady did that): a plugin reload should
+		// not itself read as the user having opened something.
+		this.registerEvent(
+			this.app.workspace.on("file-open", (file) => {
+				if (file) this.reactToVaultEvent(VaultReactionTrigger.open);
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("create", (file) => {
+				if (file instanceof TFile) this.reactToVaultEvent(VaultReactionTrigger.create);
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("delete", (file) => {
+				if (file instanceof TFile) this.reactToVaultEvent(VaultReactionTrigger.delete);
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("rename", (file) => {
+				if (file instanceof TFile) this.reactToVaultEvent(VaultReactionTrigger.rename);
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("modify", (file) => {
+				if (!(file instanceof TFile)) return;
+				// "modify" fires on every autosave pause, so this only reacts once edits go quiet —
+				// see VAULT_EDIT_DEBOUNCE_MS.
+				if (this.vaultEditDebounceTimer !== null) window.clearTimeout(this.vaultEditDebounceTimer);
+				this.vaultEditDebounceTimer = window.setTimeout(() => {
+					this.vaultEditDebounceTimer = null;
+					this.reactToVaultEvent(VaultReactionTrigger.edit);
+				}, VAULT_EDIT_DEBOUNCE_MS);
+			}),
+		);
+
 		await this.rescanPacks();
 
 		// Strictly after rescanPacks, never merely "on layout ready". The starter file lists the
@@ -358,6 +404,7 @@ export default class ShimejiPlugin extends Plugin {
 
 	onunload(): void {
 		cancelAnimationFrame(this.residencyRaf);
+		if (this.vaultEditDebounceTimer !== null) window.clearTimeout(this.vaultEditDebounceTimer);
 		this.speech.destroy();
 		this.roomForeground.destroy();
 		uninstallDebugApi();
@@ -993,6 +1040,14 @@ export default class ShimejiPlugin extends Plugin {
 		return [...names].sort((a, b) => a.localeCompare(b));
 	}
 
+	/** Every tag the speech file may legally carry: the loaded characters' own behaviour names, plus
+	 * the five invented `note:*` vault-reaction ids (see vaultReactions.ts). Unconditional — these
+	 * are legal whether or not vaultReactionsEnabled is on, since the toggle only gates whether the
+	 * plugin *reacts* to a vault event, not whether a tag written for one is a typo. */
+	private allLegalSpeechTags(): string[] {
+		return [...this.speechTagVocabulary(), ...Object.values(VaultReactionTrigger)];
+	}
+
 	/**
 	 * Makes sure there is a file to read.
 	 *
@@ -1018,7 +1073,7 @@ export default class ShimejiPlugin extends Plugin {
 		}
 		if (await this.app.vault.adapter.exists(path)) return;
 		try {
-			await this.app.vault.create(path, speechLinesTemplate(this.speechTagVocabulary()));
+			await this.app.vault.create(path, speechLinesTemplate(this.speechTagVocabulary()) + "\n" + vaultReactionsTemplateFragment());
 		} catch (e) {
 			console.warn(`[obsidian-shimeji] could not create the speech file at "${path}"`, e);
 		}
@@ -1044,7 +1099,7 @@ export default class ShimejiPlugin extends Plugin {
 				taggedLineCount: parsed.taggedLineCount,
 				tagCount: parsed.pool.size,
 				untaggedLines: parsed.untaggedLines,
-				unmatchedTags: unmatchedTags(parsed.pool, this.speechTagVocabulary()),
+				unmatchedTags: unmatchedTags(parsed.pool, this.allLegalSpeechTags()),
 			};
 		} catch (e) {
 			console.warn("[obsidian-shimeji] could not read the speech file", e);
@@ -1066,7 +1121,7 @@ export default class ShimejiPlugin extends Plugin {
 	async appendStarterLines(): Promise<boolean> {
 		const path = this.settings.speechFilePath.trim();
 		if (!path || !(await this.app.vault.adapter.exists(path))) return false;
-		const template = speechLinesTemplate(this.speechTagVocabulary());
+		const template = speechLinesTemplate(this.speechTagVocabulary()) + "\n" + vaultReactionsTemplateFragment();
 		const examplesAt = template.indexOf("\n## ");
 		if (examplesAt < 0) return false;
 		const existing = await this.app.vault.adapter.read(path);
@@ -1206,21 +1261,46 @@ export default class ShimejiPlugin extends Plugin {
 		this.obsidianPaneActions.restoreThrown();
 	}
 
-	/** Not a real shimeji-ee mechanism — see allowNoteMischief. Independent of the mascot
-	 * simulation loop entirely: just "is any live mascot's position currently over the pane the
-	 * user is actively editing," checked on its own timer rather than every 40ms tick. */
+	/**
+	 * Which live mascots currently sit over the pane the user is actively editing — the geometry
+	 * behind note mischief and vault reactions alike. Neither is a real shimeji-ee mechanism (see
+	 * allowNoteMischief, vaultReactionsEnabled): both are Obsidian-layer-only, each checked on its
+	 * own timer or event rather than every simulation tick.
+	 *
+	 * `excludeConfined` leaves out a mascot currently living in the plant room (`confinement` is
+	 * set only by Residency.moveIn/moveOut) — a room resident is never "on the pane you're actively
+	 * working in" as far as vault reactions are concerned, even though its position is already
+	 * clamped inside the room's own separate rect regardless of this filter.
+	 */
+	private mascotsOnActivePane(opts?: { excludeConfined?: boolean }): Mascot[] {
+		const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+		if (!activeLeaf) return [];
+		const rect = activeLeaf.containerEl.getBoundingClientRect();
+		const mascots = this.stage?.getMascots() ?? [];
+		return mascots.filter((m) => {
+			if (opts?.excludeConfined && m.confinement !== undefined) return false;
+			return m.physics.x >= rect.left && m.physics.x <= rect.right && m.physics.y >= rect.top && m.physics.y <= rect.bottom;
+		});
+	}
+
+	/** Not a real shimeji-ee mechanism — see allowNoteMischief. */
 	private maybeTriggerNoteMischief(): void {
 		if (!this.settings.allowNoteMischief) return;
 		const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
 		if (!activeLeaf) return;
-		const rect = activeLeaf.containerEl.getBoundingClientRect();
-		const mascots = this.stage?.getMascots() ?? [];
-		const onActivePane = mascots.some(
-			(m) => m.physics.x >= rect.left && m.physics.x <= rect.right && m.physics.y >= rect.top && m.physics.y <= rect.bottom,
-		);
-		if (!onActivePane) return;
+		if (this.mascotsOnActivePane().length === 0) return;
 		if (Math.random() > NOTE_MISCHIEF_CHANCE) return;
 		this.obsidianPaneActions.openRandomNote(activeLeaf.containerEl);
+	}
+
+	/**
+	 * Bails if speech or vault reactions are off, then offers `triggerId` to every eligible mascot
+	 * on the active pane — same "offer to everyone, let cooldowns arbitrate" shape SpeechBubbles.tick
+	 * already uses for behaviour speech, so two mascots on one pane don't talk over each other.
+	 */
+	private reactToVaultEvent(triggerId: string): void {
+		if (!this.settings.speechEnabled || !this.settings.vaultReactionsEnabled) return;
+		for (const mascot of this.mascotsOnActivePane({ excludeConfined: true })) this.speech.announceEvent(mascot, triggerId);
 	}
 
 	/** Right-click menu on a mascot itself (also reachable by a touch-and-hold on mobile — see
