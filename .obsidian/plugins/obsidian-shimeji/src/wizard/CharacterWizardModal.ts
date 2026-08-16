@@ -3,6 +3,8 @@ import type ShimejiPlugin from "../main";
 import { listPackImages } from "../shimeji/PackLoader";
 import { decodeImageBlob, decodeVaultImage, importPackImage, overwriteVaultImageAsPng, packImagePath } from "../sprites/imageIo";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
+import { AnimationOptionsModal } from "./AnimationOptionsModal";
+import { deriveAnimatedActions, type AnimatedActionChecklist } from "./animationOptions";
 import { deriveRequiredPoses, type PoseChecklist, type PoseChecklistEntry } from "./deriveRequiredPoses";
 import { PoseFitCanvas } from "./PoseFitCanvas";
 import { probeScaffoldPlan, scaffoldCharacter } from "./scaffoldCharacter";
@@ -25,6 +27,7 @@ export class CharacterWizardModal extends Modal {
 	private packName?: string;
 	private imgDir?: string;
 	private checklist?: PoseChecklist;
+	private animatedActions?: AnimatedActionChecklist;
 	private doneImages = new Set<string>();
 	private fittingEntry?: PoseChecklistEntry;
 	private fitCanvas?: PoseFitCanvas;
@@ -176,6 +179,7 @@ export class CharacterWizardModal extends Modal {
 		this.packName = pack.name;
 		this.imgDir = pack.imgDir;
 		this.checklist = deriveRequiredPoses(pack.actions);
+		this.animatedActions = deriveAnimatedActions(pack.actions);
 		this.doneImages = new Set(await listPackImages(this.app, pack.imgDir));
 		return true;
 	}
@@ -204,7 +208,41 @@ export class CharacterWizardModal extends Modal {
 			for (const entry of this.checklist.optional) this.renderChecklistRow(body, entry);
 		}
 
+		if (this.animatedActions && (this.animatedActions.required.length > 0 || this.animatedActions.optional.length > 0)) {
+			const details = contentEl.createEl("details", { cls: "shimeji-section" });
+			details.createEl("summary", { cls: "shimeji-section-title", text: "Advanced: animation options" });
+			const body = details.createDiv({ cls: "shimeji-section-body" });
+			body.createEl("p", {
+				text:
+					"Give an action a couple of alternative animations instead of one fixed sequence — handy for " +
+					"higher-frame-rate game sprites that don't fit the standard pose slots. One option is picked at " +
+					"random, equally likely, every time the action starts.",
+				cls: "setting-item-description",
+			});
+			for (const name of this.animatedActions.required) this.renderAnimatedActionRow(body, name);
+
+			if (this.animatedActions.optional.length > 0) {
+				const ieDetails = body.createEl("details", { cls: "shimeji-section" });
+				ieDetails.createEl("summary", { cls: "shimeji-section-title", text: "Window-throwing actions" });
+				const ieBody = ieDetails.createDiv({ cls: "shimeji-section-body" });
+				for (const name of this.animatedActions.optional) this.renderAnimatedActionRow(ieBody, name);
+			}
+		}
+
 		new Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
+	}
+
+	private renderAnimatedActionRow(containerEl: HTMLElement, name: string): void {
+		const count = (this.packId ? this.plugin.settings.customContent[this.packId] : undefined)?.actions.find((a) => a.name.trim() === name)?.animations.length ?? 0;
+		new Setting(containerEl)
+			.setName(name)
+			.setDesc(count > 0 ? `${count} option${count === 1 ? "" : "s"}` : "Standard animation")
+			.addButton((b) => b.setButtonText(count > 0 ? "Edit options" : "Add options").onClick(() => this.openAnimationOptions(name)));
+	}
+
+	private openAnimationOptions(name: string): void {
+		if (!this.packId) return;
+		new AnimationOptionsModal(this.app, this.plugin, this.packId, name, () => this.render()).open();
 	}
 
 	private renderChecklistRow(containerEl: HTMLElement, entry: PoseChecklistEntry): void {

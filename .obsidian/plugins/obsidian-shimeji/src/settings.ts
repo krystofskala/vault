@@ -299,14 +299,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						cls: "setting-item-description",
 					});
 					for (const pack of this.plugin.availablePacks) {
-						new Setting(containerEl).setName(pack.name).addToggle((toggle) =>
-							toggle.setValue(this.plugin.settings.activePackIds.includes(pack.id)).onChange(async (value) => {
-								const ids = this.plugin.settings.activePackIds;
-								this.plugin.settings.activePackIds = value ? [...ids, pack.id] : ids.filter((id) => id !== pack.id);
-								await this.plugin.saveSettings();
-								this.plugin.respawnWithCurrentSettings();
-							}),
-						);
+						new Setting(containerEl)
+							.setName(pack.name)
+							.addToggle((toggle) =>
+								toggle.setValue(this.plugin.settings.activePackIds.includes(pack.id)).onChange(async (value) => {
+									const ids = this.plugin.settings.activePackIds;
+									this.plugin.settings.activePackIds = value ? [...ids, pack.id] : ids.filter((id) => id !== pack.id);
+									await this.plugin.saveSettings();
+									this.plugin.respawnWithCurrentSettings();
+								}),
+							)
+							.addButton((btn) =>
+								btn.setButtonText("Poses & animations...").onClick(() => new CharacterWizardModal(this.app, this.plugin, pack.id, () => this.display()).open()),
+							);
 					}
 				} else {
 					containerEl.createEl("p", {

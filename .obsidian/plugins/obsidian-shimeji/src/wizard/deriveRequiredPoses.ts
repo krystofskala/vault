@@ -14,7 +14,7 @@ import type { ActionDef } from "../shimeji/types";
  * the same as existing only to serve IE, and all three are required regardless (BehaviorAI.ts's
  * `REQUIRED_BEHAVIOR_NAMES`).
  */
-const IE_ONLY_ACTION_NAMES = new Set(["FallWithIe", "WalkWithIe", "RunWithIe", "ThrowIe"]);
+export const IE_ONLY_ACTION_NAMES = new Set(["FallWithIe", "WalkWithIe", "RunWithIe", "ThrowIe"]);
 
 export interface Anchor {
 	x: number;

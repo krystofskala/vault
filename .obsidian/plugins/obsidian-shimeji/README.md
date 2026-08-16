@@ -518,6 +518,10 @@ Creating a *second* character reorganizes the pack folder from the single-charac
 the multi-character one described below, if it isn't already — you'll be asked to confirm first,
 and nothing is ever deleted, only moved.
 
+Come back to a character any time with **Poses & animations...**, next to it in the character
+list above — same checklist, plus a collapsed **Advanced: animation options** group; see
+[Animation options](#animation-options) below.
+
 ### Doing it by hand
 
 The default pack folder (`Shimeji/`, alongside this README) already has the real, standard
@@ -636,6 +640,31 @@ sideways as poses change. Adjust it by hand afterwards if a pose needs it.
 **Velocity is left at zero** on every sliced pose. How far a step carries the mascot belongs to
 the action, not to the picture, so a freshly sliced Walk is a held animation until you fill that
 in — visible and fixable, rather than a guessed speed nothing in the pack asked for.
+
+### Animation options
+
+A real shimeji pack authors one fixed animation per action — the standard schema's Walk, say, is
+always the same four poses in the same order, every single time. Game sprite sheets often don't
+fit that mould: more frames than the standard slots expect, or a walk cycle you'd rather vary
+than replay identically forever. **Animation options** lets one action have several complete
+animations instead of one, picked at random — each equally likely — every time the action starts.
+
+Reach it from the character wizard's checklist (**Poses & animations...**, next to a character
+above), under the collapsed **Advanced: animation options** group: click **Add options** next to
+an action to open it. The first time, whatever that action currently plays becomes "Option 1"
+automatically, so cutting a second option from a sheet is the only new work — **+ Add another
+option** opens the same sheet-slicing tool described above, but keeps every frame you select, in
+order, as one option's whole sequence, rather than picking a single pose out of it. Options can be
+re-sliced or removed individually, and **Reset to standard animation** drops the override
+entirely, back to exactly what the pack's own `actions.xml` defines.
+
+Under the hood this is a normal custom action override — the same data "Build your own" edits —
+with one `<Animation>` variant per option, each gated by a `Math.random()` condition tuned so
+every option is equally likely despite the engine always picking the first matching one it finds.
+That means an action set up this way is also visible, and further editable, from "Build your own"
+afterward; the reverse holds too, so opening this on an action you've already hand-customized with
+your own conditions there warns you first, since saving here replaces whatever conditions were on
+it with freshly randomized ones.
 
 ### Seeing it move
 
