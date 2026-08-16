@@ -33,7 +33,8 @@ const THRESHOLD_REACH_PX = 52;
  * fixed and lets everything else move.
  *
  * A sixth of the room's height puts it comfortably between the bookshelf's shelves and makes the
- * furniture read as furniture.
+ * furniture read as furniture — but only for a room that asks for it. Applied to every room by
+ * default, this was simply shrinking the mascot for no reason the user had asked for.
  */
 const RESIDENT_HEIGHT_FRACTION = 1 / 6;
 
@@ -49,6 +50,29 @@ export interface ResidencyHost {
 	/** Persist who lives here, so the room still has its resident after a restart. */
 	rememberResident(resident: { packId: string | null } | null): void;
 	packIdOf(mascot: Mascot): string | null;
+}
+
+/**
+ * How big a resident should be in a given room — exported so the room's own tests measure the same
+ * number the room actually uses.
+ *
+ * That is not incidental. This room shipped twice with the mascot hidden behind its desk, and both
+ * times a test restated the formula rather than calling it, so the test agreed with a version of the
+ * arithmetic nobody was running. One implementation, or the test is decoration.
+ */
+export function residentScaleFor(layout: RoomLayout, spriteHeight: number, roomHeight: number, scaleOutside: number): number {
+	// Stated in the room's own units, so it can be reasoned about against the furniture in those
+	// same units — and so the answer cannot drift with the pane's size.
+	const units = layout.def.residentHeightUnits;
+	if (units !== undefined) return (units * layout.scale) / spriteHeight;
+
+	const fraction = layout.def.residentHeightFraction;
+	// A room that asks for nothing gets the mascot at the size it walked in at. The only limit is
+	// that it cannot be taller than the room, which is not a style choice — a resident taller than
+	// its own pane hangs out of the sidebar.
+	if (fraction === undefined) return Math.min(scaleOutside, roomHeight / spriteHeight);
+	const cap = layout.def.residentMaxScale ?? MAX_RESIDENT_SCALE;
+	return Math.min(cap, (roomHeight * fraction) / spriteHeight);
 }
 
 export class Residency {
@@ -175,9 +199,7 @@ export class Residency {
 		const mascot = this.resident;
 		if (!mascot || mascot.height <= 0) return;
 		const roomHeight = layout.rect.bottom - layout.rect.top;
-		const fraction = layout.def.residentHeightFraction ?? RESIDENT_HEIGHT_FRACTION;
-		const cap = layout.def.residentMaxScale ?? MAX_RESIDENT_SCALE;
-		const wanted = Math.min(cap, (roomHeight * fraction) / mascot.height);
+		const wanted = this.residentScale(layout, mascot.height, roomHeight);
 		if (Math.abs(mascot.scale - wanted) > 0.001) mascot.scale = wanted;
 		// A room may pin which way its resident faces — a mascot sitting at a desk should not keep
 		// turning away. Applied every frame because the pack's own Look action would otherwise flip
@@ -189,6 +211,22 @@ export class Residency {
 		// reads as jittering rather than as idling — reported as "shaking like crazy".
 		const hold = layout.def.residentBehavior;
 		if (hold && mascot.currentBehaviorName !== hold) mascot.startNamedBehavior(hold);
+	}
+
+	/**
+	 * How big the resident should be in this room.
+	 *
+	 * Resizing is **opt-in**, and only the office asks for it — its whole composition is built
+	 * around a figure of a particular size at a desk, so leaving that to whatever the mascot
+	 * happened to be would put it through the furniture. Every other room leaves the mascot exactly
+	 * the size it walked in at: it is the same character either side of the threshold, and shrinking
+	 * it on the way through was a decision nobody asked for.
+	 *
+	 * The one thing still enforced everywhere is that it cannot be taller than the room, which is
+	 * not a style choice — a resident taller than its own pane hangs out of the sidebar.
+	 */
+	private residentScale(layout: RoomLayout, spriteHeight: number, roomHeight: number): number {
+		return residentScaleFor(layout, spriteHeight, roomHeight, this.scaleBeforeMovingIn);
 	}
 
 	/**

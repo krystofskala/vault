@@ -46,19 +46,19 @@ const SEAT_Y = 47;
 export const OFFICE_DESK_Y = 38;
 const DESK_Y = OFFICE_DESK_Y;
 
-/** Sized for a portrait, not a dollhouse: this room is built around the figure. */
-const RESIDENT_FRACTION = 0.3;
 /**
- * Allowed well above natural size, unlike every other room, and set high enough that it effectively
- * never binds here.
+ * How tall the resident stands, in the room's own units.
  *
- * The default cap of 1 silently overrode the fraction above in any pane wide enough to matter — a
- * 128px sprite in an 860px-tall room is 15%, not 30% — which is exactly how this room shipped with
- * only a scalp showing above the desk. Left merely *raised*, the cap would still bind in a wide pane
- * and not in a narrow one, so the mascot would sit at a different height depending on how the
- * sidebar happened to be dragged.
+ * The room's one real constraint, and the reason it is stated in units rather than as a fraction of
+ * the pane. The chair is at y=47 and the desktop at y=38, so a figure this tall has its head at 27 —
+ * eleven units clear of the desk — and that arithmetic holds at every sidebar width.
+ *
+ * Both previous attempts were pixel-derived and both failed the same way: a fraction of the room's
+ * drawn height, capped, meant the cap bound in a wide pane and not in a narrow one, so how much of
+ * the mascot cleared the desk depended on how the sidebar happened to be dragged. Twice that shipped
+ * with only a scalp showing.
  */
-const RESIDENT_MAX_SCALE = 2.5;
+const RESIDENT_HEIGHT = 20;
 
 /** A short run behind the desk, left of the monitor so head and shoulders are clear of it. */
 const SEAT_X1 = 24;
@@ -401,8 +401,7 @@ export const OFFICE: RoomDef = {
 	paneBackdrop: true,
 	// The lamp flickers, the screen breathes, and dust drifts through the window. See `light()`.
 	animated: true,
-	residentHeightFraction: RESIDENT_FRACTION,
-	residentMaxScale: RESIDENT_MAX_SCALE,
+	residentHeightUnits: RESIDENT_HEIGHT,
 	// Facing one way and staying there. Shimeji artwork is side-on and the real engine has no
 	// front-facing pose at all, so this settles which side rather than turning it to camera.
 	residentFacing: 1,

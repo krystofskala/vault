@@ -159,6 +159,16 @@ export interface RoomDef {
 	 */
 	paneBackdrop?: boolean;
 	/**
+	 * How tall the resident stands, in the room's *own* coordinate units.
+	 *
+	 * Preferred over `residentHeightFraction` for any room whose furniture the mascot has to line
+	 * up with, because it is stated in the same units as that furniture. The office's desktop is at
+	 * y=38 and its chair at y=47, so a resident 20 units tall puts its head at 27 — eleven units
+	 * clear of the desk — and that stays true at every pane size, which a fraction-of-pixels
+	 * derivation does not.
+	 */
+	residentHeightUnits?: number;
+	/**
 	 * How tall the resident stands here, as a fraction of the room's drawn height. Per-room because
 	 * the right answer depends on what the room is: a whole flat wants a small figure, while a scene
 	 * built around the mascot itself wants it large enough to read. Defaults to Residency's own.

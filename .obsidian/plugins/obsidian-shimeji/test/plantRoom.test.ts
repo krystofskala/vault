@@ -4,6 +4,7 @@ import { LIVING_ROOM, roomSurfaces, roomWalls } from "../src/room/roomDef";
 import { APARTMENT } from "../src/room/apartment";
 import { CELLAR } from "../src/room/cellar";
 import { OFFICE, OFFICE_DESK_Y } from "../src/room/office";
+import { residentScaleFor } from "../src/room/Residency";
 import { hasForeground, moodForHour } from "../src/room/roomArt";
 import { ROOM_STYLES, ROOM_STYLE_IDS, roomStyle } from "../src/room/rooms";
 import { findRoute } from "../src/engine/Routing";
@@ -406,8 +407,9 @@ describe("the office", () => {
 		// in every pane wide enough to matter, and the test never knew.
 		const roomHeight = layout.rect.bottom - layout.rect.top;
 		const NATURAL_SPRITE_PX = 128;
-		const scale = Math.min(OFFICE.residentMaxScale ?? 1, (roomHeight * (OFFICE.residentHeightFraction ?? 1 / 6)) / NATURAL_SPRITE_PX);
-		const spriteHeight = NATURAL_SPRITE_PX * scale;
+		// The room's own function, not a copy of it. Restating the arithmetic here is exactly how
+		// this shipped hidden twice: the test agreed with a version nobody was running.
+		const spriteHeight = NATURAL_SPRITE_PX * residentScaleFor(layout, NATURAL_SPRITE_PX, roomHeight, 1);
 		const feet = layout.toViewport(0, OFFICE.floorY).y;
 		const head = feet - spriteHeight;
 		const desktop = layout.toViewport(0, OFFICE_DESK_Y).y;
@@ -440,8 +442,7 @@ describe("the office", () => {
 			const l = layoutRoom(OFFICE, { left: 0, top: 0, right: width, bottom: 1240 }, VIEWPORT_W);
 			if (!l) continue;
 			const roomHeight = l.rect.bottom - l.rect.top;
-			const scale = Math.min(OFFICE.residentMaxScale ?? 1, (roomHeight * (OFFICE.residentHeightFraction ?? 1 / 6)) / NATURAL_SPRITE_PX);
-			const sprite = NATURAL_SPRITE_PX * scale;
+			const sprite = NATURAL_SPRITE_PX * residentScaleFor(l, NATURAL_SPRITE_PX, roomHeight, 1);
 			const feet = l.toViewport(0, OFFICE.floorY).y;
 			seen.push((l.toViewport(0, OFFICE_DESK_Y).y - (feet - sprite)) / sprite);
 		}

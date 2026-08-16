@@ -136,10 +136,12 @@ describe("moving into the plant room", () => {
 
 		expect(s.residency.hasResident).toBe(true);
 		expect(m.confinement, "the resident's world was not replaced").toBeDefined();
-		// Sized against the room, not by a fixed multiplier — see RESIDENT_HEIGHT_FRACTION. What
-		// matters is the proportion, which has to hold whatever the pane's width makes the room.
+		// Not shrunk to some fraction of the room: it is the same character either side of the
+		// threshold. The only limit is that it cannot be taller than the room it is standing in,
+		// which this deliberately-small test room does impose.
 		const roomHeight = s.layout().rect.bottom - s.layout().rect.top;
-		expect((m.height * m.scale) / roomHeight).toBeCloseTo(1 / 6, 2);
+		expect(m.scale).toBe(1);
+		expect(m.height * m.scale).toBeLessThanOrEqual(roomHeight + 0.001);
 		expect(s.layout().contains(m.physics)).toBe(true);
 		// Dropped in rather than pinned: landing is the engine's job.
 		expect(m.physics.grounded).toBe(false);
@@ -347,5 +349,41 @@ describe("a resident that ends up outside its own room", () => {
 		s.residency.tick();
 		expect(m.physics.x).toBe(200);
 		expect(s.residency.hasResident).toBe(true);
+	});
+});
+
+describe("how big the resident is", () => {
+	it("keeps the size it walked in at, when the room does not ask otherwise", () => {
+		// Shrinking a mascot on the way through the door was a decision nobody asked for. Only a
+		// room whose composition depends on it (the office, at its desk) gets to resize its
+		// resident; everywhere else it stays the character it was outside.
+		const s = scene();
+		const m = s.add(fakeMascot(400, 900));
+		m.height = 20; // comfortably inside the test room, so the fit clamp cannot apply
+		m.scale = 0.75;
+		s.order(s.layout().doorInside(), m);
+		const door = s.layout().doorOutside();
+		m.physics.x = door.x;
+		m.physics.y = door.y;
+		s.residency.tick();
+
+		expect(s.residency.hasResident).toBe(true);
+		expect(m.scale).toBeCloseTo(0.75, 5);
+	});
+
+	it("still refuses to let it be taller than the room", () => {
+		// Not a style choice: a resident taller than its own pane hangs out of the sidebar.
+		const s = scene();
+		const m = s.add(fakeMascot(400, 900));
+		m.height = 10_000;
+		m.scale = 1;
+		s.order(s.layout().doorInside(), m);
+		const door = s.layout().doorOutside();
+		m.physics.x = door.x;
+		m.physics.y = door.y;
+		s.residency.tick();
+
+		const roomHeight = s.layout().rect.bottom - s.layout().rect.top;
+		expect(m.height * m.scale).toBeLessThanOrEqual(roomHeight + 0.001);
 	});
 });
