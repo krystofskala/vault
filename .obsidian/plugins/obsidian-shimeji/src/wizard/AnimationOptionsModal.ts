@@ -4,6 +4,7 @@ import { listPackImages } from "../shimeji/PackLoader";
 import type { CustomActionSpec, CustomPoseSpec } from "../shimeji/customContent";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
 import { buildReplacementActionSpec, poseDefToCustomPoseSpec, randomVariantConditions } from "./animationOptions";
+import { PoseSequenceFitModal } from "./PoseSequenceFitModal";
 
 /** True only if every condition in `spec` matches what randomVariantConditions would itself have
  * generated for that position — i.e. this spec was (or could have been) built by this modal, so
@@ -146,16 +147,27 @@ export class AnimationOptionsModal extends Modal {
 
 	private openSlicerForOption(index: number): void {
 		if (!this.imgDir) return;
+		const imgDir = this.imgDir;
 		new SpriteSheetModal(this.app, {
-			imgDir: this.imgDir,
+			imgDir,
 			images: this.packImages,
 			initialImage: this.options[index]?.[0]?.image || this.packImages[0] || "",
 			actionName: this.actionName,
 			onPoses: (poses) => {
 				if (poses.length === 0) return;
 				if (!this.packImages.includes(poses[0].image)) this.packImages = [...this.packImages, ...poses.map((p) => p.image).filter((img) => !this.packImages.includes(img))];
-				this.options[index] = poses;
-				this.render();
+				// One more stop before these become the option's frames: flip/rotate whatever came
+				// out of the sheet facing the wrong way, and place each frame's anchor, one at a
+				// time — see PoseSequenceFitModal's own doc comment for why that's a separate modal
+				// rather than the fixed-128px PoseFitCanvas the rest of the checklist uses.
+				new PoseSequenceFitModal(this.app, {
+					imgDir,
+					poses,
+					onDone: (finetuned) => {
+						this.options[index] = finetuned;
+						this.render();
+					},
+				}).open();
 			},
 		}).open();
 	}

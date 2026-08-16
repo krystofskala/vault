@@ -252,6 +252,24 @@
 	margin: 6px 0;
 }
 
+/* The per-frame finetune stepper (PoseSequenceFitModal) — unlike .shimeji-posefit, each frame can
+   be a different size (native to the sprite it was sliced from, never forced into the fixed 128x128
+   pose frame), so this has no fixed dimensions of its own; the canvas element itself is sized in JS
+   to whatever the current frame's own scale works out to. */
+.shimeji-poseseq {
+	display: inline-block;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.shimeji-poseseq canvas {
+	display: block;
+	image-rendering: pixelated;
+	cursor: crosshair;
+	touch-action: none;
+}
+
 .shimeji-sheet-field {
 	display: flex;
 	flex-direction: column;

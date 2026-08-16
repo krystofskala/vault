@@ -383,6 +383,17 @@ export default class ShimejiPlugin extends Plugin {
 		// layout — the room's pane is part of that layout, and asking for its rect before it exists
 		// gets nothing.
 		this.app.workspace.onLayoutReady(() => {
+			// Stage's own first recomputeLedges() (in its constructor, called from earlier in this
+			// same onload()) reads getWorldTop() before this point — on a real cold start (not a
+			// dev-reload of just this plugin) the saved workspace layout, including the tab-header
+			// row getWorldTop() depends on, need not exist yet when a plugin's onload() runs; that is
+			// exactly what onLayoutReady exists to wait for. Nothing then corrects that first guess
+			// unless the user happens to resize the window or change the layout afterward — a plain
+			// restored session with no such interaction keeps the stage overlay's `top` (and thus the
+			// title bar/tab strip's drag region) wrong for the rest of that session. Recomputing once
+			// here, when the real layout is guaranteed to be settled, is the actual fix; see
+			// Environment.ts's getWorldTop() and Stage.recomputeLedges() for the rest of the mechanism.
+			this.stage?.notifyLayoutChanged();
 			// A view type nobody has ever opened exists only in the command palette, which is not
 			// where anyone looks for a room. Shown once, then it is the workspace's business —
 			// closing it is remembered by Obsidian's own layout, and this never reopens it.

@@ -7,12 +7,16 @@ import {
 	deriveAnchor,
 	detectFrames,
 	evenBoundaries,
+	flipAnchorHorizontal,
+	flipAnchorVertical,
 	flipHorizontal,
 	flipVertical,
 	hexToRgb,
 	rgbToHex,
 	rotate90Clockwise,
 	rotate90CounterClockwise,
+	rotateAnchorClockwise,
+	rotateAnchorCounterClockwise,
 	sameRect,
 	samplePixel,
 	stripFrames,
@@ -409,6 +413,84 @@ describe("rotate90Clockwise / rotate90CounterClockwise", () => {
 		let pixels = pixelsFrom(["kk#"]); // non-square, so a dimension mistake would also show up
 		for (let i = 0; i < 4; i++) pixels = rotate90Clockwise(pixels);
 		expect(pixels).toEqual(pixelsFrom(["kk#"]));
+	});
+});
+
+describe("flipAnchorHorizontal / flipAnchorVertical / rotateAnchorClockwise / rotateAnchorCounterClockwise", () => {
+	// Every pixel gets a colour derived from its own (x,y), so "the anchor still points at the
+	// same physical pixel after the image is transformed" can be checked directly against the real
+	// pixel transform, rather than trusting a second formula that could share the same off-by-one
+	// mistake as the code under test.
+	function markedGrid(width: number, height: number): Pixels {
+		const data = new Uint8ClampedArray(width * height * 4);
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const i = (y * width + x) * 4;
+				data[i] = x * 10 + 1;
+				data[i + 1] = y * 10 + 1;
+				data[i + 2] = 200;
+				data[i + 3] = 255;
+			}
+		}
+		return { data, width, height };
+	}
+
+	// Both corners (where an off-by-one is most visible) and an interior point.
+	const anchorsToCheck = (width: number, height: number) => [
+		{ x: 0, y: 0 },
+		{ x: width - 1, y: 0 },
+		{ x: 0, y: height - 1 },
+		{ x: width - 1, y: height - 1 },
+		{ x: 2, y: 1 },
+	];
+
+	it("flipAnchorHorizontal follows the same pixel flipHorizontal moves", () => {
+		const pixels = markedGrid(5, 3);
+		const flipped = flipHorizontal(pixels);
+		for (const anchor of anchorsToCheck(5, 3)) {
+			const moved = flipAnchorHorizontal(anchor, pixels.width);
+			expect(samplePixel(flipped, moved.x, moved.y)).toEqual(samplePixel(pixels, anchor.x, anchor.y));
+		}
+	});
+
+	it("flipAnchorVertical follows the same pixel flipVertical moves", () => {
+		const pixels = markedGrid(5, 3);
+		const flipped = flipVertical(pixels);
+		for (const anchor of anchorsToCheck(5, 3)) {
+			const moved = flipAnchorVertical(anchor, pixels.height);
+			expect(samplePixel(flipped, moved.x, moved.y)).toEqual(samplePixel(pixels, anchor.x, anchor.y));
+		}
+	});
+
+	it("rotateAnchorClockwise follows the same pixel rotate90Clockwise moves", () => {
+		const pixels = markedGrid(5, 3);
+		const rotated = rotate90Clockwise(pixels);
+		for (const anchor of anchorsToCheck(5, 3)) {
+			const moved = rotateAnchorClockwise(anchor, pixels.height);
+			expect(samplePixel(rotated, moved.x, moved.y)).toEqual(samplePixel(pixels, anchor.x, anchor.y));
+		}
+	});
+
+	it("rotateAnchorCounterClockwise follows the same pixel rotate90CounterClockwise moves", () => {
+		const pixels = markedGrid(5, 3);
+		const rotated = rotate90CounterClockwise(pixels);
+		for (const anchor of anchorsToCheck(5, 3)) {
+			const moved = rotateAnchorCounterClockwise(anchor, pixels.width);
+			expect(samplePixel(rotated, moved.x, moved.y)).toEqual(samplePixel(pixels, anchor.x, anchor.y));
+		}
+	});
+
+	it("four clockwise turns return an anchor to its start", () => {
+		// Matches the "kk#" shape used for the pixel round-trip above: width 3, height 1.
+		let anchor = { x: 1, y: 0 };
+		let width = 3;
+		let height = 1;
+		for (let i = 0; i < 4; i++) {
+			anchor = rotateAnchorClockwise(anchor, height);
+			[width, height] = [height, width];
+		}
+		expect(anchor).toEqual({ x: 1, y: 0 });
+		expect([width, height]).toEqual([3, 1]);
 	});
 });
 

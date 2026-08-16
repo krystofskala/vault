@@ -535,7 +535,9 @@ every row:
   schema treats as one static image — walking, standing, anything — instead of forcing it into a
   single picture. The first time, whatever the action currently plays becomes "Option 1"
   automatically; **+ Add another option** cuts a further one from a sheet, keeping every frame you
-  select, in order, as that option's whole sequence. Multiple options are picked between at
+  select, in order, as that option's whole sequence. Selecting more than one frame at once walks
+  you through them one at a time to finetune — flip, rotate, place the anchor — before they're
+  added; see "Slicing poses out of a sprite sheet" below. Multiple options are picked between at
   random, equally likely, every time the action starts — click **Make equally likely** to fill in
   the `Math.random()` conditions that guarantee that (a naive one-condition-per-option would bias
   toward the earlier ones; this doesn't). **Reset to standard animation** drops the whole override,
@@ -650,7 +652,19 @@ Each pose's **anchor** — the point that actually stands on the floor — is se
 the feet of the art inside its frame: the horizontal centre of the opaque pixels, at the bottom
 of them. That is measured rather than assumed to be the middle of the cell, because a sprite is
 rarely centred in its own frame, and a guessed anchor leaves the mascot hovering or drifting
-sideways as poses change. Adjust it by hand afterwards if a pose needs it.
+sideways as poses change. Fix it up in the finetune step below, or by hand afterwards in
+**Advanced edit…**.
+
+When you're slicing frames for an action's animation (via **Set frames…** or the advanced
+editor's own **Slice from a sheet…**, rather than fitting one image into a single standard pose
+slot), selecting more than one frame opens a **finetune** step before they're added anywhere: one
+frame at a time, at its own native size, with **Flip ↔ / Flip ↕ / Rotate ↺ / Rotate ↻** and a
+draggable anchor crosshair — the same orientation tools the pose checklist's own fitting canvas
+uses, just never forced into that canvas's fixed 128×128 frame, since a game-sprite frame's whole
+point is often to be a different size. **Next** moves to the next frame (**Finish** on the last
+one); **Skip remaining** accepts whatever's left exactly as sliced; closing the step early (or
+**Cancel**) only skips adding this batch — the sliced files stay in the pack folder regardless,
+same as any other slice.
 
 **Velocity is left at zero** on every sliced pose. How far a step carries the mascot belongs to
 the action, not to the picture, so a freshly sliced Walk is a held animation until you fill that

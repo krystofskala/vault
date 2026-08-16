@@ -417,6 +417,38 @@ export function rotate90CounterClockwise(pixels: Pixels): Pixels {
 	return { data: out, width: height, height: width };
 }
 
+/** A point in an image's own pixel space — what `deriveAnchor` produces and a `CustomPoseSpec`'s
+ * `anchorX`/`anchorY` store. */
+export interface AnchorPoint {
+	x: number;
+	y: number;
+}
+
+/**
+ * Keeps an anchor point in sync with the four orientation fixes above, so flipping or rotating a
+ * custom animation frame (the multi-frame sequences a sprite-sheet slice produces — unlike the
+ * fixed-schema pose slots `PoseFitCanvas` targets, these carry their own `deriveAnchor`-derived
+ * anchor rather than a template-fixed one) moves the "feet" point along with the art instead of
+ * leaving it pointing at whatever used to be there. Each function takes the *pre-transform*
+ * dimension(s) — the same ones the matching pixel transform above reads off `pixels` before
+ * building its output buffer — since a 90° turn changes which axis is which.
+ */
+export function flipAnchorHorizontal(anchor: AnchorPoint, width: number): AnchorPoint {
+	return { x: width - 1 - anchor.x, y: anchor.y };
+}
+
+export function flipAnchorVertical(anchor: AnchorPoint, height: number): AnchorPoint {
+	return { x: anchor.x, y: height - 1 - anchor.y };
+}
+
+export function rotateAnchorClockwise(anchor: AnchorPoint, height: number): AnchorPoint {
+	return { x: height - 1 - anchor.y, y: anchor.x };
+}
+
+export function rotateAnchorCounterClockwise(anchor: AnchorPoint, width: number): AnchorPoint {
+	return { x: anchor.y, y: width - 1 - anchor.x };
+}
+
 /** Where a source image sits inside the fixed target frame the character wizard's pose editor
  * composites onto: `offsetX`/`offsetY` are the source's own top-left corner, in *target-frame*
  * pixels (panning), and `scale` is how many target pixels one source pixel covers (zooming) — 2

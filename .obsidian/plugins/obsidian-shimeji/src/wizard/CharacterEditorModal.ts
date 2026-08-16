@@ -26,6 +26,7 @@ import { deriveAnimatedActions, randomVariantConditions, type AnimatedActionChec
 import { deriveRequiredPoses, type PoseChecklist, type PoseChecklistEntry } from "./deriveRequiredPoses";
 import { PoseFitCanvas } from "./PoseFitCanvas";
 import { PoseFitModal } from "./PoseFitModal";
+import { PoseSequenceFitModal } from "./PoseSequenceFitModal";
 import { probeScaffoldPlan, scaffoldCharacter } from "./scaffoldCharacter";
 
 const ACTION_TYPES: ActionType[] = ["Stay", "Move", "Animate", "Sequence", "Select", "Embedded"];
@@ -1002,15 +1003,25 @@ export class CharacterEditorModal extends Modal {
 			new Notice("Add an image to the pack first — back out and use “Upload images…” under Images.");
 			return;
 		}
+		const imgDir = this.imgDir;
 		new SpriteSheetModal(this.app, {
-			imgDir: this.imgDir,
+			imgDir,
 			images: this.packImages,
 			initialImage: variant.poses.find((p) => p.image)?.image ?? this.packImages[0],
 			actionName: this.draftAction?.name ?? "pose",
-			onPoses: async (poses) => {
-				variant.poses.push(...poses);
-				await this.refreshPackImages();
-				this.render();
+			onPoses: (poses) => {
+				// Same finetune stop as the simple "Set frames…" flow — flip/rotate and place each
+				// frame's anchor one at a time before it joins this variant; see
+				// PoseSequenceFitModal's own doc comment.
+				new PoseSequenceFitModal(this.app, {
+					imgDir,
+					poses,
+					onDone: async (finetuned) => {
+						variant.poses.push(...finetuned);
+						await this.refreshPackImages();
+						this.render();
+					},
+				}).open();
 			},
 		}).open();
 	}
