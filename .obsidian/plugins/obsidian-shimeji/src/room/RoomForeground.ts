@@ -1,6 +1,7 @@
 import { hasForeground, moodNow, paintRoom, ROOM_ANIMATION_FPS } from "./roomArt";
 import type { RoomDef } from "./roomDef";
 import type { RoomLayout } from "./RoomGeometry";
+import type { Rect } from "../engine/types";
 
 /**
  * The part of a room drawn **in front of** its resident — a desk it is sitting at, and anything else
@@ -15,10 +16,38 @@ import type { RoomLayout } from "./RoomGeometry";
  * So this is a second fixed-position canvas on `document.body`, stacked above the overlay, aligned
  * to the room's own rect and painted with only the foreground fixtures. Click-through throughout —
  * it is a picture, and the mascot underneath it must stay grabbable through the parts that overlap.
+ *
+ * Two things keep it from covering anything it should not.
+ *
+ * It is **clipped to the resident**. The desk itself is drawn into the room's own in-pane canvas
+ * like everything else, so it is complete and correctly placed whether anyone lives there or not;
+ * this layer exists only to re-paint the sliver of it that falls across the resident. Without the
+ * clip it covered any mascot that happened to overlap the room's rect — one climbing the sidebar's
+ * outer wall got half its face cut off by a desk it was nowhere near.
+ *
+ * And it does **not** resize the canvas. `paintRoom` sizes it to the room's own scale; overriding
+ * that with the pane's rect stretched the desk out of register with the one behind it, which is
+ * what put the desk's edge across the resident's face instead of its chest.
  */
 
 /** One above the stage overlay's own z-index (see styles.css). */
 const FOREGROUND_Z = 61;
+
+/**
+ * A `clip-path` inset that exposes only the part of the foreground canvas lying over `target`.
+ *
+ * Expressed relative to the canvas's own box, and clamped at zero on every side so a resident
+ * partway out of the room clips to the overlap rather than to a negative inset, which browsers
+ * treat as no clip at all — the failure would be the whole desk reappearing over everything at
+ * exactly the moment the mascot is stepping through the door.
+ */
+function insetTo(target: Rect, canvasRect: Rect): string {
+	const top = Math.max(0, target.top - canvasRect.top);
+	const left = Math.max(0, target.left - canvasRect.left);
+	const right = Math.max(0, canvasRect.right - target.right);
+	const bottom = Math.max(0, canvasRect.bottom - target.bottom);
+	return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+}
 
 export class RoomForeground {
 	private el?: HTMLCanvasElement;
@@ -28,8 +57,10 @@ export class RoomForeground {
 	 * Redraws and repositions to match `layout`, or hides when there is nothing to draw — the room
 	 * is off screen, or it simply has no foreground.
 	 */
-	update(def: RoomDef | undefined, layout: RoomLayout | undefined, hourOverride?: number): void {
-		if (!def || !layout || !hasForeground(def)) {
+	update(def: RoomDef | undefined, layout: RoomLayout | undefined, residentRect: Rect | undefined, hourOverride?: number): void {
+		// Nobody home means nothing to draw in front of: the room's own canvas already has the whole
+		// picture. This is also what stops a passing mascot being clipped by furniture it is not at.
+		if (!def || !layout || !residentRect || !hasForeground(def)) {
 			this.hide();
 			return;
 		}
@@ -48,8 +79,9 @@ export class RoomForeground {
 		// behind it is worse than none at all.
 		canvas.style.left = `${layout.rect.left}px`;
 		canvas.style.top = `${layout.rect.top}px`;
-		canvas.style.width = `${layout.rect.right - layout.rect.left}px`;
-		canvas.style.height = `${layout.rect.bottom - layout.rect.top}px`;
+		// Width and height deliberately untouched — paintRoom has already sized this to the room's
+		// own scale, and setting them from the pane's rect stretches it out of register.
+		canvas.style.clipPath = insetTo(residentRect, layout.rect);
 		canvas.style.display = "";
 	}
 

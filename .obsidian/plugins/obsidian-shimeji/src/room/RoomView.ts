@@ -220,7 +220,10 @@ export class RoomView extends ItemView {
 				// shade by construction and the surround has no visible seam.
 				this.contentEl.style.backgroundColor = this.backdrop ?? "#121a1a";
 			} else {
-				paintRoom(this.canvas, def, mood, { scale: layout.scale, mirrored: layout.mirrored });
+				// Every layer, foreground included. The desk has to be complete here so it is visible
+				// whether or not anybody lives in the room — the foreground canvas above only ever
+				// paints the sliver that covers the resident.
+				paintRoom(this.canvas, def, mood, { scale: layout.scale, mirrored: layout.mirrored, layer: "all" });
 				// A room that declares paneBackdrop keeps the theme's own sidebar colour around it —
 				// removed rather than set, so it follows the theme and keeps following it if the
 				// theme changes underneath.

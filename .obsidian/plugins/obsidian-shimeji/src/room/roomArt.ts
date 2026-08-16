@@ -99,7 +99,7 @@ export function paintRoom(
 	canvas: HTMLCanvasElement,
 	def: RoomDef,
 	mood: RoomMood,
-	opts: { scale: number; mirrored: boolean; devicePixelRatio?: number; layer?: "background" | "foreground" },
+	opts: { scale: number; mirrored: boolean; devicePixelRatio?: number; layer?: "background" | "foreground" | "all" },
 ): void {
 	const buffer = document.createElement("canvas");
 	buffer.width = def.width;
@@ -109,7 +109,7 @@ export function paintRoom(
 	const painter = painterFor(bufferCtx);
 	const layer = opts.layer ?? "background";
 	for (const fixture of def.fixtures) {
-		if ((fixture.layer ?? "background") === layer) fixture.paint(painter, mood);
+		if (layer === "all" || (fixture.layer ?? "background") === layer) fixture.paint(painter, mood);
 	}
 
 	// The CSS size is the layout's scale; the backing store is multiplied again by the display's

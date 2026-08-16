@@ -967,7 +967,15 @@ export default class ShimejiPlugin extends Plugin {
 			this.residency.tick();
 			const view = this.roomView();
 			view?.refresh();
-			this.roomForeground.update(view?.def, view?.layout(), this.roomHourOverride);
+			// The resident's own box, so the foreground only ever covers the mascot the room is
+			// actually furnished around — see RoomForeground.
+			const resident = this.residency.residentMascot?.el.getBoundingClientRect();
+			this.roomForeground.update(
+				view?.def,
+				view?.layout(),
+				resident && resident.width > 0 ? { left: resident.left, top: resident.top, right: resident.right, bottom: resident.bottom } : undefined,
+				this.roomHourOverride,
+			);
 			this.speech.tick(this.stage?.getMascots() ?? []);
 			this.residencyRaf = requestAnimationFrame(step);
 		};

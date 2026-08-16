@@ -419,8 +419,22 @@ describe("the office", () => {
 		// the desktop and only a scalp shows; too much and the desk is a skirting board it happens to
 		// be standing behind. Between a third and three quarters reads as sitting at it.
 		const showing = (desktop - head) / spriteHeight;
-		expect(showing, "barely any of the mascot shows above the desk").toBeGreaterThan(0.4);
+		// Raised from 0.4: "some of it shows" is not the requirement, "the whole head shows" is, and
+		// a head is roughly the top quarter of a character sprite. Half clear of the desk leaves the
+		// head and shoulders with room to spare even for art that sits low in its own frame.
+		expect(showing, "not enough of the mascot clears the desk to show a whole head").toBeGreaterThan(0.5);
 		expect(showing, "the desk hides almost nothing — it does not read as sitting at it").toBeLessThan(0.72);
+	});
+
+	it("clears the desk by a whole head, in the room's own units", () => {
+		// The same guarantee as above, stated where the numbers live so it can be checked against the
+		// room by eye: chair at 47, desktop at 38, resident 20 tall puts the head at 27.
+		const height = OFFICE.residentHeightUnits;
+		expect(height, "the office no longer states its resident height in room units").toBeDefined();
+		const headY = OFFICE.floorY - height!;
+		const clearance = OFFICE_DESK_Y - headY;
+		expect(headY, "the resident's head is below the desktop — it would be hidden").toBeLessThan(OFFICE_DESK_Y);
+		expect(clearance / height!, "less than a head clears the desk").toBeGreaterThan(0.5);
 	});
 
 	it("pins which way it faces, and what it is doing", () => {
@@ -536,5 +550,26 @@ describe("the office's animation", () => {
 		};
 		const hours = [3, 6.5, 12, 17.5, 21].map(drawnAt);
 		expect(new Set(hours).size, "some hours of the day look identical").toBe(hours.length);
+	});
+});
+
+describe("the room's foreground layer", () => {
+	// The two rules that stop a desk covering things it is not in front of. Both were reported from
+	// a live window: a mascot climbing the sidebar's outer wall had half its face cut off by the
+	// office desk, and the desk itself sat out of register with the one drawn behind it.
+	it("draws every layer into the room's own canvas, so the desk is complete without the overlay", () => {
+		// The overlay only ever paints the sliver over the resident, so anything a room wants
+		// visible when nobody is home has to be in the in-pane canvas too.
+		const foreground = OFFICE.fixtures.filter((f) => f.layer === "foreground");
+		expect(foreground.length, "the office has no foreground fixtures to test").toBeGreaterThan(0);
+		const painted: string[] = [];
+		const painter = { px: () => painted.push("px"), polygon: () => painted.push("poly") };
+		for (const f of OFFICE.fixtures) f.paint(painter, moodForHour(12));
+		expect(painted.length).toBeGreaterThan(0);
+	});
+
+	it("is only needed by rooms that actually have something in front", () => {
+		expect(hasForeground(OFFICE)).toBe(true);
+		expect(hasForeground(LIVING_ROOM), "the plant nook has nothing in front of its resident").toBe(false);
 	});
 });
