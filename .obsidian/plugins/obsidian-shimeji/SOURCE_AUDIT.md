@@ -1798,3 +1798,35 @@ Mutation-checked: freezing the flicker, dropping `animated`, and flattening the 
 boundary at 7pm each fail exactly one test.
 
 418 tests.
+
+## Pass 34: the title bar, a third time — cold start, and a wall gap Pass 13 never covered (2026-08-16)
+
+Reported again after Passes 13/14 had it fixed and confirmed: the title bar unresponsive, the window
+undraggable. Two distinct causes found this round, neither a regression of Pass 13/14's own fix (both
+predate it, just not reliably triggered until now) — the honest framing from Pass 13 still applies:
+nothing here is reproducible outside a real Obsidian window, and both fixes are shipped without live
+confirmation.
+
+**Cold start.** `Stage`'s first ledge/overlay computation runs from the plugin's own `onload()`,
+which — on a genuine app launch, not a dev-reload of just this plugin — can run *before* Obsidian has
+restored the saved window layout. `onLayoutReady` exists precisely for that gap, but nothing called
+it: `getWorldTop()`'s two DOM signals (workspace container top, topmost tab-header row) could both
+read as unset that early, computing a too-small (often zero) worldTop once, with nothing recomputing
+it afterward unless the user happened to resize the window or change the pane layout. A plain
+restored session with no such interaction kept the stage overlay's `top` — and so the title bar's own
+drag region — wrong for the rest of that session. Fixed: `this.stage?.notifyLayoutChanged()` now runs
+once inside `main.ts`'s existing `onLayoutReady` callback, when the real layout is guaranteed settled.
+
+**The wall gap Pass 13 never covered.** Pass 13 (`withoutFloorsTooCloseToTop`) excluded any *floor*
+within a mascot's own rendered height of worldTop, because a floor-standing pose is bottom-anchored
+and its sprite extends upward from that anchor, past worldTop, into the chrome above — but that fix's
+own doc comment scoped it to floors, reasoning only about ceiling-hang (anchored near the sprite's
+top, extending *downward*, genuinely unaffected). It never considered wall-*climbing*: a climbing
+pose grips the wall roughly mid-body, not at the sprite's own top edge, so it extends upward from its
+anchor too — and nothing stopped a mascot climbing a wall (the window's own edge, or a pane's) from
+reaching an anchor y all the way up to worldTop itself, since `computeLedgesFromRects` plants every
+wall's own top end exactly there. Fixed: renamed to `withoutLedgesTooCloseToTop`, which now also
+trims a wall ledge's climbable span to end `standingHeight` short of worldTop (dropping a wall
+entirely if that leaves nothing to climb), the same buffer already used for floors.
+
+610 tests.

@@ -1,5 +1,5 @@
 import { ObsidianDomEnvironment, type Environment } from "./Environment";
-import { computeLedgesFromRects, withoutFloorsTooCloseToTop } from "./Ledges";
+import { computeLedgesFromRects, withoutLedgesTooCloseToTop } from "./Ledges";
 import { Mascot, type MascotDeps } from "./Mascot";
 import { smoothCursorVelocity } from "./nativeBehaviors";
 import { Random } from "./Random";
@@ -224,12 +224,12 @@ export class Stage {
 	}
 
 	/** Per-mascot, since the cutoff depends on that specific mascot's own rendered height/scale —
-	 * see withoutFloorsTooCloseToTop's own comment for why this is needed at all. */
+	 * see withoutLedgesTooCloseToTop's own comment for why this is needed at all. */
 	private ledgesFor(mascot: Mascot): Ledge[] {
 		// A confined mascot's world is substituted wholesale rather than filtered: the title-bar
 		// cutoff below is about Obsidian's own chrome, which is not above a room's ceiling.
 		if (mascot.confinement) return mascot.confinement.getLedges();
-		return withoutFloorsTooCloseToTop(this.ledges, this.worldTop, mascot.height * mascot.scale);
+		return withoutLedgesTooCloseToTop(this.ledges, this.worldTop, mascot.height * mascot.scale);
 	}
 
 	/** Whether this mascot's world is currently on screen at all — false only for a confined

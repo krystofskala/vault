@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeLedgesFromRects, findCeilingAt, findFloorBelow, findNearestFloorAt, findWallAt, withoutFloorsTooCloseToTop } from "../src/engine/Ledges";
+import { computeLedgesFromRects, findCeilingAt, findFloorBelow, findNearestFloorAt, findWallAt, withoutLedgesTooCloseToTop } from "../src/engine/Ledges";
 
 const PANE_RECT = { left: 100, top: 300, right: 400, bottom: 580 };
 
@@ -168,42 +168,67 @@ describe("findWallAt", () => {
 // Regression coverage for a real report: a mascot's own anchor could be correctly bounded by
 // worldTop and still visually poke into Obsidian's title-bar/tab-strip chrome, because a pane's
 // own floor can legitimately sit just a few pixels below worldTop and floor-standing poses are
-// bottom-anchored (the sprite extends *upward* from its feet). See withoutFloorsTooCloseToTop's
-// own comment.
-describe("withoutFloorsTooCloseToTop", () => {
+// bottom-anchored (the sprite extends *upward* from its feet) — and, separately, because a
+// climbing pose grips a wall roughly mid-body rather than at the sprite's own top edge, so a
+// mascot climbing all the way to a wall's own top end (which starts right at worldTop) has the
+// same problem. See withoutLedgesTooCloseToTop's own comment.
+describe("withoutLedgesTooCloseToTop", () => {
 	it("excludes a floor within standingHeight of worldTop", () => {
 		const rect = { left: 100, top: 45, right: 400, bottom: 300 }; // top=45, only 5px below worldTop=40
 		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, [{ rect, source: "pane" }]);
-		const filtered = withoutFloorsTooCloseToTop(ledges, 40, 120); // a 120px-tall mascot
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120); // a 120px-tall mascot
 		expect(filtered.some((l) => l.kind === "floor" && l.y === 45)).toBe(false);
 	});
 
 	it("keeps a floor that's far enough below worldTop for this mascot's own height", () => {
 		const rect = { left: 100, top: 200, right: 400, bottom: 400 };
 		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, [{ rect, source: "pane" }]);
-		const filtered = withoutFloorsTooCloseToTop(ledges, 40, 120); // 40+120=160 < 200, so this floor is fine
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120); // 40+120=160 < 200, so this floor is fine
 		expect(filtered.some((l) => l.kind === "floor" && l.y === 200)).toBe(true);
 	});
 
 	it("a shorter mascot (smaller pack, or scaled down) can stand on a floor a taller one can't", () => {
 		const rect = { left: 100, top: 60, right: 400, bottom: 300 }; // 20px below worldTop=40
 		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, [{ rect, source: "pane" }]);
-		expect(withoutFloorsTooCloseToTop(ledges, 40, 120).some((l) => l.kind === "floor" && l.y === 60)).toBe(false);
-		expect(withoutFloorsTooCloseToTop(ledges, 40, 15).some((l) => l.kind === "floor" && l.y === 60)).toBe(true);
+		expect(withoutLedgesTooCloseToTop(ledges, 40, 120).some((l) => l.kind === "floor" && l.y === 60)).toBe(false);
+		expect(withoutLedgesTooCloseToTop(ledges, 40, 15).some((l) => l.kind === "floor" && l.y === 60)).toBe(true);
 	});
 
-	it("never touches ceiling or wall ledges — ceiling-hanging is unaffected", () => {
+	it("never touches ceiling ledges — ceiling-hanging is unaffected", () => {
 		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, []);
-		const filtered = withoutFloorsTooCloseToTop(ledges, 40, 120);
-		const nonFloorBefore = ledges.filter((l) => l.kind !== "floor");
-		const nonFloorAfter = filtered.filter((l) => l.kind !== "floor");
-		expect(nonFloorAfter).toEqual(nonFloorBefore);
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120);
+		const ceilingsBefore = ledges.filter((l) => l.kind === "ceiling");
+		const ceilingsAfter = filtered.filter((l) => l.kind === "ceiling");
+		expect(ceilingsAfter).toEqual(ceilingsBefore);
 	});
 
 	it("the window's own bottom floor is never excluded (far from worldTop in any normal layout)", () => {
 		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, []);
-		const filtered = withoutFloorsTooCloseToTop(ledges, 40, 120);
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120);
 		expect(filtered.some((l) => l.kind === "floor" && l.y === 600)).toBe(true);
+	});
+
+	it("trims a wall's climbable span to end standingHeight short of worldTop, keeping it below that", () => {
+		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, []);
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120); // a 120px-tall mascot, worldTop=40
+		const left = filtered.find((l) => l.kind === "wall" && l.side === "left");
+		expect(left).toMatchObject({ y1: 160, y2: 600 }); // was y1: 40 before trimming
+	});
+
+	it("leaves a wall untouched when its climbable span already starts well below the buffer", () => {
+		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, [{ rect: PANE_RECT, source: "pane" }]);
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120); // 40+120=160, well above this pane's own top=300
+		const paneWall = filtered.find((l) => l.kind === "wall" && l.source === "pane" && l.side === "left");
+		expect(paneWall).toMatchObject({ y1: 300 });
+	});
+
+	it("drops a wall entirely when its whole climbable span falls within the buffer", () => {
+		// A short pane hugging worldTop: its own wall spans only 40->70, nowhere near clear of a
+		// 120px-tall mascot's buffer (up to y=160) — nothing left to climb near the top at all.
+		const rect = { left: 100, top: 45, right: 400, bottom: 70 };
+		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, [{ rect, source: "pane" }]);
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120);
+		expect(filtered.some((l) => l.kind === "wall" && l.source === "pane")).toBe(false);
 	});
 });
 

@@ -106,21 +106,44 @@ function bridgeNarrowGaps(ledges: Ledge[]): Ledge[] {
 }
 
 /**
- * Excludes any floor within `standingHeight` of `worldTop` — a pane's own top edge can
- * legitimately sit just a few pixels below worldTop (there's rarely much room between "top of the
- * workspace" and "top of its topmost pane"), and physics.y itself never crosses worldTop there, so
- * the *anchor* is correct. But floor-standing poses are bottom-anchored, so the sprite's own
- * rendered top edge still extends upward from that anchor by roughly its own height and pokes
- * above worldTop into whatever's above (Obsidian's title bar/tab strip) — a real, reported
- * problem, not merely cosmetic, since that title bar is real interactive chrome. `standingHeight`
- * is the specific mascot's own rendered height (already includes its scale), so a smaller pack or
- * a shrunk mascot isn't excluded from floors a taller one legitimately would be. Ceiling-hanging
- * doesn't need this: that anchor sits near the *top* of the sprite and extends downward, away
- * from worldTop, so it never pokes into the chrome above — only floors are affected here.
+ * Keeps a mascot's own rendered sprite from poking above `worldTop` into Obsidian's title
+ * bar/tab-strip chrome — real, reported, and not merely cosmetic, since that's real interactive
+ * chrome a mascot's `pointer-events: auto` sprite can sit on top of. `standingHeight` is the
+ * specific mascot's own rendered height (already includes its scale), so a smaller pack or a
+ * shrunk mascot is only excluded from as little as its own size actually requires.
+ *
+ * Two cases, because the two ledge kinds anchor a mascot's sprite differently:
+ *
+ * - **Floors**: excluded entirely within `standingHeight` of worldTop. A pane's own top edge can
+ *   legitimately sit just a few pixels below worldTop (there's rarely much room between "top of
+ *   the workspace" and "top of its topmost pane"), and physics.y itself never crosses worldTop
+ *   there, so the *anchor* is correct — but floor-standing poses are bottom-anchored, so the
+ *   sprite's own rendered top edge still extends upward from that anchor by roughly its own
+ *   height.
+ * - **Walls**: trimmed, not excluded — a wall stays climbable everywhere below the buffer, just
+ *   never lets the mascot's anchor climb closer than `standingHeight` to worldTop. A climbing pose
+ *   grips the wall roughly mid-body, not at its very top edge the way a floor pose grips the
+ *   ground, so the sprite extends upward from the anchor here too and can poke into the same
+ *   chrome if the mascot climbs all the way to the wall's own top end (which, before this, sat
+ *   exactly at worldTop — see computeLedgesFromRects). A wall left with no climbable span above
+ *   the buffer is dropped, the same as an excluded floor.
+ *
+ * Ceiling-hanging needs neither: that anchor sits near the *top* of the sprite and extends
+ * downward, away from worldTop, so it never pokes into the chrome above.
  */
-export function withoutFloorsTooCloseToTop(ledges: Ledge[], worldTop: number, standingHeight: number): Ledge[] {
+export function withoutLedgesTooCloseToTop(ledges: Ledge[], worldTop: number, standingHeight: number): Ledge[] {
 	const minStandableY = worldTop + standingHeight;
-	return ledges.filter((ledge) => !(ledge.kind === "floor" && ledge.y < minStandableY));
+	const out: Ledge[] = [];
+	for (const ledge of ledges) {
+		if (ledge.kind === "floor") {
+			if (ledge.y >= minStandableY) out.push(ledge);
+		} else if (ledge.kind === "wall" && ledge.y1 < minStandableY) {
+			if (ledge.y2 > minStandableY) out.push({ ...ledge, y1: minStandableY });
+		} else {
+			out.push(ledge);
+		}
+	}
+	return out;
 }
 
 export function findFloorBelow(ledges: Ledge[], x: number, y: number): FloorLedge | undefined {

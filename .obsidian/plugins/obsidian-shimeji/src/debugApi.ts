@@ -89,6 +89,22 @@ export function installDebugApi(
 			console.info("[obsidian-shimeji] stage overlay restored");
 		},
 		elementsAtTop(y = 8) {
+			// The overlay's own box, measured directly, first: elementFromPoint below can't actually
+			// tell "the overlay's top is correctly shrunk" apart from "it still covers this point but
+			// pointer-events:none lets hit-testing see through it anyway" — both look identical to
+			// elementFromPoint, since pointer-events:none removes an element from hit-testing
+			// regardless of whether its layout box still overlaps this pixel. Electron's window-drag
+			// hit-test is a separate mechanism from ordinary pointer-events hit-testing (see
+			// Stage.recomputeLedges's own comment) and, per live testing, does not reliably agree with
+			// it — so the box's real position is the one fact that settles whether a fix landed.
+			const stage = getStage();
+			if (stage) {
+				const r = stage.container.getBoundingClientRect();
+				const top = getComputedStyle(stage.container).top;
+				console.info(`[obsidian-shimeji] .shimeji-stage overlay box: top=${Math.round(r.top)} (style.top=${top}) bottom=${Math.round(r.bottom)}`);
+			} else {
+				console.info("[obsidian-shimeji] no stage");
+			}
 			const w = window.innerWidth;
 			const xs = [20, Math.round(w / 2), Math.max(20, w - 20)];
 			for (const x of xs) {
