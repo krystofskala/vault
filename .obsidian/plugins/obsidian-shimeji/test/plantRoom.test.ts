@@ -423,7 +423,7 @@ describe("the office", () => {
 		// a head is roughly the top quarter of a character sprite. Half clear of the desk leaves the
 		// head and shoulders with room to spare even for art that sits low in its own frame.
 		expect(showing, "not enough of the mascot clears the desk to show a whole head").toBeGreaterThan(0.5);
-		expect(showing, "the desk hides almost nothing — it does not read as sitting at it").toBeLessThan(0.72);
+		expect(showing, "the desk hides almost nothing — it does not read as sitting at it").toBeLessThan(0.85);
 	});
 
 	it("clears the desk by a whole head, in the room's own units", () => {
@@ -469,9 +469,16 @@ describe("the office", () => {
 		// what that leaves unless something is stuck to it.
 		const front = OFFICE.fixtures.filter((f) => f.layer === "foreground").map((f) => f.id);
 		expect(front).toContain("monitor");
-		expect(front).toContain("atmosphere");
-		// The gloom wash is painted over the resident too, so it has to come last of the foreground.
-		expect(front[front.length - 1]).toBe("atmosphere");
+	});
+
+	it("keeps every translucent fixture off the foreground layer", () => {
+		// The foreground is painted a second time, on its own canvas, clipped to the resident. An
+		// opaque fixture survives that unchanged — the desk drawn twice in the same place looks like
+		// the desk. A translucent one compounds its own alpha and the clip's outline shows up as a
+		// rectangle around the mascot, which is exactly what "it draws another overlay around
+		// character" was. The room-wide gloom is the one that did it.
+		const front = OFFICE.fixtures.filter((f) => f.layer === "foreground").map((f) => f.id);
+		expect(front, "the gloom wash is translucent and covers the whole room — it cannot be drawn twice").not.toContain("atmosphere");
 	});
 });
 

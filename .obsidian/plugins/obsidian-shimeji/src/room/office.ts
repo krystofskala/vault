@@ -50,15 +50,19 @@ const DESK_Y = OFFICE_DESK_Y;
  * How tall the resident stands, in the room's own units.
  *
  * The room's one real constraint, and the reason it is stated in units rather than as a fraction of
- * the pane. The chair is at y=47 and the desktop at y=38, so a figure this tall has its head at 27 —
- * eleven units clear of the desk — and that arithmetic holds at every sidebar width.
+ * the pane. The chair is at y=47 and the desktop at y=38, so a figure this tall has its head at 7 —
+ * thirty-one units clear of the desk — and that arithmetic holds at every sidebar width.
+ *
+ * Doubled from 20 after seeing it in a real sidebar: the proportion was defensible on paper and far
+ * too small to read at the width a sidebar actually is. This room is a portrait of the mascot, so
+ * the mascot is most of it.
  *
  * Both previous attempts were pixel-derived and both failed the same way: a fraction of the room's
  * drawn height, capped, meant the cap bound in a wide pane and not in a narrow one, so how much of
  * the mascot cleared the desk depended on how the sidebar happened to be dragged. Twice that shipped
  * with only a scalp showing.
  */
-const RESIDENT_HEIGHT = 20;
+const RESIDENT_HEIGHT = 40;
 
 /** A short run behind the desk, left of the monitor so head and shoulders are clear of it. */
 const SEAT_X1 = 24;
@@ -378,11 +382,21 @@ const deskThings: RoomFixture = {
 
 const atmosphere: RoomFixture = {
 	id: "atmosphere",
-	layer: "foreground",
+	/*
+	 * Background, despite covering everything — because it is *semi-transparent* and covers the
+	 * whole room.
+	 *
+	 * The foreground layer is painted a second time on its own canvas above the mascots, clipped to
+	 * the resident. Opaque fixtures survive that: the desk drawn twice in the same place looks
+	 * exactly like the desk drawn once. A translucent wash does not — its alpha compounds, and the
+	 * clip's outline appears as a darker rectangle around the mascot. Reported as "it draws another
+	 * overlay around character", and it was this.
+	 *
+	 * The cost is that the gloom no longer tints the resident, so it reads a little brighter than
+	 * the room around it. In a room where the mascot is lit by a monitor at point-blank range, that
+	 * is a defensible look; a rectangle around its head is not.
+	 */
 	paint(p, mood) {
-		// Painted last and over everything, resident included: gloom is in the air of the room, not
-		// behind the things in it. Which is also why it belongs on the foreground layer — a wash that
-		// stopped at the mascot would leave it lit as if by a light nothing else in the room has.
 		const L = light(mood);
 		p.px(0, 0, W, H, L.wash);
 		// The lamp's pool survives the gloom, so the corner it lights stays warm as the room darkens.
