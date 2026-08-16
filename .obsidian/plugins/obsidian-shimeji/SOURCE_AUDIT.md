@@ -197,7 +197,7 @@ inside any of them the way `Main.java` turned out to have.
   "too different to port," it's unavailable to audit against at all in this mirror.
 - `LogFormatter.java` — pure `java.util.logging.Formatter` subclass, string formatting only.
 - `editor/action/ActionEditorFrame.java` — an empty `JFrame` stub for a *separate* Swing GUI tool
-  for authoring packs; our `CustomContentModal` is the analog, not a port target.
+  for authoring packs; our `CharacterEditorModal` is the analog, not a port target.
 - `image/NativeImage.java`, `image/TranslucentWindow.java` — bare marker/rendering interfaces, no
   logic.
 - `image/ImagePair.java`, `image/ImagePairs.java`, `image/MascotImage.java` — plain data holders

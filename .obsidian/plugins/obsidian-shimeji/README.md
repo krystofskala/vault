@@ -311,10 +311,10 @@ Swing/AWT/JNA GUI plumbing included, not just the core simulation subset.
   settings now, alongside the original size/pane-ledges/debug-ledges controls. Right-clicking
   a mascot opens a menu to switch its character, jump it to a specific behavior, duplicate or
   remove it, remove everyone, or add another.
-- **Settings-based authoring, not just XML editing**: a "Custom animations & reactions" editor
-  (Settings → pick a character → **Edit...**) adds or overrides a character's own actions and
-  behaviors — poses, Sequence/Select steps, Embedded handlers (Fall/Breed/Regist/Look/Jump/
-  Offset/Dragged), and behavior transitions — without touching `actions.xml`/`behaviors.xml`
+- **Settings-based authoring, not just XML editing**: the character editor (Settings → pick a
+  character → **Edit...**) adds or overrides a character's own actions and behaviors — poses,
+  Sequence/Select steps, Embedded handlers (Fall/Breed/Regist/Look/Jump/Offset/Dragged), and
+  behavior transitions — without touching `actions.xml`/`behaviors.xml`
   directly. A custom entry with the same name as a standard one replaces it, and it's built
   into the exact same `ActionDef`/`BehaviorDef` shape the real XML parser produces (see
   `CustomContentBuilder`), so it runs through the identical interpreter rather than a separate
@@ -476,20 +476,23 @@ from it:
 
 ## Using your own artwork
 
-### The character wizard
+### The character editor
 
-The easiest way to build a whole new character: **Settings → Shimeji Desktop Mascot →
-Characters → Your characters → Create...** Name it, and it's immediately set up with shimeji-ee's
-full standard behavior repertoire — walking, sitting, climbing, breeding, all of it — as a real,
-resolvable character with no art yet. What follows is a checklist of exactly the pose images it
-still needs: around 42 of them, not the ~90-odd `<Action>` entries the real schema defines, since
-most of those are pure choreography reusing a handful of images rather than each needing art of
-their own. Window-throwing's four images are shown too, in their own collapsed, optional group —
-skippable entirely if you leave window-throwing off, which it is by default.
+The one place to build and edit a character: **Settings → Shimeji Desktop Mascot →
+Characters → Your characters → Create...** for a brand new one, or **Edit...** next to an
+existing one — the same modal either way, since editing is just resuming where creating left off.
+
+A new name gets shimeji-ee's full standard behavior repertoire immediately — walking, sitting,
+climbing, breeding, all of it — as a real, resolvable character with no art yet. What follows is a
+checklist of exactly the pose images it still needs: around 42 of them, not the ~90-odd `<Action>`
+entries the real schema defines, since most of those are pure choreography reusing a handful of
+images rather than each needing art of their own. Window-throwing's four images are shown too, in
+their own collapsed, optional group — skippable entirely if you leave window-throwing off, which
+it is by default.
 
 Click any pose to fit an image to it, in any order, and come back to unfinished ones any time —
 nothing about the checklist is saved anywhere of its own, it's recomputed from what's actually in
-the folder each time the wizard opens. Three ways to get an image into the frame:
+the folder each time the editor opens. Three ways to get an image into the frame:
 
 - **Upload a photo** — never written to your vault on its own, only whatever you end up saving.
 - **Pick an image already in this pack**, if you've uploaded one for another pose already.
@@ -504,7 +507,7 @@ Drag to position the image, scroll (or the on-screen buttons) to zoom — there'
 step, since whatever falls outside the fixed 128×128 frame at Save is simply left out. A red
 crosshair (sometimes two, for the handful of images the real schema anchors differently depending
 on which action is using them) marks where the standard schema expects that pose's own reference
-point to land, straight out of the real `actions.xml` — not something the wizard invents or lets
+point to land, straight out of the real `actions.xml` — not something the editor invents or lets
 you override, since the copied schema already carries the real value for every pose, unmodified.
 
 If a folder of **reference art** is set (**Settings → ... → Reference art for the character
@@ -512,15 +515,49 @@ wizard**), whichever image shares the slot's own filename shows underneath the o
 at reduced opacity, so you can match proportions and silhouette by eye. This plugin never ships
 that art itself, the same way it ships no character art at all — you'd need to supply your own
 copy, of the original or of any other character whose proportions you want to match. A slot with
-nothing there just shows a plain frame with no guide; nothing about the wizard depends on it.
+nothing there just shows a plain frame with no guide; nothing about the editor depends on it.
 
 Creating a *second* character reorganizes the pack folder from the single-character layout into
 the multi-character one described below, if it isn't already — you'll be asked to confirm first,
 and nothing is ever deleted, only moved.
 
-Come back to a character any time with **Poses & animations...**, next to it in the character
-list above — same checklist, plus a collapsed **Advanced: animation options** group; see
-[Animation options](#animation-options) below.
+Below the pose checklist, the same modal has everything **Actions**, **Behaviors**, and **Images**
+need — no separate editor, no separate settings section to hunt for it in:
+
+- **Actions** are the animations — pick a type (Stay/Move/Animate/Sequence/Select/Embedded),
+  a border (Floor/Wall/Ceiling, if it should stay glued to a real ledge), and either a list of
+  poses (image + anchor + velocity + duration — the same units as actions.xml: 25 ticks ≈ 1
+  second) or, for Sequence/Select, an ordered/conditional list of steps referencing other actions
+  by name (standard ones or your own). A custom action with the same name as a standard one (or
+  another custom one) replaces it, exactly like editing that name's definition in `actions.xml`
+  directly. Each pose's Image field also has a **Fit precisely…** button, opening the same
+  pan/zoom fitting canvas the pose checklist uses, for when a plain path and thumbnail aren't
+  enough to line an arbitrary custom pose up right.
+- **Behaviors** are the reactions — a name, a weighted frequency, an optional condition, and a
+  list of possible next behaviors once it finishes.
+- **Images** is the pack's own image folder: **Upload images…** copies files in from anywhere on
+  your computer (several at once), and each one can be deleted, or cleaned up with **Remove
+  background…** — colour-key transparency for a sheet that came with a flat coloured background
+  instead of a transparent one. Pick as many background colours as it takes (click the live
+  preview to sample one straight off the image), set a tolerance, and everything close to any of
+  them goes see-through. The result overwrites the image in place, so poses already pointing at
+  it keep working.
+
+Conditions and param overrides use the same `#{...}`/`${...}` expression syntax as the real files
+(e.g. `#{mascot.environment.floor.isOn(mascot.anchor)}`), validated as you type. Saving takes
+effect immediately — every mascot currently wearing that character rebinds to the updated pack
+without needing to respawn.
+
+#### Animation options
+
+A real shimeji pack authors one fixed animation per action — the standard schema's Walk, say, is
+always the same four poses in the same order, every single time. Game sprite sheets often don't
+fit that mould: more frames than the standard slots expect, or a walk cycle you'd rather vary than
+replay identically forever. An action's pose list can hold **more than one condition variant** —
+add one with **+ Add condition variant**, give each its own poses (sliced from a sheet the same
+way as any other), and either write conditions by hand or click **Make equally likely** to fill
+them in for you: a `Math.random()` condition on each, tuned so every variant is an equally likely,
+truly random pick despite the engine always running the first one whose condition passes.
 
 ### Doing it by hand
 
@@ -574,43 +611,11 @@ authored. (Real shimeji-ee defaults sound on; a note-taking app making noise unp
 like a different proposition, so this is one of the few deliberate divergences.) A pose that
 names a sound file that isn't there logs a warning at load and simply plays nothing.
 
-## Custom animations & reactions
-
-You don't have to hand-edit XML to add a new animation or reaction: in **Settings → Shimeji
-Desktop Mascot → Custom animations & reactions**, click **Edit...** next to a character to open
-its editor.
-
-- **Actions** are the animations — pick a type (Stay/Move/Animate/Sequence/Select/Embedded),
-  a border (Floor/Wall/Ceiling, if it should stay glued to a real ledge), and either a list of
-  poses (image + anchor + velocity + duration — the same units as actions.xml: 25 ticks ≈ 1
-  second) or, for Sequence/Select, an ordered/conditional list of steps referencing other
-  actions by name (standard ones or your own).
-- **Behaviors** are the reactions — a name, a weighted frequency, an optional condition, and a
-  list of possible next behaviors once it finishes.
-- Conditions and param overrides use the same `#{...}`/`${...}` expression syntax as the real
-  files (e.g. `#{mascot.environment.floor.isOn(mascot.anchor)}`), validated as you type.
-- Saving takes effect immediately — every mascot currently wearing that character rebinds to
-  the updated pack without needing to respawn.
-
-A custom action/behavior with the same name as a standard one (or another custom one) replaces
-it, exactly like editing that name's definition in `actions.xml`/`behaviors.xml` directly.
-
 ### Slicing poses out of a sprite sheet
 
 Poses are one image each, the way a real pack is built — but sprites are usually distributed as
-a single sheet with every frame on it. The editor cuts one up for you.
-
-**Images** on the editor's main screen is the pack's own image folder: **Upload images…** copies
-files in from anywhere on your computer (several at once), and each one can be deleted, or
-cleaned up with **Remove background…** — colour-key transparency for a sheet that came with a
-flat coloured background instead of a transparent one. Pick as many background colours as it
-takes (click the live preview to sample one straight off the image), set a tolerance, and
-everything close to any of them goes see-through. It only matches colours rather than trying to
-work out what is foreground, so it copes with art of any quality — but set the tolerance too
-high and it starts eating the character. The result overwrites the image in place, so poses
-already pointing at it keep working.
-
-Then, inside any action's pose list, **Slice from a sheet…** opens the sheet with a grid over it:
+a single sheet with every frame on it. The editor cuts one up for you: inside any action's pose
+list, **Slice from a sheet…** opens the sheet with a grid over it:
 
 - Set **Columns/Rows**, plus **Gap X/Y** if the sheet has padding around each frame (excluded
   from every cell and shaded red so you can see it is accounted for).
@@ -640,31 +645,6 @@ sideways as poses change. Adjust it by hand afterwards if a pose needs it.
 **Velocity is left at zero** on every sliced pose. How far a step carries the mascot belongs to
 the action, not to the picture, so a freshly sliced Walk is a held animation until you fill that
 in — visible and fixable, rather than a guessed speed nothing in the pack asked for.
-
-### Animation options
-
-A real shimeji pack authors one fixed animation per action — the standard schema's Walk, say, is
-always the same four poses in the same order, every single time. Game sprite sheets often don't
-fit that mould: more frames than the standard slots expect, or a walk cycle you'd rather vary
-than replay identically forever. **Animation options** lets one action have several complete
-animations instead of one, picked at random — each equally likely — every time the action starts.
-
-Reach it from the character wizard's checklist (**Poses & animations...**, next to a character
-above), under the collapsed **Advanced: animation options** group: click **Add options** next to
-an action to open it. The first time, whatever that action currently plays becomes "Option 1"
-automatically, so cutting a second option from a sheet is the only new work — **+ Add another
-option** opens the same sheet-slicing tool described above, but keeps every frame you select, in
-order, as one option's whole sequence, rather than picking a single pose out of it. Options can be
-re-sliced or removed individually, and **Reset to standard animation** drops the override
-entirely, back to exactly what the pack's own `actions.xml` defines.
-
-Under the hood this is a normal custom action override — the same data "Build your own" edits —
-with one `<Animation>` variant per option, each gated by a `Math.random()` condition tuned so
-every option is equally likely despite the engine always picking the first matching one it finds.
-That means an action set up this way is also visible, and further editable, from "Build your own"
-afterward; the reverse holds too, so opening this on an action you've already hand-customized with
-your own conditions there warns you first, since saving here replaces whatever conditions were on
-it with freshly randomized ones.
 
 ### Seeing it move
 
@@ -1143,7 +1123,7 @@ global/tray equivalent, the per-mascot context menu is character-scoped where th
   following, switch its character, jump it straight to a named behavior, restore thrown windows,
   or open plugin settings.
 - Settings: pack folder + rescan; per-character on/off toggles under **Characters** (a new
-  mascot picks randomly among the ones turned on); a **Custom animations & reactions** editor
+  mascot picks randomly among the ones turned on); the character editor's **Edit...** button
   per character (see above); population controls (spawn/remove-all buttons, max mascots on
   screen, auto-spawn on startup and how many); behavior toggles (allow dragging, allow
   breeding, chase-the-mouse, window mischief, note mischief — see above); size; whether

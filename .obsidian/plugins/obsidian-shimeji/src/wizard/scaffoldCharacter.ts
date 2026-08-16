@@ -38,7 +38,7 @@ async function ensureFolder(app: App, dir: string): Promise<void> {
 
 /**
  * The Obsidian-glue half of `decideScaffoldPlan`: reads what's actually at `packsFolder` right
- * now and asks the pure function what to do about it. Exported so `CharacterWizardModal` can
+ * now and asks the pure function what to do about it. Exported so `CharacterEditorModal` can
  * check this *before* calling `scaffoldCharacter` at all — showing a migration confirmation
  * screen up front reads better than reacting to a caught error, and this way there is exactly
  * one place that knows how to read "what's already there" from disk.
@@ -98,7 +98,7 @@ export interface ScaffoldResult {
  * exists, with no action/behavior authoring of its own required.
  *
  * `allowMigration` gates the one destructive-looking (but non-deleting) branch — the caller
- * (`CharacterWizardModal`) is expected to have already shown the user what will move and gotten
+ * (`CharacterEditorModal`) is expected to have already shown the user what will move and gotten
  * an explicit confirmation before passing `true`; passing `false` while the plan resolves to
  * `"migrate-then-add"` throws rather than silently reorganizing the user's existing character.
  */

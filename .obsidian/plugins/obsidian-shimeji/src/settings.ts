@@ -1,8 +1,7 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ShimejiPlugin from "./main";
 import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
-import { CustomContentModal } from "./customContentModal";
-import { CharacterWizardModal } from "./wizard/CharacterWizardModal";
+import { CharacterEditorModal } from "./wizard/CharacterEditorModal";
 import type { CustomPackContent } from "./shimeji/customContent";
 import { VaultReactionTrigger } from "./speech/vaultReactions";
 import { OBSIDIAN_EVENTS_BY_SOURCE } from "./speech/obsidianEvents";
@@ -271,7 +270,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						btn
 							.setButtonText("Create...")
 							.setCta()
-							.onClick(() => new CharacterWizardModal(this.app, this.plugin, undefined, () => this.display()).open()),
+							.onClick(() => new CharacterEditorModal(this.app, this.plugin, undefined, () => this.display()).open()),
 					);
 
 				new Setting(containerEl)
@@ -299,8 +298,11 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						cls: "setting-item-description",
 					});
 					for (const pack of this.plugin.availablePacks) {
+						const content = this.plugin.settings.customContent[pack.id];
+						const customCount = (content?.actions.length ?? 0) + (content?.behaviors.length ?? 0);
 						new Setting(containerEl)
 							.setName(pack.name)
+							.setDesc(customCount > 0 ? `${customCount} custom action/behavior entr${customCount === 1 ? "y" : "ies"}` : "")
 							.addToggle((toggle) =>
 								toggle.setValue(this.plugin.settings.activePackIds.includes(pack.id)).onChange(async (value) => {
 									const ids = this.plugin.settings.activePackIds;
@@ -310,7 +312,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								}),
 							)
 							.addButton((btn) =>
-								btn.setButtonText("Poses & animations...").onClick(() => new CharacterWizardModal(this.app, this.plugin, pack.id, () => this.display()).open()),
+								btn.setButtonText("Edit...").onClick(() => new CharacterEditorModal(this.app, this.plugin, pack.id, () => this.display()).open()),
 							);
 					}
 				} else {
@@ -398,35 +400,6 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								await this.plugin.saveSettings();
 							}),
 					);
-			});
-
-			this.section(containerEl, "Build your own", false, (containerEl) => {
-				if (this.plugin.availablePacks.length > 0) {
-					containerEl.createEl("p", {
-						text:
-							"Add your own actions and behaviors to a character, the same way hand-editing " +
-							"actions.xml/behaviors.xml would — a custom entry with the same name as a " +
-							"standard one replaces it.",
-						cls: "setting-item-description",
-					});
-					for (const pack of this.plugin.availablePacks) {
-						const content = this.plugin.settings.customContent[pack.id];
-						const count = (content?.actions.length ?? 0) + (content?.behaviors.length ?? 0);
-						new Setting(containerEl)
-							.setName(pack.name)
-							.setDesc(count > 0 ? `${count} custom entr${count === 1 ? "y" : "ies"}` : "No custom entries yet")
-							.addButton((btn) =>
-								btn.setButtonText("Edit...").onClick(() => {
-									new CustomContentModal(this.app, this.plugin, pack.id).open();
-								}),
-							);
-					}
-				} else {
-					containerEl.createEl("p", {
-						text: "Load a character above first — custom actions/behaviors are added on top of a character's own actions.xml/behaviors.xml.",
-						cls: "setting-item-description",
-					});
-				}
 			});
 		});
 

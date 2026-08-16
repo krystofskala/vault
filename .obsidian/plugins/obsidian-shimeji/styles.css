@@ -58,11 +58,6 @@
 	margin: 8px 0;
 }
 
-.shimeji-cc-modal {
-	width: 640px;
-	max-width: 90vw;
-}
-
 .shimeji-cc-box {
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 6px;
