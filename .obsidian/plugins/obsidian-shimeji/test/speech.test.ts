@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags } from "../src/speech/speechLines";
 import { SpeechScheduler } from "../src/speech/SpeechScheduler";
+import { resolveSpeechPool } from "../src/speech/SpeechBubbles";
 import { DEFAULT_VAULT_REACTION_OPTIONS } from "../src/speech/vaultReactions";
 
 /** A deterministic stand-in for Math.random: hands back the given values in order, then repeats
@@ -396,5 +397,33 @@ describe("SpeechScheduler", () => {
 				"Welcome back!",
 			);
 		});
+	});
+});
+
+describe("resolveSpeechPool", () => {
+	const { pool: general } = parseSpeechLines("Off I go @Walk");
+	const { pool: special } = parseSpeechLines("Only I say this @Walk");
+
+	it("reads the general pool while no character pack is loaded", () => {
+		const packPools = new Map([["some-pack", special]]);
+		expect(resolveSpeechPool(null, general, packPools)).toBe(general);
+	});
+
+	it("reads a character's own pool once it has one", () => {
+		const packPools = new Map([["some-pack", special]]);
+		expect(resolveSpeechPool("some-pack", general, packPools)).toBe(special);
+	});
+
+	it("falls back to the general pool for a pack with no override configured", () => {
+		const packPools = new Map([["some-pack", special]]);
+		expect(resolveSpeechPool("a-different-pack", general, packPools)).toBe(general);
+	});
+
+	it("falls back to the general pool when a pack's own file has nothing in it yet", () => {
+		// The load-bearing case: introducing a character-specific file is additive, never a way to
+		// accidentally go silent -- an empty override must lose to the general pool, not win as "the"
+		// pool for that character.
+		const packPools = new Map([["some-pack", new Map()]]);
+		expect(resolveSpeechPool("some-pack", general, packPools)).toBe(general);
 	});
 });

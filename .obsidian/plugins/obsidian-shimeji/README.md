@@ -680,6 +680,38 @@ any pane at all.
 Edits are debounced rather than cooldown-only, since Obsidian autosaves as you type: a remark for
 `@note:edit` only fires once you actually pause, never mid-keystroke.
 
+### Custom triggers
+
+The five above are the built-in set; **Settings → Voice → Vault events → Custom triggers** adds
+more. Obsidian fires far more events than those five — file-open, editor-change, layout-change, a
+theme switching, and whatever any installed community plugin fires on top of it — and any of them
+can be bound to a tag of your own choosing: pick whether it's a workspace event or a vault event,
+type the event's name, type a tag. No `note:` prefix required; it's just a tag like any other.
+
+Finding the right event name is on you — there's no registry to browse here. Obsidian's own are in
+its API docs; a community plugin's own are in that plugin's own docs or source, or in the developer
+console (Ctrl/Cmd+Shift+I) while you make it fire and watch what shows up. Bindings apply
+immediately, no reload needed, and every custom tag is checked against the speech file the same way
+the built-in ones are, so a typo is flagged instead of just staying silent.
+
+Deliberately generic: no debouncing, no argument-reading, no special-casing beyond what every vault
+reaction already gets. If the bound event fires on every keystroke, expect the same reaction —
+`@note:edit`'s 1.5s debounce is hand-tuned for that one specific case, not something a custom
+binding gets for free.
+
+### Character-specific speech
+
+**Settings → Voice → Character-specific speech** lists every loaded character with a field for its
+own dedicated lines file. Leave it empty and that character keeps using the general file above,
+same as before this existed; give it a path (the pencil button creates one, seeded with the same
+real examples the general file gets) and only that character reads from it — everyone else is
+unaffected.
+
+An override with nothing tagged in it yet doesn't go silent: a character falls back to the general
+file until its own has something written in it, so setting one up is never a way to accidentally
+mute a mascot mid-edit. The status line under each character says which is currently in effect and
+how many lines and tags its own file has.
+
 ## "Get to that spot" — Shift + triple-click
 
 **Shift + triple-click anywhere** in the window and the nearest mascot goes there. Not near there —

@@ -12,6 +12,23 @@ const BUBBLE_OFFSET_PX = 8;
 export type BubbleStyle = "theme" | "comic";
 
 /**
+ * Which pool a mascot's speech comes from: its own pack's override if one is loaded and has
+ * something in it, the general pool otherwise. An override that resolves to zero lines (no file
+ * configured, the file doesn't exist yet, or it exists but is still empty) is treated the same as
+ * no override at all — introducing a character-specific file is additive, never a way to
+ * accidentally go silent.
+ *
+ * Pure and exported on its own, apart from the class below: this is the one part of this file with
+ * an actual decision in it, and keeping it a plain function means that decision can be tested
+ * directly, without a DOM — everything else here exists to draw the result on screen.
+ */
+export function resolveSpeechPool(packId: string | null, defaultPool: SpeechPool, packPools: ReadonlyMap<string, SpeechPool>): SpeechPool {
+	if (packId === null) return defaultPool;
+	const override = packPools.get(packId);
+	return override && override.size > 0 ? override : defaultPool;
+}
+
+/**
  * Draws what the mascots say.
  *
  * Bubbles live in their own fixed layer on `document.body` rather than inside the mascot's element,
@@ -27,11 +44,24 @@ export class SpeechBubbles {
 	private layer: HTMLDivElement;
 	private bubbles = new Map<Mascot, { el: HTMLDivElement; until: number }>();
 	private scheduler: SpeechScheduler;
-	private pool: SpeechPool = new Map();
+	/** The lines file everyone uses unless their own character overrides it below. */
+	private defaultPool: SpeechPool = new Map();
+	/** Per-character overrides, keyed by pack id — see settings.packSpeechFiles. A pack with no
+	 * entry here, or an empty one, simply falls back to defaultPool; introducing this never
+	 * silenced anyone who already had lines in the general file. */
+	private packPools = new Map<string, SpeechPool>();
 	private style: BubbleStyle = "theme";
 	private enabled = true;
 
-	constructor(options: SpeechOptions, private rng: () => number = Math.random) {
+	constructor(
+		options: SpeechOptions,
+		/** Which pack (by id) a mascot is currently wearing, or null while none is loaded — the same
+		 * resolver Residency already uses. Injected rather than read off Mascot directly because
+		 * pack identity is main.ts's own bookkeeping (a WeakMap alongside the driver), not something
+		 * the engine's Mascot type carries itself. */
+		private packIdOf: (mascot: Mascot) => string | null = () => null,
+		private rng: () => number = Math.random,
+	) {
 		this.scheduler = new SpeechScheduler(options);
 		this.layer = document.createElement("div");
 		this.layer.className = "shimeji-speech-layer";
@@ -39,7 +69,19 @@ export class SpeechBubbles {
 	}
 
 	setPool(pool: SpeechPool): void {
-		this.pool = pool;
+		this.defaultPool = pool;
+	}
+
+	/** Replaces every character-specific pool at once — called after (re)loading whatever files
+	 * settings.packSpeechFiles currently points at, so a pack that had an override and lost it (the
+	 * path was cleared) correctly falls back to the general pool on the very next tick. */
+	setPackPools(pools: Map<string, SpeechPool>): void {
+		this.packPools = pools;
+	}
+
+	/** The pool a given mascot actually reads from — see resolveSpeechPool. */
+	private poolFor(mascot: Mascot): SpeechPool {
+		return resolveSpeechPool(this.packIdOf(mascot), this.defaultPool, this.packPools);
 	}
 
 	setOptions(options: SpeechOptions): void {
@@ -70,8 +112,10 @@ export class SpeechBubbles {
 	 * this class still never reaches back into the engine to find out anything for itself.
 	 */
 	announceEvent(mascot: Mascot, triggerId: string): void {
-		if (!this.enabled || this.pool.size === 0) return;
-		const line = this.scheduler.considerEvent(mascot, triggerId, this.pool, performance.now(), this.rng, DEFAULT_VAULT_REACTION_OPTIONS);
+		if (!this.enabled) return;
+		const pool = this.poolFor(mascot);
+		if (pool.size === 0) return;
+		const line = this.scheduler.considerEvent(mascot, triggerId, pool, performance.now(), this.rng, DEFAULT_VAULT_REACTION_OPTIONS);
 		if (line) this.show(mascot, line);
 	}
 
@@ -82,9 +126,11 @@ export class SpeechBubbles {
 	tick(mascots: readonly Mascot[]): void {
 		const now = performance.now();
 
-		if (this.enabled && this.pool.size > 0) {
+		if (this.enabled) {
 			for (const mascot of mascots) {
-				const line = this.scheduler.consider(mascot, mascot.currentBehaviorName, this.pool, now, this.rng);
+				const pool = this.poolFor(mascot);
+				if (pool.size === 0) continue;
+				const line = this.scheduler.consider(mascot, mascot.currentBehaviorName, pool, now, this.rng);
 				if (line) this.show(mascot, line);
 			}
 		}

@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
+import { Events, type EventRef, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { ObsidianDomEnvironment } from "./engine/Environment";
 import { Mascot } from "./engine/Mascot";
@@ -61,12 +61,16 @@ const SPOT_ORDER_CLICKS = 3;
 
 export default class ShimejiPlugin extends Plugin {
 	/** What the mascots say. Purely an observer of the engine — see SpeechBubbles. */
-	readonly speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS);
+	readonly speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS, (mascot) => this.packIdOf(mascot));
 	/** Last parse of the speech file, for the settings screen. Undefined until first read. */
 	speechStats?: SpeechStats;
 	/** The parsed pool, kept so shimejiDebug.speech() can show which behaviours are actually
 	 * covered — the bubbles own their own copy and cannot be asked. */
 	speechPool?: SpeechPool;
+	/** Last parse of each configured character-specific speech file, keyed by pack id — the
+	 * per-pack equivalent of speechStats, for the settings screen. Empty until reloadSpeechLines has
+	 * run at least once. */
+	packSpeechStats: Map<string, SpeechStats> = new Map();
 	/** Who lives in the plant room. Created unconditionally — it is inert until the room's pane
 	 * is actually open, and having it always present keeps every call site free of a null check. */
 	readonly residency = new Residency({
@@ -111,6 +115,9 @@ export default class ShimejiPlugin extends Plugin {
 	private spotClicks: { x: number; y: number; at: number; count: number } = { x: 0, y: 0, at: 0, count: 0 };
 	/** Reset on every vault "modify" event — see VAULT_EDIT_DEBOUNCE_MS. */
 	private vaultEditDebounceTimer: number | null = null;
+	/** Live listeners built from settings.customVaultReactions, tracked so a settings edit can tear
+	 * down and rebuild them without waiting for a plugin reload — see applyCustomVaultReactions. */
+	private customVaultReactionRefs: Array<{ on: Events; ref: EventRef }> = [];
 	/** What every PackDriver actually receives: gates obsidianPaneActions' resize/throw methods
 	 * behind the "Window mischief" setting live (read fresh on every call, not captured once),
 	 * so flipping the toggle takes effect immediately without reattaching every mascot's driver.
@@ -234,10 +241,13 @@ export default class ShimejiPlugin extends Plugin {
 
 		this.applySpeechSettings();
 		// Editing the file in Obsidian reloads it on save, so writing a line and watching for it
-		// does not need a trip through settings.
+		// does not need a trip through settings. Covers the general file and every
+		// character-specific override alike — reloadSpeechLines already re-reads both.
 		this.registerEvent(
 			this.app.vault.on("modify", (file) => {
-				if (this.settings.speechFilePath && file.path === this.settings.speechFilePath) void this.reloadSpeechLines();
+				const isGeneral = this.settings.speechFilePath && file.path === this.settings.speechFilePath;
+				const isPackOverride = Object.values(this.settings.packSpeechFiles).some((p) => p.trim() === file.path);
+				if (isGeneral || isPackOverride) void this.reloadSpeechLines();
 			}),
 		);
 		this.addCommand({
@@ -353,6 +363,7 @@ export default class ShimejiPlugin extends Plugin {
 				}, VAULT_EDIT_DEBOUNCE_MS);
 			}),
 		);
+		this.applyCustomVaultReactions();
 
 		await this.rescanPacks();
 
@@ -1040,12 +1051,17 @@ export default class ShimejiPlugin extends Plugin {
 		return [...names].sort((a, b) => a.localeCompare(b));
 	}
 
-	/** Every tag the speech file may legally carry: the loaded characters' own behaviour names, plus
-	 * the five invented `note:*` vault-reaction ids (see vaultReactions.ts). Unconditional — these
-	 * are legal whether or not vaultReactionsEnabled is on, since the toggle only gates whether the
-	 * plugin *reacts* to a vault event, not whether a tag written for one is a typo. */
+	/** Every tag the speech file may legally carry: the loaded characters' own behaviour names, the
+	 * five built-in `note:*` vault-reaction ids (see vaultReactions.ts), and whatever tags the user
+	 * has bound in Settings → Vault events → Custom triggers. Unconditional — all of these are legal
+	 * whether or not vaultReactionsEnabled is on, since the toggle only gates whether the plugin
+	 * *reacts* to a vault event, not whether a tag written for one is a typo. */
 	private allLegalSpeechTags(): string[] {
-		return [...this.speechTagVocabulary(), ...Object.values(VaultReactionTrigger)];
+		return [
+			...this.speechTagVocabulary(),
+			...Object.values(VaultReactionTrigger),
+			...this.settings.customVaultReactions.map((r) => r.tag.trim()).filter((tag) => tag.length > 0),
+		];
 	}
 
 	/**
@@ -1073,39 +1089,107 @@ export default class ShimejiPlugin extends Plugin {
 		}
 		if (await this.app.vault.adapter.exists(path)) return;
 		try {
-			await this.app.vault.create(path, speechLinesTemplate(this.speechTagVocabulary()) + "\n" + vaultReactionsTemplateFragment());
+			await this.app.vault.create(path, speechLinesTemplate(this.allLegalSpeechTags()) + "\n" + vaultReactionsTemplateFragment());
 		} catch (e) {
 			console.warn(`[obsidian-shimeji] could not create the speech file at "${path}"`, e);
 		}
 	}
 
-	/** (Re)reads and parses the speech file and pushes the result to the bubbles. Safe to call at
-	 * any time — on load, on a settings change, from the reload command, and automatically
-	 * whenever that exact file is saved. */
-	async reloadSpeechLines(): Promise<void> {
-		const path = this.settings.speechFilePath.trim();
-		if (!path || !(await this.app.vault.adapter.exists(path))) {
-			this.speechStats = { fileExists: false, taggedLineCount: 0, tagCount: 0, untaggedLines: [], unmatchedTags: [] };
-			this.speechPool = new Map();
-			this.speech.setPool(this.speechPool);
-			return;
+	/**
+	 * The character-specific equivalent of ensureSpeechFile: makes sure the pack has a dedicated
+	 * file if it is meant to, creating and pointing packSpeechFiles at one when it doesn't. Named
+	 * after the pack so several characters' files sit apart and recognisably in a file browser,
+	 * seeded with the same real examples the general file gets — a blank starter file here would
+	 * fail exactly the same silent way ensureSpeechFile's own doc comment already warns about.
+	 */
+	async ensurePackSpeechFile(packId: string, packName: string): Promise<void> {
+		const existing = this.settings.packSpeechFiles[packId]?.trim();
+		if (existing && (await this.app.vault.adapter.exists(existing))) return;
+
+		const folder = this.app.fileManager.getNewFileParent("")?.path ?? "";
+		const base = folder && folder !== "/" ? `${folder}/` : "";
+		const safeName = packName.replace(/[\\/:*?"<>|]/g, "-").trim() || packId;
+		let candidate = `${base}Shimeji speech - ${safeName}.md`;
+		let suffix = 2;
+		while (await this.app.vault.adapter.exists(candidate)) {
+			candidate = `${base}Shimeji speech - ${safeName} ${suffix}.md`;
+			suffix++;
 		}
 		try {
+			await this.app.vault.create(candidate, speechLinesTemplate(this.allLegalSpeechTags()) + "\n" + vaultReactionsTemplateFragment());
+		} catch (e) {
+			console.warn(`[obsidian-shimeji] could not create the speech file at "${candidate}"`, e);
+			return;
+		}
+		this.settings.packSpeechFiles[packId] = candidate;
+		await this.saveSettings();
+		await this.reloadSpeechLines();
+	}
+
+	/** Opens a character's own speech file, creating one first (see ensurePackSpeechFile) if it
+	 * doesn't have one yet — the character-specific equivalent of openSpeechFile. */
+	async openPackSpeechFile(packId: string, packName: string): Promise<void> {
+		const existing = this.settings.packSpeechFiles[packId]?.trim();
+		if (!existing || !(await this.app.vault.adapter.exists(existing))) {
+			await this.ensurePackSpeechFile(packId, packName);
+		}
+		const path = this.settings.packSpeechFiles[packId]?.trim();
+		const file = path ? this.app.vault.getFileByPath(path) : null;
+		if (!file) {
+			new Notice(`Couldn't open "${path || "that character's speech file"}".`);
+			return;
+		}
+		await this.app.workspace.getLeaf(true).openFile(file);
+	}
+
+	/** (Re)reads and parses the general speech file and every character-specific override
+	 * (settings.packSpeechFiles), pushing both to the bubbles. Safe to call at any time — on load,
+	 * on a settings change, from the reload command, and automatically whenever one of those exact
+	 * files is saved. One call for both, rather than a second method to remember to also call,
+	 * since a mascot's own pool always depends on both — see SpeechBubbles.poolFor. */
+	async reloadSpeechLines(): Promise<void> {
+		const general = await this.loadSpeechFile(this.settings.speechFilePath.trim());
+		this.speechPool = general.pool;
+		this.speechStats = general.stats;
+		this.speech.setPool(general.pool);
+
+		const pools = new Map<string, SpeechPool>();
+		const stats = new Map<string, SpeechStats>();
+		for (const [packId, rawPath] of Object.entries(this.settings.packSpeechFiles)) {
+			const path = rawPath.trim();
+			if (!path) continue;
+			const loaded = await this.loadSpeechFile(path);
+			pools.set(packId, loaded.pool);
+			stats.set(packId, loaded.stats);
+		}
+		this.packSpeechStats = stats;
+		this.speech.setPackPools(pools);
+	}
+
+	/** Reads and parses one speech file, shared between the general file and every
+	 * character-specific override above so both report a missing file or a read error the same
+	 * honest way rather than each having its own slightly different failure handling. */
+	private async loadSpeechFile(path: string): Promise<{ pool: SpeechPool; stats: SpeechStats }> {
+		const empty = (fileExists: boolean): { pool: SpeechPool; stats: SpeechStats } => ({
+			pool: new Map(),
+			stats: { fileExists, taggedLineCount: 0, tagCount: 0, untaggedLines: [], unmatchedTags: [] },
+		});
+		if (!path || !(await this.app.vault.adapter.exists(path))) return empty(false);
+		try {
 			const parsed = parseSpeechLines(await this.app.vault.adapter.read(path));
-			this.speechPool = parsed.pool;
-			this.speech.setPool(parsed.pool);
-			this.speechStats = {
-				fileExists: true,
-				taggedLineCount: parsed.taggedLineCount,
-				tagCount: parsed.pool.size,
-				untaggedLines: parsed.untaggedLines,
-				unmatchedTags: unmatchedTags(parsed.pool, this.allLegalSpeechTags()),
+			return {
+				pool: parsed.pool,
+				stats: {
+					fileExists: true,
+					taggedLineCount: parsed.taggedLineCount,
+					tagCount: parsed.pool.size,
+					untaggedLines: parsed.untaggedLines,
+					unmatchedTags: unmatchedTags(parsed.pool, this.allLegalSpeechTags()),
+				},
 			};
 		} catch (e) {
-			console.warn("[obsidian-shimeji] could not read the speech file", e);
-			this.speechStats = { fileExists: true, taggedLineCount: 0, tagCount: 0, untaggedLines: [], unmatchedTags: [] };
-			this.speechPool = new Map();
-			this.speech.setPool(this.speechPool);
+			console.warn(`[obsidian-shimeji] could not read the speech file at "${path}"`, e);
+			return empty(true);
 		}
 	}
 
@@ -1121,7 +1205,7 @@ export default class ShimejiPlugin extends Plugin {
 	async appendStarterLines(): Promise<boolean> {
 		const path = this.settings.speechFilePath.trim();
 		if (!path || !(await this.app.vault.adapter.exists(path))) return false;
-		const template = speechLinesTemplate(this.speechTagVocabulary()) + "\n" + vaultReactionsTemplateFragment();
+		const template = speechLinesTemplate(this.allLegalSpeechTags()) + "\n" + vaultReactionsTemplateFragment();
 		const examplesAt = template.indexOf("\n## ");
 		if (examplesAt < 0) return false;
 		const existing = await this.app.vault.adapter.read(path);
@@ -1301,6 +1385,32 @@ export default class ShimejiPlugin extends Plugin {
 	private reactToVaultEvent(triggerId: string): void {
 		if (!this.settings.speechEnabled || !this.settings.vaultReactionsEnabled) return;
 		for (const mascot of this.mascotsOnActivePane({ excludeConfined: true })) this.speech.announceEvent(mascot, triggerId);
+	}
+
+	/**
+	 * (Re)builds the custom vault-reaction listeners from settings.customVaultReactions, tearing
+	 * down whatever was registered before. Called on load and after every edit in the settings UI,
+	 * so adding, editing, or removing a binding takes effect immediately — no plugin reload needed.
+	 *
+	 * `workspace`/`vault` are typed with only their own known event names (`on(name: "file-open", ...)`
+	 * and so on), which is why this reaches for the `Events` base class both extend: its `on(name:
+	 * string, ...)` is the same method at runtime, just without Obsidian's closed list of names —
+	 * exactly what's needed for a binding to an event this plugin was never told about in advance.
+	 * Each ref is also handed to `registerEvent` for the usual automatic cleanup on unload; the
+	 * tracking here is only for tearing individual ones down early, mid-session.
+	 */
+	applyCustomVaultReactions(): void {
+		for (const { on, ref } of this.customVaultReactionRefs) on.offref(ref);
+		this.customVaultReactionRefs = [];
+		for (const reaction of this.settings.customVaultReactions) {
+			const eventName = reaction.eventName.trim();
+			const tag = reaction.tag.trim();
+			if (!eventName || !tag) continue;
+			const on = (reaction.source === "vault" ? this.app.vault : this.app.workspace) as Events;
+			const ref = on.on(eventName, () => this.reactToVaultEvent(tag));
+			this.registerEvent(ref);
+			this.customVaultReactionRefs.push({ on, ref });
+		}
 	}
 
 	/** Right-click menu on a mascot itself (also reachable by a touch-and-hold on mobile — see

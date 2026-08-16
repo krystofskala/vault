@@ -3,6 +3,23 @@ import type ShimejiPlugin from "./main";
 import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
 import { CustomContentModal } from "./customContentModal";
 import type { CustomPackContent } from "./shimeji/customContent";
+import { VaultReactionTrigger } from "./speech/vaultReactions";
+
+/** One user-defined binding from an Obsidian (or community-plugin) event to a speech tag — see
+ * ShimejiSettings.customVaultReactions. */
+export interface CustomVaultReaction {
+	/** Which object the event fires on. Covers everything a community plugin might use: most fire
+	 * on the same `workspace`/`vault` singletons the built-in five listen to, rather than minting
+	 * their own emitter. */
+	source: "workspace" | "vault";
+	/** The raw event name, exactly as the plugin/Obsidian itself calls `.trigger(...)` with — e.g.
+	 * "file-open", or a community plugin's own "dataview:index-ready". Find it in that plugin's own
+	 * docs/source, since there is no registry of what is available to list here. */
+	eventName: string;
+	/** The `@tag` mascots react to, e.g. "note:pin". Written into the speech file exactly like any
+	 * other tag — no `note:` prefix required, this is not limited to notes. */
+	tag: string;
+}
 
 export interface ShimejiSettings {
 	packsFolder: string;
@@ -84,6 +101,14 @@ export interface ShimejiSettings {
 	 * works without anything to configure by hand.
 	 */
 	speechFilePath: string;
+	/**
+	 * Per-character overrides of speechFilePath, keyed by pack id. A pack with an entry here (and a
+	 * non-empty path) reads its own dedicated file instead of the general one above — every other
+	 * pack, and every mascot while no character pack is loaded, keeps using the general file. Absent
+	 * or empty for a pack means "no override," not "no speech," so introducing this never silenced
+	 * anyone who was already talking.
+	 */
+	packSpeechFiles: Record<string, string>;
 	/** "theme" follows the active Obsidian theme; "comic" is a fixed white bubble with a heavy ink
 	 * outline, the same in light or dark. */
 	speechStyle: "theme" | "comic";
@@ -98,6 +123,16 @@ export interface ShimejiSettings {
 	 * never reaches into the workspace, it only ever calls the same speech.say() ordinary speech
 	 * already uses. Off by default so `@note:open` alone does not start talking the moment this ships. */
 	vaultReactionsEnabled: boolean;
+	/**
+	 * User-defined bindings from an arbitrary Obsidian (or community-plugin) event to a speech tag —
+	 * the escape hatch that makes the fixed note:open/create/delete/rename/edit set above not a
+	 * ceiling. Obsidian's own event surface, and everything a plugin fires on top of it, is open —
+	 * `workspace`/`vault` are both plain event emitters underneath their typed method signatures, so
+	 * any event name either one actually fires at runtime works here, typed or not. Deliberately no
+	 * guarding/debouncing/argument-reading like the built-in five have: this is the generic case, not
+	 * a replacement for the hand-tuned ones.
+	 */
+	customVaultReactions: CustomVaultReaction[];
 	/** Whether `scale` is read as a fraction of the window rather than a literal pixel multiplier —
 	 * see engine/responsiveScale.ts. On, a size chosen on a laptop still looks right on a phone or
 	 * a large monitor; off, it renders at the same pixel size everywhere. */
@@ -139,9 +174,11 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	roomIntroduced: false,
 	speechEnabled: true,
 	speechFilePath: "",
+	packSpeechFiles: {},
 	speechStyle: "theme",
 	speechChancePercent: 25,
 	vaultReactionsEnabled: false,
+	customVaultReactions: [],
 	responsiveScale: true,
 	mobileReadingViewOnly: true,
 };
@@ -454,6 +491,63 @@ export class ShimejiSettingTab extends PluginSettingTab {
 		this.section(containerEl, "Voice", false, (containerEl) => {
 			this.renderSpeechSection(containerEl);
 
+			this.section(containerEl, "Character-specific speech", false, (containerEl) => {
+				this.callout(
+					containerEl,
+					"info",
+					"Give one character its own lines file. Every other character, and this one for as long as its file has nothing written in it, keeps using the general file above — introducing a character-specific file never goes silent, it only ever adds lines that are more specific.",
+				);
+
+				const describePackSpeech = (packId: string, path: string): string => {
+					if (!path) return "Uses the general file above.";
+					const stats = this.plugin.packSpeechStats.get(packId);
+					if (!stats) return "Not read yet.";
+					if (!stats.fileExists) return "File not found yet — the pencil button creates it.";
+					if (stats.taggedLineCount === 0) return "Its own file has no lines yet, so this character currently uses the general file instead.";
+					const parts = [`${stats.taggedLineCount} line(s) across ${stats.tagCount} tag(s), just for this character.`];
+					if (stats.unmatchedTags.length > 0) parts.push(`${stats.unmatchedTags.length} tag(s) no behaviour matches.`);
+					if (stats.untaggedLines.length > 0) parts.push(`${stats.untaggedLines.length} line(s) have no tag.`);
+					return parts.join(" ");
+				};
+
+				if (this.plugin.availablePacks.length === 0) {
+					containerEl.createEl("p", {
+						text: "No character packs loaded yet — nothing to give its own file.",
+						cls: "setting-item-description",
+					});
+				}
+				for (const pack of this.plugin.availablePacks) {
+					const path = this.plugin.settings.packSpeechFiles[pack.id]?.trim() ?? "";
+					new Setting(containerEl)
+						.setName(pack.name)
+						.setDesc(describePackSpeech(pack.id, path))
+						.addText((text) =>
+							text
+								.setPlaceholder("uses the general file")
+								.setValue(path)
+								.onChange(async (value) => {
+									const trimmed = value.trim();
+									if (trimmed) this.plugin.settings.packSpeechFiles[pack.id] = trimmed;
+									else delete this.plugin.settings.packSpeechFiles[pack.id];
+									await this.plugin.saveSettings();
+									await this.plugin.reloadSpeechLines();
+								}),
+						)
+						.addExtraButton((b) =>
+							b
+								.setIcon("pencil")
+								.setTooltip("Open it for editing (creates one first if it doesn't have one yet)")
+								.onClick(() => void this.plugin.openPackSpeechFile(pack.id, pack.name).then(() => this.display())),
+						)
+						.addExtraButton((b) =>
+							b
+								.setIcon("refresh-cw")
+								.setTooltip("Re-read it now")
+								.onClick(() => void this.plugin.reloadSpeechLines().then(() => this.display())),
+						);
+				}
+			});
+
 			this.section(containerEl, "Sound effects", false, (containerEl) => {
 				new Setting(containerEl)
 					.setName("Play pack sounds")
@@ -501,6 +595,74 @@ export class ShimejiSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 						}),
 					);
+
+				const customTags = this.plugin.settings.customVaultReactions.map((r) => r.tag.trim()).filter((tag) => tag.length > 0);
+				containerEl.createEl("p", {
+					cls: "setting-item-description",
+					text: `Tags mascots can react to: ${[...Object.values(VaultReactionTrigger), ...customTags].map((tag) => `@${tag}`).join(", ")}`,
+				});
+
+				this.section(containerEl, "Custom triggers", false, (containerEl) => {
+					this.callout(
+						containerEl,
+						"tip",
+						"Bind any Obsidian event — or one fired by a community plugin — to a tag of your own choosing, so the built-in five above aren't a ceiling. Find the event name in Obsidian's API docs, or in the other plugin's own docs/source; there's no list to pick from here. The tag doesn't need a note: prefix — it's just a name for lines to carry.",
+					);
+					const reactions = this.plugin.settings.customVaultReactions;
+					reactions.forEach((reaction, index) => {
+						new Setting(containerEl)
+							.setName(`Trigger ${index + 1}`)
+							.addDropdown((dropdown) => {
+								dropdown.addOption("workspace", "Workspace event");
+								dropdown.addOption("vault", "Vault event");
+								dropdown.setValue(reaction.source).onChange(async (value) => {
+									reaction.source = value === "vault" ? "vault" : "workspace";
+									await this.plugin.saveSettings();
+									this.plugin.applyCustomVaultReactions();
+								});
+							})
+							.addText((text) =>
+								text
+									.setPlaceholder("event name, e.g. file-open")
+									.setValue(reaction.eventName)
+									.onChange(async (value) => {
+										reaction.eventName = value;
+										await this.plugin.saveSettings();
+										this.plugin.applyCustomVaultReactions();
+									}),
+							)
+							.addText((text) =>
+								text
+									.setPlaceholder("tag, e.g. note:pin")
+									.setValue(reaction.tag)
+									.onChange(async (value) => {
+										reaction.tag = value;
+										await this.plugin.saveSettings();
+										this.plugin.applyCustomVaultReactions();
+										await this.plugin.reloadSpeechLines();
+									}),
+							)
+							.addExtraButton((b) =>
+								b
+									.setIcon("trash")
+									.setTooltip("Remove this trigger")
+									.onClick(async () => {
+										reactions.splice(index, 1);
+										await this.plugin.saveSettings();
+										this.plugin.applyCustomVaultReactions();
+										await this.plugin.reloadSpeechLines();
+										this.display();
+									}),
+							);
+					});
+					new Setting(containerEl).addButton((b) =>
+						b.setButtonText("Add a custom trigger").onClick(async () => {
+							reactions.push({ source: "workspace", eventName: "", tag: "" });
+							await this.plugin.saveSettings();
+							this.display();
+						}),
+					);
+				});
 			});
 		});
 
