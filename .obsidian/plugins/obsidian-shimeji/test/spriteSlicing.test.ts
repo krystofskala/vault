@@ -7,8 +7,12 @@ import {
 	deriveAnchor,
 	detectFrames,
 	evenBoundaries,
+	flipHorizontal,
+	flipVertical,
 	hexToRgb,
 	rgbToHex,
+	rotate90Clockwise,
+	rotate90CounterClockwise,
 	sameRect,
 	samplePixel,
 	stripFrames,
@@ -328,6 +332,83 @@ describe("compositeIntoFrame", () => {
 		expect(() => compositeIntoFrame(source, { offsetX: 0, offsetY: 0, scale: 0 }, 2)).not.toThrow();
 		const framed = compositeIntoFrame(source, { offsetX: 0, offsetY: 0, scale: -1 }, 2);
 		expect(alphaAt(framed, 0, 0)).toBe(255); // fell back to scale 1, not NaN/Infinity coordinates
+	});
+});
+
+describe("flipHorizontal / flipVertical", () => {
+	it("mirrors left-right, keeping dimensions", () => {
+		const pixels = pixelsFrom(["k#"]);
+		const flipped = flipHorizontal(pixels);
+		expect(flipped.width).toBe(2);
+		expect(flipped.height).toBe(1);
+		expect(samplePixel(flipped, 0, 0)).toEqual({ r: 255, g: 255, b: 255 }); // was "#" at (1,0)
+		expect(samplePixel(flipped, 1, 0)).toEqual({ r: 0, g: 0, b: 0 }); // was "k" at (0,0)
+	});
+
+	it("mirrors top-to-bottom, keeping dimensions", () => {
+		const pixels = pixelsFrom(["k", "#"]);
+		const flipped = flipVertical(pixels);
+		expect(flipped.width).toBe(1);
+		expect(flipped.height).toBe(2);
+		expect(samplePixel(flipped, 0, 0)).toEqual({ r: 255, g: 255, b: 255 }); // was "#" at (0,1)
+		expect(samplePixel(flipped, 0, 1)).toEqual({ r: 0, g: 0, b: 0 }); // was "k" at (0,0)
+	});
+
+	it("is its own inverse", () => {
+		const pixels = pixelsFrom(["k#k", "#k#"]);
+		expect(flipHorizontal(flipHorizontal(pixels))).toEqual(pixels);
+		expect(flipVertical(flipVertical(pixels))).toEqual(pixels);
+	});
+
+	it("preserves alpha, not just colour", () => {
+		const pixels = pixelsFrom(["k."]);
+		expect(alphaAt(flipHorizontal(pixels), 0, 0)).toBe(0); // "." (transparent) moved to (0,0)
+		expect(alphaAt(flipHorizontal(pixels), 1, 0)).toBe(255);
+	});
+});
+
+describe("rotate90Clockwise / rotate90CounterClockwise", () => {
+	// Four distinct corners so a rotation's exact direction is unambiguous, not just "changed".
+	const corners: Record<string, [number, number, number, number]> = {
+		t: [255, 0, 0, 255],
+		r: [0, 255, 0, 255],
+		b: [0, 0, 255, 255],
+		l: [255, 255, 0, 255],
+	};
+	const square = (): Pixels => pixelsFrom(["tr", "lb"], corners);
+
+	it("swaps width and height", () => {
+		const pixels = pixelsFrom(["kkk"]); // 3 wide, 1 tall
+		expect(rotate90Clockwise(pixels)).toMatchObject({ width: 1, height: 3 });
+		expect(rotate90CounterClockwise(pixels)).toMatchObject({ width: 1, height: 3 });
+	});
+
+	it("clockwise: the bottom-left corner becomes the top-left — turning a photo clockwise", () => {
+		const rotated = rotate90Clockwise(square());
+		expect(samplePixel(rotated, 0, 0)).toEqual({ r: 255, g: 255, b: 0 }); // was bottom-left ("l")
+		expect(samplePixel(rotated, 1, 0)).toEqual({ r: 255, g: 0, b: 0 }); // was top-left ("t")
+		expect(samplePixel(rotated, 1, 1)).toEqual({ r: 0, g: 255, b: 0 }); // was top-right ("r")
+		expect(samplePixel(rotated, 0, 1)).toEqual({ r: 0, g: 0, b: 255 }); // was bottom-right ("b")
+	});
+
+	it("counter-clockwise: the top-right corner becomes the top-left", () => {
+		const rotated = rotate90CounterClockwise(square());
+		expect(samplePixel(rotated, 0, 0)).toEqual({ r: 0, g: 255, b: 0 }); // was top-right ("r")
+		expect(samplePixel(rotated, 1, 0)).toEqual({ r: 0, g: 0, b: 255 }); // was bottom-right ("b")
+		expect(samplePixel(rotated, 1, 1)).toEqual({ r: 255, g: 255, b: 0 }); // was bottom-left ("l")
+		expect(samplePixel(rotated, 0, 1)).toEqual({ r: 255, g: 0, b: 0 }); // was top-left ("t")
+	});
+
+	it("clockwise and counter-clockwise are exact inverses of each other", () => {
+		const pixels = square();
+		expect(rotate90CounterClockwise(rotate90Clockwise(pixels))).toEqual(pixels);
+		expect(rotate90Clockwise(rotate90CounterClockwise(pixels))).toEqual(pixels);
+	});
+
+	it("four clockwise turns return to the original", () => {
+		let pixels = pixelsFrom(["kk#"]); // non-square, so a dimension mistake would also show up
+		for (let i = 0; i < 4; i++) pixels = rotate90Clockwise(pixels);
+		expect(pixels).toEqual(pixelsFrom(["kk#"]));
 	});
 });
 

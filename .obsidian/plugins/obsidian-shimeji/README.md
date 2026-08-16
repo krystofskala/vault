@@ -497,6 +497,9 @@ the folder each time the wizard opens. Three ways to get an image into the frame
   sheet you upload right there (which *is* kept in the pack folder afterward, so you can come
   back and cut it differently later).
 
+**Flip** (horizontal/vertical) and **rotate** (90° either way) fix orientation — a source photo
+facing the wrong way, or turned on its side — applied to the image immediately, undone by doing
+the same thing again (flip is its own inverse; rotating four times the same way is a no-op).
 Drag to position the image, scroll (or the on-screen buttons) to zoom — there's no separate crop
 step, since whatever falls outside the fixed 128×128 frame at Save is simply left out. A red
 crosshair (sometimes two, for the handful of images the real schema anchors differently depending

@@ -337,6 +337,86 @@ export function sameRect(a: FrameRect, b: FrameRect): boolean {
 	return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
+/**
+ * Orientation fixes for the character wizard's pose editor — mirror left-right, mirror
+ * top-to-bottom, or rotate a quarter turn either way. Each returns a fresh buffer rather than
+ * mutating in place, the same convention `cropPixels` already uses, and — unlike pan/zoom, which
+ * stays live state resolved only at composite time (see `FrameTransform`/`compositeIntoFrame`) —
+ * these are meant to be baked into the working image immediately: lossless, and then everything
+ * downstream (the live preview, the final composite) just works from the result with no separate
+ * "is it flipped" flag to remember or to get out of sync.
+ */
+export function flipHorizontal(pixels: Pixels): Pixels {
+	const { width, height, data } = pixels;
+	const out = new Uint8ClampedArray(data.length);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const from = (y * width + x) * 4;
+			const to = (y * width + (width - 1 - x)) * 4;
+			out[to] = data[from];
+			out[to + 1] = data[from + 1];
+			out[to + 2] = data[from + 2];
+			out[to + 3] = data[from + 3];
+		}
+	}
+	return { data: out, width, height };
+}
+
+export function flipVertical(pixels: Pixels): Pixels {
+	const { width, height, data } = pixels;
+	const out = new Uint8ClampedArray(data.length);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const from = (y * width + x) * 4;
+			const to = ((height - 1 - y) * width + x) * 4;
+			out[to] = data[from];
+			out[to + 1] = data[from + 1];
+			out[to + 2] = data[from + 2];
+			out[to + 3] = data[from + 3];
+		}
+	}
+	return { data: out, width, height };
+}
+
+/** Rotates a quarter turn clockwise — width and height swap. `(x,y) -> (h-1-y, x)`: the source's
+ * bottom-left corner becomes the output's top-left, which is what turning a photo clockwise
+ * actually does to its corners. */
+export function rotate90Clockwise(pixels: Pixels): Pixels {
+	const { width, height, data } = pixels;
+	const outWidth = height;
+	const out = new Uint8ClampedArray(data.length);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const from = (y * width + x) * 4;
+			const to = (x * outWidth + (height - 1 - y)) * 4;
+			out[to] = data[from];
+			out[to + 1] = data[from + 1];
+			out[to + 2] = data[from + 2];
+			out[to + 3] = data[from + 3];
+		}
+	}
+	return { data: out, width: height, height: width };
+}
+
+/** Rotates a quarter turn counter-clockwise — width and height swap. `(x,y) -> (y, w-1-x)`, the
+ * exact inverse of `rotate90Clockwise` (composing the two, either order, is the identity). */
+export function rotate90CounterClockwise(pixels: Pixels): Pixels {
+	const { width, height, data } = pixels;
+	const outWidth = height;
+	const out = new Uint8ClampedArray(data.length);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const from = (y * width + x) * 4;
+			const to = ((width - 1 - x) * outWidth + y) * 4;
+			out[to] = data[from];
+			out[to + 1] = data[from + 1];
+			out[to + 2] = data[from + 2];
+			out[to + 3] = data[from + 3];
+		}
+	}
+	return { data: out, width: height, height: width };
+}
+
 /** Where a source image sits inside the fixed target frame the character wizard's pose editor
  * composites onto: `offsetX`/`offsetY` are the source's own top-left corner, in *target-frame*
  * pixels (panning), and `scale` is how many target pixels one source pixel covers (zooming) — 2

@@ -1,4 +1,5 @@
-import { compositeIntoFrame, type FrameTransform, type Pixels } from "../sprites/pixels";
+import { compositeIntoFrame, flipHorizontal, flipVertical, rotate90Clockwise, rotate90CounterClockwise, type FrameTransform, type Pixels } from "../sprites/pixels";
+import { pixelsToCanvas } from "../sprites/imageIo";
 import type { Anchor } from "./deriveRequiredPoses";
 
 /** Every pose in the standard schema is a 128x128 image — see README's "Using your own artwork". */
@@ -12,8 +13,11 @@ const ZOOM_STEP = 1.15;
 const TEMPLATE_OPACITY = 0.35;
 
 interface WorkingImage {
-	image: HTMLImageElement;
 	pixels: Pixels;
+	/** `pixelsToCanvas(pixels)`, kept alongside rather than re-derived every redraw — a canvas is
+	 * a valid `drawImage` source in its own right, so there is no separate decoded-image step (and
+	 * no async round-trip) between "these are the pixels" and "here is something to draw". */
+	canvas: HTMLCanvasElement;
 	width: number;
 	height: number;
 }
@@ -72,12 +76,50 @@ export class PoseFitCanvas {
 		this.redraw();
 	}
 
-	/** Shows a working image to fit into the pose, replacing whatever was there — starts scaled to
-	 * fit the whole image inside the frame, centred, refined from there by panning/zooming. */
-	async loadWorkingImage(pixels: Pixels, url: string): Promise<void> {
-		const image = await decodeImage(url);
-		this.working = { image, pixels, width: pixels.width, height: pixels.height };
+	/** Shows a working image to fit into the pose, replacing whatever was there (orientation
+	 * included — a flip/rotation applied to a previous image never carries over to a new one, since
+	 * there is no separate "is it flipped" flag to forget to reset; see `applyOrientation`). Starts
+	 * scaled to fit the whole image inside the frame, centred, refined from there by panning/zooming. */
+	loadWorkingImage(pixels: Pixels): void {
+		this.working = { pixels, canvas: pixelsToCanvas(pixels), width: pixels.width, height: pixels.height };
 		this.transform = fitTransform(pixels.width, pixels.height);
+		this.redraw();
+	}
+
+	flipHorizontal(): void {
+		this.applyOrientation(flipHorizontal);
+	}
+
+	flipVertical(): void {
+		this.applyOrientation(flipVertical);
+	}
+
+	rotateClockwise(): void {
+		this.applyOrientation(rotate90Clockwise);
+	}
+
+	rotateCounterClockwise(): void {
+		this.applyOrientation(rotate90CounterClockwise);
+	}
+
+	/**
+	 * Bakes a flip/rotation into the working image immediately, rather than tracking it as extra
+	 * live state resolved at draw/composite time the way pan/zoom is — see `WorkingImage.canvas`'s
+	 * own doc comment. That keeps `composite()` unchanged (it already just composites whatever
+	 * `working.pixels` currently holds) and means undoing one is just applying its inverse again
+	 * (flip is its own inverse; four rotations the same way return to the start), the same as any
+	 * ordinary image tool's flip/rotate buttons.
+	 *
+	 * Only re-fits the transform when the image's own dimensions actually changed (a 90° turn) —
+	 * a flip keeps the same width/height, so the current pan/zoom is still meaningful and is left
+	 * alone; resetting it on every click would throw away positioning work for no reason.
+	 */
+	private applyOrientation(transform: (pixels: Pixels) => Pixels): void {
+		if (!this.working) return;
+		const pixels = transform(this.working.pixels);
+		const dimensionsChanged = pixels.width !== this.working.width || pixels.height !== this.working.height;
+		this.working = { pixels, canvas: pixelsToCanvas(pixels), width: pixels.width, height: pixels.height };
+		if (dimensionsChanged) this.transform = fitTransform(pixels.width, pixels.height);
 		this.redraw();
 	}
 
@@ -144,9 +186,9 @@ export class PoseFitCanvas {
 		}
 
 		if (this.working) {
-			const { image, width, height } = this.working;
+			const { canvas, width, height } = this.working;
 			this.ctx.drawImage(
-				image,
+				canvas,
 				this.transform.offsetX * s,
 				this.transform.offsetY * s,
 				width * this.transform.scale * s,

@@ -265,7 +265,7 @@ export class CharacterWizardModal extends Modal {
 			if (!file || !this.fitCanvas) return;
 			try {
 				const decoded = await decodeImageBlob(file);
-				await this.fitCanvas.loadWorkingImage(decoded.pixels, decoded.url);
+				this.fitCanvas.loadWorkingImage(decoded.pixels);
 			} catch (e) {
 				console.error("[obsidian-shimeji] could not decode the uploaded image", e);
 				new Notice("Couldn't read that as an image.");
@@ -283,6 +283,14 @@ export class CharacterWizardModal extends Modal {
 		}
 
 		this.renderSliceFromSheet(contentEl, entry);
+
+		new Setting(contentEl)
+			.setName("Orientation")
+			.setDesc("Applied to the image immediately — click again to undo a flip, or rotate the other way to undo a turn.")
+			.addButton((b) => b.setButtonText("Flip ↔").setTooltip("Flip horizontal").onClick(() => this.fitCanvas?.flipHorizontal()))
+			.addButton((b) => b.setButtonText("Flip ↕").setTooltip("Flip vertical").onClick(() => this.fitCanvas?.flipVertical()))
+			.addButton((b) => b.setButtonText("Rotate ↺").setTooltip("Rotate counter-clockwise").onClick(() => this.fitCanvas?.rotateCounterClockwise()))
+			.addButton((b) => b.setButtonText("Rotate ↻").setTooltip("Rotate clockwise").onClick(() => this.fitCanvas?.rotateClockwise()));
 
 		new Setting(contentEl)
 			.setName("Position")
@@ -313,7 +321,7 @@ export class CharacterWizardModal extends Modal {
 	private async loadPackImageIntoFit(image: string): Promise<void> {
 		if (!image || !this.imgDir || !this.fitCanvas) return;
 		const decoded = await decodeVaultImage(this.app, packImagePath(this.imgDir, image));
-		if (decoded) await this.fitCanvas.loadWorkingImage(decoded.pixels, decoded.url);
+		if (decoded) this.fitCanvas.loadWorkingImage(decoded.pixels);
 		else new Notice(`Couldn't read "${image.replace(/^\//, "")}".`);
 	}
 
