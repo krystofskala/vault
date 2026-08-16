@@ -2,6 +2,7 @@ import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ShimejiPlugin from "./main";
 import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
 import { CustomContentModal } from "./customContentModal";
+import { CharacterWizardModal } from "./wizard/CharacterWizardModal";
 import type { CustomPackContent } from "./shimeji/customContent";
 import { VaultReactionTrigger } from "./speech/vaultReactions";
 import { OBSIDIAN_EVENTS_BY_SOURCE } from "./speech/obsidianEvents";
@@ -26,6 +27,11 @@ export interface CustomVaultReaction {
 
 export interface ShimejiSettings {
 	packsFolder: string;
+	/** Vault-relative folder of optional reference art (`shime1.png`…`shime46.png`) the character
+	 * wizard shows as a translucent guide while fitting a pose — never written to, and never
+	 * required: a slot with nothing there just gets no guide layer. Empty means "use this plugin's
+	 * own bundled Shimeji/img — see ShimejiPlugin.bundledPackFolder()", not a literal empty path. */
+	referenceArtFolder: string;
 	/** Characters (by pack id) eligible to be picked when spawning a mascot. A freshly spawned
 	 * mascot picks one at random from this list; empty means "use the built-in placeholder". */
 	activePackIds: string[];
@@ -151,6 +157,7 @@ export interface ShimejiSettings {
  * resolve to <vault-root>/Shimeji, not this plugin's own bundled Shimeji/ folder. */
 export const DEFAULT_SETTINGS: ShimejiSettings = {
 	packsFolder: "",
+	referenceArtFolder: "",
 	activePackIds: [],
 	scale: 1,
 	paneLedgesEnabled: true,
@@ -255,6 +262,35 @@ export class ShimejiSettingTab extends PluginSettingTab {
 							await this.plugin.rescanPacks();
 							this.display();
 						}),
+					);
+
+				new Setting(containerEl)
+					.setName("Create a new character")
+					.setDesc("Names a character, sets it up with the full standard behavior set, then walks through exactly which pose images it needs.")
+					.addButton((btn) =>
+						btn
+							.setButtonText("Create...")
+							.setCta()
+							.onClick(() => new CharacterWizardModal(this.app, this.plugin, undefined, () => this.display()).open()),
+					);
+
+				new Setting(containerEl)
+					.setName("Reference art for the character wizard")
+					.setDesc(
+						"Optional. A vault-relative folder of shime1.png…shime46.png you supply yourself — any character you " +
+							"want to match the proportions of, not necessarily the original — shown as a translucent guide while " +
+							"fitting each pose. A slot with nothing there just gets no guide; this never blocks anything, and this " +
+							"plugin never ships that art itself. Leave blank to use this plugin's own bundled Shimeji/img (which, " +
+							"the same way, has none included).",
+					)
+					.addText((text) =>
+						text
+							.setPlaceholder(`${this.plugin.bundledPackFolder()}/img`)
+							.setValue(this.plugin.settings.referenceArtFolder)
+							.onChange(async (value) => {
+								this.plugin.settings.referenceArtFolder = value.trim();
+								await this.plugin.saveSettings();
+							}),
 					);
 
 				if (this.plugin.availablePacks.length > 0) {

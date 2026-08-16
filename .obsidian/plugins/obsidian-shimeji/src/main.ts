@@ -163,9 +163,8 @@ export default class ShimejiPlugin extends Plugin {
 		// "Shimeji" was an earlier broken default: adapter paths are vault-relative, so it
 		// resolved to <vault-root>/Shimeji instead of this plugin's own bundled folder.
 		// Migrate both a never-configured (empty) value and that specific old default.
-		const bundledPackFolder = `${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`}/Shimeji`;
 		if (!this.settings.packsFolder || this.settings.packsFolder === "Shimeji") {
-			this.settings.packsFolder = bundledPackFolder;
+			this.settings.packsFolder = this.bundledPackFolder();
 			needsSave = true;
 		}
 
@@ -531,6 +530,20 @@ export default class ShimejiPlugin extends Plugin {
 			console.log(body);
 			new Notice("Shimeji: could not write the report — logged to the console instead");
 		}
+	}
+
+	/** This plugin's own bundled `Shimeji/` folder — the real standard actions.xml/behaviors.xml
+	 * ship here, art doesn't (see README's "Using your own artwork"). Used as `packsFolder`'s own
+	 * default (see onload) and as the schema source the character wizard copies from. */
+	bundledPackFolder(): string {
+		return `${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`}/Shimeji`;
+	}
+
+	/** Where the character wizard looks for optional `shimeN.png` reference art (see
+	 * `ShimejiSettings.referenceArtFolder`'s own doc comment) — the configured folder, or this
+	 * plugin's own bundled `Shimeji/img` if nothing's been set. */
+	referenceArtFolder(): string {
+		return this.settings.referenceArtFolder.trim() || `${this.bundledPackFolder()}/img`;
 	}
 
 	async rescanPacks(): Promise<void> {

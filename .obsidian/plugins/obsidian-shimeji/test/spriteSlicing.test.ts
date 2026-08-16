@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	applyColorKey,
 	cellRect,
+	compositeIntoFrame,
 	cropPixels,
 	deriveAnchor,
 	detectFrames,
@@ -267,6 +268,66 @@ describe("cropPixels", () => {
 		const cropped = cropPixels(pixels, { x: -1, y: -1, w: 2, h: 2 });
 		expect(alphaAt(cropped, 0, 0)).toBe(0); // off the sheet
 		expect(alphaAt(cropped, 1, 1)).toBe(255); // sheet (0,0)
+	});
+});
+
+describe("compositeIntoFrame", () => {
+	it("copies the source through unchanged at offset 0,0 and scale 1", () => {
+		const source = pixelsFrom(["k#", "#k"]);
+		const framed = compositeIntoFrame(source, { offsetX: 0, offsetY: 0, scale: 1 }, 2);
+		expect(framed.width).toBe(2);
+		expect(framed.height).toBe(2);
+		expect(alphaAt(framed, 0, 0)).toBe(255);
+		expect([...framed.data.slice(0, 3)]).toEqual([0, 0, 0]); // (0,0) was "k"
+		expect([...framed.data.slice(4, 7)]).toEqual([255, 255, 255]); // (1,0) was "#"
+	});
+
+	it("pans the source by offsetX/offsetY", () => {
+		// A single opaque pixel at source (0,0), panned to land at target (1,1) in a 3x3 frame.
+		const source = pixelsFrom(["k"]);
+		const framed = compositeIntoFrame(source, { offsetX: 1, offsetY: 1, scale: 1 }, 3);
+		expect(alphaAt(framed, 1, 1)).toBe(255);
+		expect(alphaAt(framed, 0, 0)).toBe(0);
+		expect(alphaAt(framed, 2, 2)).toBe(0);
+	});
+
+	it("zooms: one source pixel covers a scale x scale block of target pixels", () => {
+		const source = pixelsFrom(["k#"]);
+		const framed = compositeIntoFrame(source, { offsetX: 0, offsetY: 0, scale: 2 }, 4);
+		// Source (0,0)="k" now covers target (0,0)-(1,1); source (1,0)="#" covers (2,0)-(3,1).
+		for (const [x, y] of [
+			[0, 0],
+			[1, 0],
+			[0, 1],
+			[1, 1],
+		]) {
+			expect(alphaAt(framed, x, y)).toBe(255);
+			expect([...framed.data.slice((y * 4 + x) * 4, (y * 4 + x) * 4 + 3)]).toEqual([0, 0, 0]);
+		}
+		expect([...framed.data.slice((0 * 4 + 2) * 4, (0 * 4 + 2) * 4 + 3)]).toEqual([255, 255, 255]);
+	});
+
+	it("clips source content that falls outside the fixed frame — the wizard's only 'crop' step", () => {
+		const source = pixelsFrom(["kkkk"]); // wider than the frame
+		const framed = compositeIntoFrame(source, { offsetX: 0, offsetY: 0, scale: 1 }, 2);
+		expect(framed.width).toBe(2); // never grows to fit the source
+		expect(alphaAt(framed, 0, 0)).toBe(255);
+		expect(alphaAt(framed, 1, 0)).toBe(255);
+	});
+
+	it("leaves frame pixels the source never reaches fully transparent", () => {
+		const source = pixelsFrom(["k"]); // 1x1, far smaller than the frame
+		const framed = compositeIntoFrame(source, { offsetX: 0, offsetY: 0, scale: 1 }, 3);
+		expect(alphaAt(framed, 0, 0)).toBe(255);
+		expect(alphaAt(framed, 1, 1)).toBe(0);
+		expect(alphaAt(framed, 2, 2)).toBe(0);
+	});
+
+	it("treats a zero or negative scale as 1 rather than dividing by zero", () => {
+		const source = pixelsFrom(["k"]);
+		expect(() => compositeIntoFrame(source, { offsetX: 0, offsetY: 0, scale: 0 }, 2)).not.toThrow();
+		const framed = compositeIntoFrame(source, { offsetX: 0, offsetY: 0, scale: -1 }, 2);
+		expect(alphaAt(framed, 0, 0)).toBe(255); // fell back to scale 1, not NaN/Infinity coordinates
 	});
 });
 

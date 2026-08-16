@@ -99,6 +99,19 @@
 	display: none;
 }
 
+.shimeji-wizard-modal {
+	width: 640px;
+	max-width: 90vw;
+}
+
+/* Marks a checklist row's button once that pose already has an image — a quieter colour than the
+   default CTA-ish button styling, so a glance down the list shows what's left rather than what's
+   done. Doesn't rely on colour alone: the button's own text already switches "Fit an image" ->
+   "Refit". */
+.shimeji-cc-done {
+	color: var(--text-success);
+}
+
 /* ---- the plant room -------------------------------------------------- */
 
 /* The room is centred in its pane on both axes — it is a finished picture with its own surround,
@@ -220,6 +233,20 @@
 	text-align: center;
 	color: var(--text-muted);
 	font-size: 0.9em;
+}
+
+/* The character wizard's per-pose fit editor — a fixed 128x128 frame, upscaled, so it never
+   resizes as the user zooms; only what's drawn inside it changes. */
+.shimeji-posefit {
+	display: inline-block;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.shimeji-posefit canvas {
+	display: block;
+	image-rendering: pixelated;
 }
 
 .shimeji-sheet-controls {

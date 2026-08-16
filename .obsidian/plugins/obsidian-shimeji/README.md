@@ -476,6 +476,47 @@ from it:
 
 ## Using your own artwork
 
+### The character wizard
+
+The easiest way to build a whole new character: **Settings → Shimeji Desktop Mascot →
+Characters → Your characters → Create...** Name it, and it's immediately set up with shimeji-ee's
+full standard behavior repertoire — walking, sitting, climbing, breeding, all of it — as a real,
+resolvable character with no art yet. What follows is a checklist of exactly the pose images it
+still needs: around 42 of them, not the ~90-odd `<Action>` entries the real schema defines, since
+most of those are pure choreography reusing a handful of images rather than each needing art of
+their own. Window-throwing's four images are shown too, in their own collapsed, optional group —
+skippable entirely if you leave window-throwing off, which it is by default.
+
+Click any pose to fit an image to it, in any order, and come back to unfinished ones any time —
+nothing about the checklist is saved anywhere of its own, it's recomputed from what's actually in
+the folder each time the wizard opens. Three ways to get an image into the frame:
+
+- **Upload a photo** — never written to your vault on its own, only whatever you end up saving.
+- **Pick an image already in this pack**, if you've uploaded one for another pose already.
+- **Slice from a sprite sheet** — opens the same sheet-cutting tool described below, against a
+  sheet you upload right there (which *is* kept in the pack folder afterward, so you can come
+  back and cut it differently later).
+
+Drag to position the image, scroll (or the on-screen buttons) to zoom — there's no separate crop
+step, since whatever falls outside the fixed 128×128 frame at Save is simply left out. A red
+crosshair (sometimes two, for the handful of images the real schema anchors differently depending
+on which action is using them) marks where the standard schema expects that pose's own reference
+point to land, straight out of the real `actions.xml` — not something the wizard invents or lets
+you override, since the copied schema already carries the real value for every pose, unmodified.
+
+If a folder of **reference art** is set (**Settings → ... → Reference art for the character
+wizard**), whichever image shares the slot's own filename shows underneath the one you're fitting,
+at reduced opacity, so you can match proportions and silhouette by eye. This plugin never ships
+that art itself, the same way it ships no character art at all — you'd need to supply your own
+copy, of the original or of any other character whose proportions you want to match. A slot with
+nothing there just shows a plain frame with no guide; nothing about the wizard depends on it.
+
+Creating a *second* character reorganizes the pack folder from the single-character layout into
+the multi-character one described below, if it isn't already — you'll be asked to confirm first,
+and nothing is ever deleted, only moved.
+
+### Doing it by hand
+
 The default pack folder (`Shimeji/`, alongside this README) already has the real, standard
 `conf/actions.xml` + `conf/behaviors.xml` checked in. Drop your 46 images into
 `Shimeji/img/`, named `shime1.png` … `shime46.png` (see `Shimeji/img/DROP_YOUR_PNGS_HERE.txt`),

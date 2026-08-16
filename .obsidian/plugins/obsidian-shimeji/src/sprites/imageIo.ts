@@ -63,6 +63,21 @@ function pixelsFrom(image: HTMLImageElement): Pixels {
 	return { data: data.data, width: canvas.width, height: canvas.height };
 }
 
+/**
+ * Decodes an arbitrary Blob/File — straight from a native file picker, with no vault round-trip
+ * at all — into the same shape `decodeVaultImage` produces. For anything that only ever needs
+ * the pixels and a display URL rather than a permanent copy in the pack folder: the character
+ * wizard's per-pose fit editor decodes the user's source photo this way, since the photo itself
+ * is never worth keeping — only whatever gets composited from it.
+ *
+ * Throws on an undecodable file, unlike `decodeVaultImage` — there is no "missing file, grey out
+ * a row" case here, since the caller just picked this file and expects it to be one.
+ */
+export async function decodeImageBlob(blob: Blob): Promise<DecodedImage> {
+	const { image, url } = await decodeBlob(blob);
+	return { pixels: pixelsFrom(image), width: image.naturalWidth, height: image.naturalHeight, url };
+}
+
 /** Decodes a vault image into a pixel buffer. Returns undefined when the file is missing or is not
  * a decodable image, rather than throwing — a bad file in the folder should grey out one row of
  * the editor, not take the modal down. */
@@ -70,8 +85,7 @@ export async function decodeVaultImage(app: App, path: string): Promise<DecodedI
 	try {
 		if (!(await app.vault.adapter.exists(path))) return undefined;
 		const bin = await app.vault.adapter.readBinary(path);
-		const { image, url } = await decodeBlob(new Blob([bin], { type: mimeTypeForPath(path) }));
-		return { pixels: pixelsFrom(image), width: image.naturalWidth, height: image.naturalHeight, url };
+		return await decodeImageBlob(new Blob([bin], { type: mimeTypeForPath(path) }));
 	} catch (e) {
 		console.warn(`[obsidian-shimeji] could not read "${path}" as an image`, e);
 		return undefined;

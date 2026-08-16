@@ -337,6 +337,51 @@ export function sameRect(a: FrameRect, b: FrameRect): boolean {
 	return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
+/** Where a source image sits inside the fixed target frame the character wizard's pose editor
+ * composites onto: `offsetX`/`offsetY` are the source's own top-left corner, in *target-frame*
+ * pixels (panning), and `scale` is how many target pixels one source pixel covers (zooming) — 2
+ * draws the source twice as large. */
+export interface FrameTransform {
+	offsetX: number;
+	offsetY: number;
+	scale: number;
+}
+
+/**
+ * Rasterizes `source` through `transform` onto a fresh `frameSize`×`frameSize` buffer — the
+ * character wizard's "fit my photo to this pose slot" step, with no separate crop tool: whatever
+ * of the (panned, zoomed) source lands outside the fixed frame is simply never sampled, and
+ * anything inside the frame the source doesn't reach stays fully transparent (a fresh
+ * `Uint8ClampedArray` is already all zeroes), ready for a checkerboard or a template layer to
+ * show through underneath it.
+ *
+ * Nearest-neighbor, not interpolated — consistent with every other pixel operation in this file
+ * (`cropPixels` included), and keeps this checkable against hand-built pixel patterns the way the
+ * rest of the file's tests already are, rather than trusted because a scaled photo looks smooth.
+ */
+export function compositeIntoFrame(source: Pixels, transform: FrameTransform, frameSize: number): Pixels {
+	const size = Math.max(1, Math.round(frameSize));
+	const out = new Uint8ClampedArray(size * size * 4);
+	const scale = transform.scale > 0 ? transform.scale : 1;
+
+	for (let ty = 0; ty < size; ty++) {
+		const sy = Math.floor((ty - transform.offsetY) / scale);
+		if (sy < 0 || sy >= source.height) continue;
+		for (let tx = 0; tx < size; tx++) {
+			const sx = Math.floor((tx - transform.offsetX) / scale);
+			if (sx < 0 || sx >= source.width) continue;
+			const from = (sy * source.width + sx) * 4;
+			const to = (ty * size + tx) * 4;
+			out[to] = source.data[from];
+			out[to + 1] = source.data[from + 1];
+			out[to + 2] = source.data[from + 2];
+			out[to + 3] = source.data[from + 3];
+		}
+	}
+
+	return { data: out, width: size, height: size };
+}
+
 /**
  * Copies one frame's box out of a sheet into a buffer of its own.
  *
