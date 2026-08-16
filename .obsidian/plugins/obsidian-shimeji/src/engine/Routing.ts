@@ -75,8 +75,13 @@ export interface RouteOptions {
 	chimneyHopUp: number;
 	/**
 	 * How far apart two facing walls must be before jumping between them means anything. Below this
-	 * they are the same edge to within a rounding error — adjacent panes in a tiled theme share their
+	 * they are the same edge to within a rounding error — a genuinely tiled theme's panes share their
 	 * boundary exactly — and a "jump" across it would be a mascot flickering upward on the spot.
+	 *
+	 * This alone does *not* keep two neighbouring panes from corridor-kicking through their shared
+	 * resize handle — that gap routinely clears a few pixels even outside a deliberately spaced
+	 * theme, see `faceEachOther`'s own doc comment for why pane-vs-pane is excluded separately,
+	 * regardless of this value.
 	 */
 	minChimneyGap: number;
 	/**
@@ -205,8 +210,26 @@ function climbSpeed(along: Ledge | undefined, ledges: Ledge[] | undefined, opts:
 	return opts.chimneyHopUp / (Math.hypot(gap, opts.chimneyHopUp) / opts.speeds.jump + opts.jumpOverhead);
 }
 
-/** Whether two walls face each other across open space, so a mascot could kick between them. */
+/**
+ * Whether two walls face each other across open space, so a mascot could kick between them.
+ *
+ * Two *pane* walls never qualify, even when the gap clears `minChimneyGap` — real-world reported,
+ * not hypothetical: `.workspace-leaf` rects come straight from `getBoundingClientRect()`
+ * (`ObsidianDomEnvironment.getPlatformRects`), and neighbouring panes essentially never share an
+ * exact edge — Obsidian's own resize handle sits between them, a few pixels wide, in every split,
+ * on every theme, not just card-style ones. `minChimneyGap` (3px, "same edge to within a rounding
+ * error") was tuned to keep a genuinely coincident boundary from counting, but a resize handle
+ * routinely clears that on its own — so the corridor kick fired for the ordinary gap of *any* two
+ * side-by-side panes, not only the deliberately wider ones a card theme adds. Reported directly: a
+ * mascot visibly kicking side to side in the sliver between two neighbouring notes, far narrower
+ * than the mascot's own sprite, reads as broken rather than as climbing.
+ *
+ * A pane wall facing the *window's* own wall is unaffected — that gap is either genuinely open
+ * (a pane inset from the window edge) or absent entirely (`wallOutward` returns 0 for the window
+ * side unless there really is one), so it never carries the resize-handle false positive.
+ */
 function faceEachOther(a: WallLedge, b: WallLedge): boolean {
+	if (a.source === "pane" && b.source === "pane") return false;
 	const outA = wallOutward(a);
 	const outB = wallOutward(b);
 	if (outA === 0 || outB === 0 || a.x === b.x) return false;

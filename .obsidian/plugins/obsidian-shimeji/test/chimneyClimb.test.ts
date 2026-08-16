@@ -6,7 +6,7 @@ import { parseBehaviorsXml } from "../src/shimeji/BehaviorsParser";
 import { BehaviorAI } from "../src/shimeji/BehaviorAI";
 import { Random } from "../src/engine/Random";
 import { computeLedgesFromRects } from "../src/engine/Ledges";
-import { DEFAULT_ROUTE_OPTIONS, findRoute } from "../src/engine/Routing";
+import { DEFAULT_ROUTE_OPTIONS, facingWall, findRoute } from "../src/engine/Routing";
 import { DEFAULT_ENGINE_CONFIG, type Ledge, type Rect } from "../src/engine/types";
 import type { Mascot } from "../src/engine/Mascot";
 import type { MascotPack } from "../src/shimeji/types";
@@ -19,6 +19,14 @@ import type { MascotPack } from "../src/shimeji/types";
  * "the order does nothing" turned out to be a climb quietly in progress. `Jumping` runs at 20px/tick
  * and the standard pack already contains the move — `JumpFromLeftWall` is a `Jumping` at the
  * opposite wall followed by `GrabWall`. Only the direction is new.
+ *
+ * Excluded, deliberately, since a second real report: two *neighbouring panes*. Their resize handle
+ * routinely clears `minChimneyGap` on its own (this file's own 6px card-theme gap is exactly that
+ * scale), so the corridor kick fired for the ordinary gap between any two side-by-side panes — a
+ * mascot visibly kicking side to side in a sliver far narrower than its own sprite, which read as
+ * broken rather than as climbing. See `faceEachOther`'s own doc comment in Routing.ts. A pane wall
+ * facing the *window's* own wall is unaffected and still kicks — that's genuinely open space, not a
+ * resize handle — which the tests below check on both sides of the exclusion.
  */
 const actions = parseActionsXml(readFileSync(resolve(process.cwd(), "Shimeji/conf/actions.xml"), "utf-8"));
 const behaviors = parseBehaviorsXml(readFileSync(resolve(process.cwd(), "Shimeji/conf/behaviors.xml"), "utf-8"));
@@ -35,12 +43,26 @@ const ledges = computeLedgesFromRects(VIEWPORT, PANES.map((rect) => ({ rect, sou
 const ORDER_OPTS = { arriveWithin: 40, travelTimeWeight: 0.05 };
 
 describe("kicking up a corridor", () => {
-	it("finds the corridors a card theme leaves between panes", () => {
-		// 6px between neighbouring panes, and 3px between the last pane and the window's own edge.
-		// Narrow, but genuinely open space — which is the whole difference from a tiled theme, where
-		// neighbours share their boundary exactly and there is nothing to kick across.
+	it("finds the corridor beside the window's own edge, not the gap between neighbouring panes", () => {
+		// 6px between neighbouring panes (excluded — see faceEachOther), and a genuine 50px/3px of
+		// open space between the outermost panes and the window's own walls (not excluded: that's
+		// not a resize handle, it's real room to kick in). The route still gets there via a chimney,
+		// just detouring to one of those edges instead of the nearer pane-pane gaps.
 		const route = findRoute(ledges, { x: 800, y: 1392 }, { x: 800, y: 200 }, undefined, ORDER_OPTS);
 		expect(route.some((s) => s.via === "chimney"), `no chimney in ${route.map((s) => s.via).join(" → ")}`).toBe(true);
+		for (const step of route) {
+			if (step.via !== "chimney") continue;
+			expect(step.x, `chimney step at x=${Math.round(step.x)} used a pane-pane gap, not a window edge`).toSatisfy((x: number) => x < 60 || x > 1690);
+		}
+	});
+
+	it("never chimneys between two neighbouring panes, however narrow their resize handle", () => {
+		// Direct test of the function the router and the mascot both have to agree on (see its own
+		// doc comment) — pane1's right wall (x=496) used to find pane2's left wall (x=502, a 6px
+		// gap) as a kicking partner. It must not anymore, regardless of how narrow or wide that
+		// particular resize handle happens to measure.
+		const pane1Right = ledges.find((l): l is Extract<Ledge, { kind: "wall" }> => l.kind === "wall" && l.source === "pane" && Math.abs(l.x - 496) < 1)!;
+		expect(facingWall(pane1Right, ledges, ORDER_OPTS)).toBeUndefined();
 	});
 
 	it("is dramatically quicker than climbing, which is the entire point", () => {
@@ -113,19 +135,32 @@ describe("kicking up a corridor, driven through the real pack", () => {
 		return { ticks, outstanding: ai.hasSpotOrder, at: { x: physics.x, y: physics.y }, highest };
 	}
 
-	it("actually gains height, one kick at a time", () => {
+	it("actually gains height, one kick at a time, via a genuine corridor beside the window edge", () => {
 		// The router emits the whole ascent as one step; the executor turns it back into hops, and the
 		// alternation between walls comes from re-planning rather than from any script. This is what
 		// proves the two halves agree — a mismatch leaves the mascot kicking the same wall forever.
-		const r = climb({ x: 496, y: 1300 }, { x: 499, y: 300 });
+		// x=50 is pane1's own left wall, facing the window's left wall 50px away — not a resize
+		// handle between two panes, so this is still a real chimney corridor.
+		const r = climb({ x: 50, y: 1300 }, { x: 53, y: 300 });
 		expect(r.highest, `only reached y=${Math.round(r.highest)} from 1300`).toBeLessThan(700);
 	});
 
-	it("gets there, and in seconds rather than minutes", () => {
-		const r = climb({ x: 496, y: 1300 }, { x: 499, y: 300 });
+	it("gets there, meaningfully quicker than plain ClimbWall, via that same window-edge corridor", () => {
+		const r = climb({ x: 50, y: 1300 }, { x: 53, y: 300 });
 		expect(r.outstanding, `never arrived; stalled at (${Math.round(r.at.x)},${Math.round(r.at.y)})`).toBe(false);
 		// A thousand pixels of climbing at ClimbWall's real 0.64px/tick is over 1500 ticks — a minute
-		// of wall time. Anything near that means the kicks are not being used.
-		expect(r.ticks, `took ${r.ticks} ticks (${(r.ticks / 25).toFixed(1)}s)`).toBeLessThan(600);
+		// of wall time. This corridor is wider (50px) than the card theme's own 6px pane-pane gaps
+		// used to be, so each kick covers more ground and it's not quite as dramatic a speedup as
+		// that was — but it is still a real, meaningful one, not a fall back to plain climbing.
+		expect(r.ticks, `took ${r.ticks} ticks (${(r.ticks / 25).toFixed(1)}s) — too close to plain-climb speed`).toBeLessThan(1300);
+	});
+
+	it("no longer speeds up climbing directly between two neighbouring panes", () => {
+		// The exact case that used to kick fast (pane1's right wall at x=496, pane2's left wall 6px
+		// away at x=502) — still gets there (this is a real, working ClimbWall, not a stuck mascot),
+		// just at ClimbWall's own honest 0.64px/tick instead of a kicked corridor's.
+		const r = climb({ x: 496, y: 1300 }, { x: 499, y: 300 });
+		expect(r.outstanding, `never arrived; stalled at (${Math.round(r.at.x)},${Math.round(r.at.y)})`).toBe(false);
+		expect(r.ticks, `took only ${r.ticks} ticks — that's fast enough to suggest a chimney kick, not a plain climb`).toBeGreaterThan(1200);
 	});
 });
