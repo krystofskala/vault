@@ -522,42 +522,52 @@ the multi-character one described below, if it isn't already — you'll be asked
 and nothing is ever deleted, only moved.
 
 Below the pose checklist, the same modal has everything **Actions**, **Behaviors**, and **Images**
-need — no separate editor, no separate settings section to hunt for it in:
+need — no separate editor, no separate settings section to hunt for it in, and no forced choice up
+front between "classic single shimeji images" and "sprite-sheet character": both stay available for
+every action, always, so a character can freely mix the two.
 
-- **Actions** are the animations — pick a type (Stay/Move/Animate/Sequence/Select/Embedded),
-  a border (Floor/Wall/Ceiling, if it should stay glued to a real ledge), and either a list of
-  poses (image + anchor + velocity + duration — the same units as actions.xml: 25 ticks ≈ 1
-  second) or, for Sequence/Select, an ordered/conditional list of steps referencing other actions
-  by name (standard ones or your own). A custom action with the same name as a standard one (or
-  another custom one) replaces it, exactly like editing that name's definition in `actions.xml`
-  directly. Each pose's Image field also has a **Fit precisely…** button, opening the same
-  pan/zoom fitting canvas the pose checklist uses, for when a plain path and thumbnail aren't
-  enough to line an arbitrary custom pose up right.
-- **Behaviors** are the reactions — a name, a weighted frequency, an optional condition, and a
-  list of possible next behaviors once it finishes.
-- **Images** is the pack's own image folder: **Upload images…** copies files in from anywhere on
-  your computer (several at once), and each one can be deleted, or cleaned up with **Remove
-  background…** — colour-key transparency for a sheet that came with a flat coloured background
-  instead of a transparent one. Pick as many background colours as it takes (click the live
-  preview to sample one straight off the image), set a tolerance, and everything close to any of
-  them goes see-through. The result overwrites the image in place, so poses already pointing at
-  it keep working.
+**Actions** lists every action that owns pose art of its own — required, then window-throwing's
+four tucked into a collapsed group, the same split the pose checklist itself uses. Two ways in, on
+every row:
+
+- **Set frames…** is normally all you need: pick or slice images for it and you're done. This is
+  also the way to give a game-sprite-sheet character several frames for something the standard
+  schema treats as one static image — walking, standing, anything — instead of forcing it into a
+  single picture. The first time, whatever the action currently plays becomes "Option 1"
+  automatically; **+ Add another option** cuts a further one from a sheet, keeping every frame you
+  select, in order, as that option's whole sequence. Multiple options are picked between at
+  random, equally likely, every time the action starts — click **Make equally likely** to fill in
+  the `Math.random()` conditions that guarantee that (a naive one-condition-per-option would bias
+  toward the earlier ones; this doesn't). **Reset to standard animation** drops the whole override,
+  back to exactly what the pack's own `actions.xml` defines.
+- **Advanced edit…** (shown once an action actually has a custom override) opens full control:
+  type (Stay/Move/Animate/Sequence/Select/Embedded), a border (Floor/Wall/Ceiling, if it should
+  stay glued to a real ledge), raw params, and — for Sequence/Select — an ordered/conditional list
+  of steps referencing other actions by name. A custom action with the same name as a standard one
+  replaces it, exactly like editing that name's definition in `actions.xml` directly. Each pose's
+  Image field also has its own **Fit precisely…** button here, opening the same pan/zoom fitting
+  canvas the pose checklist uses, for when a plain path and thumbnail aren't enough to line an
+  arbitrary custom pose up right.
+
+Anything with no pose art of its own — a Sequence/Select dispatcher, a params-only Embedded
+override — has no "frames" to simplify around, so it's listed separately underneath with just
+Edit/Duplicate/Delete. **+ New action** still starts one from scratch.
+
+**Behaviors** are the reactions — a name, a weighted frequency, an optional condition, and a list
+of possible next behaviors once it finishes.
+
+**Images** is the pack's own image folder: **Upload images…** copies files in from anywhere on
+your computer (several at once), and each one can be deleted, or cleaned up with **Remove
+background…** — colour-key transparency for a sheet that came with a flat coloured background
+instead of a transparent one. Pick as many background colours as it takes (click the live preview
+to sample one straight off the image), set a tolerance, and everything close to any of them goes
+see-through. The result overwrites the image in place, so poses already pointing at it keep
+working.
 
 Conditions and param overrides use the same `#{...}`/`${...}` expression syntax as the real files
 (e.g. `#{mascot.environment.floor.isOn(mascot.anchor)}`), validated as you type. Saving takes
 effect immediately — every mascot currently wearing that character rebinds to the updated pack
 without needing to respawn.
-
-#### Animation options
-
-A real shimeji pack authors one fixed animation per action — the standard schema's Walk, say, is
-always the same four poses in the same order, every single time. Game sprite sheets often don't
-fit that mould: more frames than the standard slots expect, or a walk cycle you'd rather vary than
-replay identically forever. An action's pose list can hold **more than one condition variant** —
-add one with **+ Add condition variant**, give each its own poses (sliced from a sheet the same
-way as any other), and either write conditions by hand or click **Make equally likely** to fill
-them in for you: a `Math.random()` condition on each, tuned so every variant is an equally likely,
-truly random pick despite the engine always running the first one whose condition passes.
 
 ### Doing it by hand
 

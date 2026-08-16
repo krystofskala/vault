@@ -21,7 +21,8 @@ import type { ActionType, BorderType } from "../shimeji/types";
 import { decodeImageBlob, decodeVaultImage, deletePackImage, importPackImage, overwriteVaultImageAsPng, packImagePath } from "../sprites/imageIo";
 import { RemoveBackgroundModal } from "../sprites/RemoveBackgroundModal";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
-import { randomVariantConditions } from "./animationOptions";
+import { AnimationOptionsModal } from "./AnimationOptionsModal";
+import { deriveAnimatedActions, randomVariantConditions, type AnimatedActionChecklist } from "./animationOptions";
 import { deriveRequiredPoses, type PoseChecklist, type PoseChecklistEntry } from "./deriveRequiredPoses";
 import { PoseFitCanvas } from "./PoseFitCanvas";
 import { PoseFitModal } from "./PoseFitModal";
@@ -99,6 +100,7 @@ export class CharacterEditorModal extends Modal {
 	private imgDir?: string;
 
 	private checklist?: PoseChecklist;
+	private animatedActions?: AnimatedActionChecklist;
 	private doneImages = new Set<string>();
 	private fittingEntry?: PoseChecklistEntry;
 	private fitCanvas?: PoseFitCanvas;
@@ -281,6 +283,7 @@ export class CharacterEditorModal extends Modal {
 		this.packName = pack.name;
 		this.imgDir = pack.imgDir;
 		this.checklist = deriveRequiredPoses(pack.actions);
+		this.animatedActions = deriveAnimatedActions(pack.actions);
 		this.content = cloneJson(this.plugin.settings.customContent[packId] ?? emptyCustomPackContent());
 		await this.refreshPackImages();
 		return true;
@@ -292,17 +295,20 @@ export class CharacterEditorModal extends Modal {
 	}
 
 	/** Writes the working custom-content clone back to settings and rebinds every live mascot
-	 * wearing this pack immediately (`applyCustomContent`), then re-derives the pose checklist
-	 * against the freshly-merged pack — an action edit can change which images are required (or
-	 * how many `animations` an action has), and this way the overview never shows a stale
-	 * checklist for the rest of the same sitting. */
+	 * wearing this pack immediately (`applyCustomContent`), then re-derives the pose checklist and
+	 * the animated-actions list against the freshly-merged pack — an action edit can change which
+	 * images are required or which actions own an animation of their own, and this way the
+	 * overview never shows stale lists for the rest of the same sitting. */
 	private async commit(): Promise<void> {
 		if (!this.packId) return;
 		this.plugin.settings.customContent[this.packId] = this.content;
 		await this.plugin.saveSettings();
 		this.plugin.applyCustomContent();
 		const pack = this.plugin.availablePacks.find((p) => p.id === this.packId);
-		if (pack) this.checklist = deriveRequiredPoses(pack.actions);
+		if (pack) {
+			this.checklist = deriveRequiredPoses(pack.actions);
+			this.animatedActions = deriveAnimatedActions(pack.actions);
+		}
 	}
 
 	// ---------------------------------------------------------------- overview
@@ -358,23 +364,84 @@ export class CharacterEditorModal extends Modal {
 		const body = details.createDiv({ cls: "shimeji-section-body" });
 
 		body.createEl("p", {
-			text: "A custom action with the same name as a standard one replaces it — exactly like editing actions.xml by hand.",
+			text:
+				'"Set frames…" is normally all you need — pick or slice images for an action, done. That covers a ' +
+				'game sprite sheet with several frames per action (walking, standing, …) just as well as a single ' +
+				'picture. "Advanced edit…" opens full control over type, physics border, and raw parameters, for ' +
+				"anything past swapping the art. A custom action with the same name as a standard one replaces it, " +
+				"exactly like editing actions.xml by hand.",
 			cls: "setting-item-description",
 		});
-		if (this.content.actions.length === 0) {
-			body.createEl("p", { text: "No custom actions yet.", cls: "setting-item-description" });
+
+		if (this.animatedActions) {
+			for (const name of this.animatedActions.required) this.renderAnimatedActionRow(body, name);
+
+			if (this.animatedActions.optional.length > 0) {
+				const ieDetails = body.createEl("details", { cls: "shimeji-section" });
+				ieDetails.createEl("summary", { cls: "shimeji-section-title", text: "Window-throwing actions" });
+				const ieBody = ieDetails.createDiv({ cls: "shimeji-section-body" });
+				for (const name of this.animatedActions.optional) this.renderAnimatedActionRow(ieBody, name);
+			}
 		}
-		for (const spec of this.content.actions) {
-			const detail = [spec.type, spec.borderType, spec.type === "Embedded" ? spec.embeddedClass || "(no handler chosen)" : ""].filter(Boolean).join(" · ");
-			new Setting(body)
-				.setName(spec.name || "(unnamed)")
-				.setDesc(detail)
-				.addExtraButton((b) => b.setIcon("play").setTooltip("Play this on a live mascot").onClick(() => this.playAction(spec.name)))
-				.addButton((b) => b.setButtonText("Edit").onClick(() => this.openActionEditor(spec)))
-				.addButton((b) => b.setButtonText("Duplicate").onClick(() => this.duplicateAction(spec)))
-				.addButton((b) => b.setButtonText("Delete").setWarning().onClick(() => this.deleteAction(spec)));
+
+		// Whatever's left in the working custom content isn't a leaf action at all (a Sequence/
+		// Select dispatcher, or an Embedded override with only params) — no "frames" concept to
+		// simplify around, so these keep the original full-control row unchanged.
+		const animatedNames = new Set([...(this.animatedActions?.required ?? []), ...(this.animatedActions?.optional ?? [])]);
+		const otherActions = this.content.actions.filter((spec) => !animatedNames.has(spec.name.trim()));
+		if (otherActions.length > 0) {
+			body.createEl("h4", { text: "Other custom actions" });
+			body.createEl("p", {
+				text: "No pose art of their own — Sequence/Select steps and similar. Full control only.",
+				cls: "setting-item-description",
+			});
+			for (const spec of otherActions) {
+				const detail = [spec.type, spec.borderType, spec.type === "Embedded" ? spec.embeddedClass || "(no handler chosen)" : ""].filter(Boolean).join(" · ");
+				new Setting(body)
+					.setName(spec.name || "(unnamed)")
+					.setDesc(detail)
+					.addExtraButton((b) => b.setIcon("play").setTooltip("Play this on a live mascot").onClick(() => this.playAction(spec.name)))
+					.addButton((b) => b.setButtonText("Edit").onClick(() => this.openActionEditor(spec)))
+					.addButton((b) => b.setButtonText("Duplicate").onClick(() => this.duplicateAction(spec)))
+					.addButton((b) => b.setButtonText("Delete").setWarning().onClick(() => this.deleteAction(spec)));
+			}
 		}
+
 		new Setting(body).addButton((b) => b.setButtonText("+ New action").setCta().onClick(() => this.openActionEditor()));
+	}
+
+	private renderAnimatedActionRow(containerEl: HTMLElement, name: string): void {
+		const spec = this.content.actions.find((a) => a.name.trim() === name);
+		const count = spec?.animations.length ?? 0;
+		const row = new Setting(containerEl)
+			.setName(name)
+			.setDesc(count > 0 ? `${count} option${count === 1 ? "" : "s"}` : "Standard animation")
+			.addButton((b) => b.setButtonText(count > 0 ? "Edit frames…" : "Set frames…").onClick(() => this.openAnimationOptions(name)));
+		if (spec) row.addButton((b) => b.setButtonText("Advanced edit…").onClick(() => this.openActionEditor(spec)));
+	}
+
+	/** Wires the focused animation-options modal to this editor's own in-memory content instead of
+	 * letting it touch `plugin.settings` on its own — see AnimationOptionsModal's own doc comment
+	 * for why: this modal is the only thing that ever calls `commit()`, so a save made through the
+	 * focused modal can't race a draft this one is mid-editing elsewhere. */
+	private openAnimationOptions(name: string): void {
+		if (!this.packId) return;
+		new AnimationOptionsModal(
+			this.app,
+			this.plugin,
+			this.packId,
+			name,
+			async (spec) => {
+				this.content.actions = [...this.content.actions.filter((a) => a.name.trim() !== name), spec];
+				await this.commit();
+				this.render();
+			},
+			async () => {
+				this.content.actions = this.content.actions.filter((a) => a.name.trim() !== name);
+				await this.commit();
+				this.render();
+			},
+		).open();
 	}
 
 	private renderBehaviorsSection(containerEl: HTMLElement): void {
