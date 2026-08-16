@@ -4,17 +4,20 @@ import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
 import { CustomContentModal } from "./customContentModal";
 import type { CustomPackContent } from "./shimeji/customContent";
 import { VaultReactionTrigger } from "./speech/vaultReactions";
+import { OBSIDIAN_EVENTS_BY_SOURCE } from "./speech/obsidianEvents";
 
 /** One user-defined binding from an Obsidian (or community-plugin) event to a speech tag — see
  * ShimejiSettings.customVaultReactions. */
 export interface CustomVaultReaction {
-	/** Which object the event fires on. Covers everything a community plugin might use: most fire
-	 * on the same `workspace`/`vault` singletons the built-in five listen to, rather than minting
-	 * their own emitter. */
-	source: "workspace" | "vault";
+	/** Which object the event fires on. `workspace`, `vault`, and `metadataCache` are the only three
+	 * singletons Obsidian's own public API extends `Events` (i.e. offers `.on(name, ...)`) on — see
+	 * obsidianEvents.ts. Covers community plugins too: most fire on one of these same singletons
+	 * rather than minting their own emitter. */
+	source: "workspace" | "vault" | "metadataCache";
 	/** The raw event name, exactly as the plugin/Obsidian itself calls `.trigger(...)` with — e.g.
-	 * "file-open", or a community plugin's own "dataview:index-ready". Find it in that plugin's own
-	 * docs/source, since there is no registry of what is available to list here. */
+	 * "file-open", or a community plugin's own "dataview:index-ready". The settings UI suggests
+	 * Obsidian's own names for the chosen source (see obsidianEvents.ts) via a <datalist>, but a
+	 * community plugin mints its own, so those still need that plugin's own docs/source. */
 	eventName: string;
 	/** The `@tag` mascots react to, e.g. "note:pin". Written into the speech file exactly like any
 	 * other tag — no `note:` prefix required, this is not limited to notes. */
@@ -541,6 +544,19 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						)
 						.addExtraButton((b) =>
 							b
+								.setIcon("list-checks")
+								.setTooltip("Refresh the tag list in the file's cheat sheet")
+								.onClick(async () => {
+									if (!path) {
+										new Notice("This character uses the general file — nothing of its own to refresh.");
+										return;
+									}
+									const ok = await this.plugin.refreshCheatSheet(path);
+									new Notice(ok ? "Refreshed the tag list." : "Couldn't find a tag list to refresh in that file.");
+								}),
+						)
+						.addExtraButton((b) =>
+							b
 								.setIcon("refresh-cw")
 								.setTooltip("Re-read it now")
 								.onClick(() => void this.plugin.reloadSpeechLines().then(() => this.display())),
@@ -606,22 +622,28 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					this.callout(
 						containerEl,
 						"tip",
-						"Bind any Obsidian event — or one fired by a community plugin — to a tag of your own choosing, so the built-in five above aren't a ceiling. Find the event name in Obsidian's API docs, or in the other plugin's own docs/source; there's no list to pick from here. The tag doesn't need a note: prefix — it's just a name for lines to carry.",
+						"Bind any Obsidian event — or one fired by a community plugin — to a tag of your own choosing, so the built-in five above aren't a ceiling. Start typing in the event name box for every event Obsidian's own API documents for the source picked on the left — that list is exhaustive. A community plugin's own events are its own to document, not Obsidian's, so those still need that plugin's own docs/source. The tag doesn't need a note: prefix — it's just a name for lines to carry.",
 					);
 					const reactions = this.plugin.settings.customVaultReactions;
 					reactions.forEach((reaction, index) => {
+						const eventListId = `shimeji-custom-trigger-events-${index}`;
 						new Setting(containerEl)
 							.setName(`Trigger ${index + 1}`)
 							.addDropdown((dropdown) => {
 								dropdown.addOption("workspace", "Workspace event");
 								dropdown.addOption("vault", "Vault event");
+								dropdown.addOption("metadataCache", "Metadata event");
 								dropdown.setValue(reaction.source).onChange(async (value) => {
-									reaction.source = value === "vault" ? "vault" : "workspace";
+									reaction.source = value === "vault" ? "vault" : value === "metadataCache" ? "metadataCache" : "workspace";
 									await this.plugin.saveSettings();
 									this.plugin.applyCustomVaultReactions();
+									// The datalist below is source-specific, so a rebuild is the only way to
+									// swap which events it suggests — same reason the trash button rebuilds.
+									this.display();
 								});
 							})
-							.addText((text) =>
+							.addText((text) => {
+								text.inputEl.setAttr("list", eventListId);
 								text
 									.setPlaceholder("event name, e.g. file-open")
 									.setValue(reaction.eventName)
@@ -629,8 +651,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 										reaction.eventName = value;
 										await this.plugin.saveSettings();
 										this.plugin.applyCustomVaultReactions();
-									}),
-							)
+									});
+							})
 							.addText((text) =>
 								text
 									.setPlaceholder("tag, e.g. note:pin")
@@ -654,6 +676,13 @@ export class ShimejiSettingTab extends PluginSettingTab {
 										this.display();
 									}),
 							);
+						// Invisible — an <input list="..."> just needs an element with this id
+						// somewhere in the document; its own position in the DOM doesn't matter.
+						containerEl.createEl("datalist", { attr: { id: eventListId } }, (datalist) => {
+							for (const event of OBSIDIAN_EVENTS_BY_SOURCE[reaction.source]) {
+								datalist.createEl("option", { value: event.name, attr: { label: event.desc } });
+							}
+						});
 					});
 					new Setting(containerEl).addButton((b) =>
 						b.setButtonText("Add a custom trigger").onClick(async () => {
@@ -833,6 +862,15 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					}),
 			)
 			.addExtraButton((b) => b.setIcon("pencil").setTooltip("Open it for editing").onClick(() => void this.plugin.openSpeechFile()))
+			.addExtraButton((b) =>
+				b
+					.setIcon("list-checks")
+					.setTooltip("Refresh the tag list in the file's cheat sheet")
+					.onClick(async () => {
+						const ok = await this.plugin.refreshCheatSheet(this.plugin.settings.speechFilePath);
+						new Notice(ok ? "Refreshed the tag list." : "Couldn't find a tag list to refresh in that file.");
+					}),
+			)
 			.addExtraButton((b) =>
 				b
 					.setIcon("refresh-cw")

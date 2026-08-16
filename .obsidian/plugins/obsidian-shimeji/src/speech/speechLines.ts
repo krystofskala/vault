@@ -123,6 +123,18 @@ export function unmatchedTags(pool: SpeechPool, behaviorNames: string[]): string
 	return [...pool.keys()].filter((tag) => !names.some((n) => n === tag || n.startsWith(tag))).sort();
 }
 
+/** The heading line of the "every legal tag" callout `speechLinesTemplate` writes, and the one
+ * `withRefreshedCheatSheet` looks for in an existing file to know where the tag list itself — the
+ * line right after this one — lives. Shared so the two can never describe the callout differently
+ * and silently stop finding each other's output. */
+const CHEAT_SHEET_HEADING = "> [!tip] Every tag this character understands";
+
+/** Renders just the tag list half of the cheat sheet callout — the part that goes stale as
+ * characters, vault-reaction tags, and custom triggers are added after the file was written. */
+function cheatSheetTags(legalTags: string[]): string {
+	return legalTags.length > 0 ? legalTags.map((n) => `\`@${n}\``).join(" ") : "_(no character loaded yet)_";
+}
+
 /**
  * Starter content for the file, seeded with the loaded pack's own behaviour names.
  *
@@ -131,7 +143,7 @@ export function unmatchedTags(pool: SpeechPool, behaviorNames: string[]): string
  * everybody but the pack it was written against.
  */
 export function speechLinesTemplate(behaviorNames: string[]): string {
-	const cheatSheet = behaviorNames.length > 0 ? behaviorNames.map((n) => `\`@${n}\``).join(" ") : "_(no character loaded yet)_";
+	const cheatSheet = cheatSheetTags(behaviorNames);
 
 	/**
 	 * Which example tags to include.
@@ -168,7 +180,7 @@ export function speechLinesTemplate(behaviorNames: string[]): string {
 		"> A tag also matches any behaviour *starting* with it, so `@Walk` covers every kind of",
 		"> walking. The most specific tag wins, and a line can carry several tags.",
 		"",
-		"> [!tip] Every tag this character understands",
+		CHEAT_SHEET_HEADING,
 		`> ${cheatSheet}`,
 		"",
 		"<!-- A comment like this is hidden in Reading view too, so it is a good place for longer",
@@ -198,4 +210,29 @@ export function speechLinesTemplate(behaviorNames: string[]): string {
 	]);
 
 	return out.join("\n");
+}
+
+// Built from CHEAT_SHEET_HEADING rather than a second hand-written copy of it — the escaping is
+// only needed because that heading has its own regex-special characters (`[!tip]`'s brackets).
+const CHEAT_SHEET_LINE_PATTERN = new RegExp(`^(${CHEAT_SHEET_HEADING.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\r?\\n> ).*$`, "m");
+
+/**
+ * Brings an existing file's cheat sheet up to date with the tags currently legal for it.
+ *
+ * The fix for the gap `speechLinesTemplate` alone leaves: that callout is only ever written once,
+ * at file creation, so a character loaded later, a vault-reaction tag, or a custom trigger added
+ * afterwards never makes it in — the file just quietly falls out of date. This replaces only the
+ * one line holding the tag list; every speech line and every other word the user wrote is left
+ * exactly as it was.
+ *
+ * Returns null when there is no such callout to update — a file from before the callout existed,
+ * or one where the user has since rewritten or deleted it — so the caller can tell "nothing found"
+ * apart from "updated" instead of reporting success either way.
+ */
+export function withRefreshedCheatSheet(content: string, legalTags: string[]): string | null {
+	if (!CHEAT_SHEET_LINE_PATTERN.test(content)) return null;
+	// A replacer function, not a `$1...`-style replacement string — a custom trigger's tag is user
+	// text and could itself contain a literal `$`, which String.replace would otherwise try to
+	// parse as another substitution pattern.
+	return content.replace(CHEAT_SHEET_LINE_PATTERN, (_match, prefix: string) => `${prefix}${cheatSheetTags(legalTags)}`);
 }

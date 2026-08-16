@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags } from "../src/speech/speechLines";
+import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, withRefreshedCheatSheet } from "../src/speech/speechLines";
 import { SpeechScheduler } from "../src/speech/SpeechScheduler";
 import { resolveSpeechPool } from "../src/speech/SpeechBubbles";
 import { DEFAULT_VAULT_REACTION_OPTIONS } from "../src/speech/vaultReactions";
@@ -188,6 +188,54 @@ describe("speechLinesTemplate", () => {
 		const md = speechLinesTemplate(["Dragged", "DraggedAlong", "Fall"]);
 		expect(md).toContain("@Dragged");
 		expect(md).not.toContain("@ChaseMouse");
+	});
+});
+
+describe("withRefreshedCheatSheet", () => {
+	it("replaces only the tag line, leaving the heading, the rest of the file, and the user's own lines untouched", () => {
+		const original = speechLinesTemplate(["Fall", "SitDown"]) + "\nA line the user wrote. @Fall\n";
+		const updated = withRefreshedCheatSheet(original, ["Fall", "SitDown", "note:open", "note:pin"]);
+		expect(updated).not.toBeNull();
+		expect(updated).toContain("> [!tip] Every tag this character understands");
+		expect(updated).toContain("`@note:open`");
+		expect(updated).toContain("`@note:pin`");
+		expect(updated).toContain("A line the user wrote. @Fall");
+	});
+
+	it("actually changes tags that were missing before, not just tags that were already there", () => {
+		// The concrete bug this exists to fix: a file created before a custom trigger or a later
+		// character existed never mentions it, forever, because speechLinesTemplate only ever runs
+		// once. This is the only way an already-existing file gets caught up.
+		const stale = speechLinesTemplate(["Fall"]);
+		expect(stale).not.toContain("note:pin");
+		const fresh = withRefreshedCheatSheet(stale, ["Fall", "note:pin"]);
+		expect(fresh).toContain("`@note:pin`");
+	});
+
+	it("parses back with no new untagged lines — the refreshed line is still inside its callout", () => {
+		const before = parseSpeechLines(speechLinesTemplate(["Fall", "SitDown"]));
+		const updated = withRefreshedCheatSheet(speechLinesTemplate(["Fall", "SitDown"]), ["Fall", "SitDown", "note:open"])!;
+		const after = parseSpeechLines(updated);
+		expect(after.untaggedLines).toEqual(before.untaggedLines);
+	});
+
+	it("returns null, not a guess, when the file has no such callout to refresh", () => {
+		expect(withRefreshedCheatSheet("Just some notes.\nNo callout here. @Fall\n", ["Fall"])).toBeNull();
+		expect(withRefreshedCheatSheet("", ["Fall"])).toBeNull();
+	});
+
+	it("falls back to the same placeholder speechLinesTemplate uses when no tags are legal", () => {
+		const updated = withRefreshedCheatSheet(speechLinesTemplate(["Fall"]), []);
+		expect(updated).toContain("_(no character loaded yet)_");
+	});
+
+	it("survives a tag containing regex- and replacement-pattern-special characters", () => {
+		// Custom-trigger tags are free text (settings.ts's CustomVaultReaction.tag) — nothing stops a
+		// user typing one that would confuse either regex construction or String.replace's own
+		// `$&`-style substitution syntax if this were built carelessly.
+		const updated = withRefreshedCheatSheet(speechLinesTemplate(["Fall"]), ["note:$&weird", "note:$1"]);
+		expect(updated).toContain("`@note:$&weird`");
+		expect(updated).toContain("`@note:$1`");
 	});
 });
 

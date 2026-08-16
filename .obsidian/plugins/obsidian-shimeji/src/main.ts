@@ -23,7 +23,7 @@ import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "
 import { RoomForeground } from "./room/RoomForeground";
 import { SpeechBubbles } from "./speech/SpeechBubbles";
 import { DEFAULT_SPEECH_OPTIONS } from "./speech/SpeechScheduler";
-import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, type SpeechPool } from "./speech/speechLines";
+import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, withRefreshedCheatSheet, type SpeechPool } from "./speech/speechLines";
 import { VaultReactionTrigger, vaultReactionsTemplateFragment } from "./speech/vaultReactions";
 
 /** What the settings screen reports about the speech file, so a typo'd tag or an empty file is
@@ -1214,6 +1214,27 @@ export default class ShimejiPlugin extends Plugin {
 		return true;
 	}
 
+	/**
+	 * Rewrites the "Every tag this character understands" line of an existing speech file (general
+	 * or per-character — same shape, same fix) so it matches the tags legal right now, not whatever
+	 * was legal when the file was first created. That callout is otherwise a one-time snapshot: a
+	 * character loaded afterwards, a custom trigger added later, all silently missing from it
+	 * forever, which is exactly backwards for a line whose only job is being a trustworthy reference.
+	 *
+	 * No reload afterward — unlike appendStarterLines, this never touches a line the scanner reads
+	 * as speech (the callout lives inside a blockquote, one of parseSpeechLines' own safe zones), so
+	 * there is no pool, count, or stat for it to leave stale.
+	 */
+	async refreshCheatSheet(path: string): Promise<boolean> {
+		const trimmed = path.trim();
+		if (!trimmed || !(await this.app.vault.adapter.exists(trimmed))) return false;
+		const existing = await this.app.vault.adapter.read(trimmed);
+		const updated = withRefreshedCheatSheet(existing, this.allLegalSpeechTags());
+		if (updated === null) return false;
+		await this.app.vault.adapter.write(trimmed, updated);
+		return true;
+	}
+
 	/** Opens the speech file for editing, creating it first if it has gone missing. */
 	async openSpeechFile(): Promise<void> {
 		await this.ensureSpeechFile();
@@ -1392,10 +1413,11 @@ export default class ShimejiPlugin extends Plugin {
 	 * down whatever was registered before. Called on load and after every edit in the settings UI,
 	 * so adding, editing, or removing a binding takes effect immediately — no plugin reload needed.
 	 *
-	 * `workspace`/`vault` are typed with only their own known event names (`on(name: "file-open", ...)`
-	 * and so on), which is why this reaches for the `Events` base class both extend: its `on(name:
-	 * string, ...)` is the same method at runtime, just without Obsidian's closed list of names —
-	 * exactly what's needed for a binding to an event this plugin was never told about in advance.
+	 * `workspace`/`vault`/`metadataCache` are typed with only their own known event names (`on(name:
+	 * "file-open", ...)` and so on), which is why this reaches for the `Events` base class all three
+	 * extend: its `on(name: string, ...)` is the same method at runtime, just without Obsidian's
+	 * closed list of names — exactly what's needed for a binding to an event this plugin was never
+	 * told about in advance.
 	 * Each ref is also handed to `registerEvent` for the usual automatic cleanup on unload; the
 	 * tracking here is only for tearing individual ones down early, mid-session.
 	 */
@@ -1406,7 +1428,9 @@ export default class ShimejiPlugin extends Plugin {
 			const eventName = reaction.eventName.trim();
 			const tag = reaction.tag.trim();
 			if (!eventName || !tag) continue;
-			const on = (reaction.source === "vault" ? this.app.vault : this.app.workspace) as Events;
+			const emitter =
+				reaction.source === "vault" ? this.app.vault : reaction.source === "metadataCache" ? this.app.metadataCache : this.app.workspace;
+			const on = emitter as Events;
 			const ref = on.on(eventName, () => this.reactToVaultEvent(tag));
 			this.registerEvent(ref);
 			this.customVaultReactionRefs.push({ on, ref });

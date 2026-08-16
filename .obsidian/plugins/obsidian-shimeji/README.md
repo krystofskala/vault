@@ -631,7 +631,10 @@ them; add `@WalkAlongIECeiling` later and it takes over for that one. A line can
 
 The legal tags are whatever your character's `behaviors.xml` defines, so the generated file lists
 every one of them in a callout at the top — a cheat sheet that is correct for the pack you actually
-have, rather than for the one this README was written against.
+have, rather than for the one this README was written against. That callout is only ever written
+once, though, so a character loaded afterwards, or a vault-reaction/custom-trigger tag added later,
+won't be in it — the list-checks button next to the file path (Settings) rewrites just that one
+line to match what's legal right now, without touching anything else you've written.
 
 **Headings, callouts, code blocks and comments are never spoken**, so you can annotate the file
 freely — including writing `@Walk` inside them as an example. Without that, a file explaining its
@@ -685,14 +688,16 @@ Edits are debounced rather than cooldown-only, since Obsidian autosaves as you t
 The five above are the built-in set; **Settings → Voice → Vault events → Custom triggers** adds
 more. Obsidian fires far more events than those five — file-open, editor-change, layout-change, a
 theme switching, and whatever any installed community plugin fires on top of it — and any of them
-can be bound to a tag of your own choosing: pick whether it's a workspace event or a vault event,
+can be bound to a tag of your own choosing: pick the source (workspace, vault, or metadata cache),
 type the event's name, type a tag. No `note:` prefix required; it's just a tag like any other.
 
-Finding the right event name is on you — there's no registry to browse here. Obsidian's own are in
-its API docs; a community plugin's own are in that plugin's own docs or source, or in the developer
-console (Ctrl/Cmd+Shift+I) while you make it fire and watch what shows up. Bindings apply
-immediately, no reload needed, and every custom tag is checked against the speech file the same way
-the built-in ones are, so a typo is flagged instead of just staying silent.
+Start typing in the event name box and every event Obsidian's own API documents for the source
+you picked shows up as a suggestion — that list is exhaustive for Obsidian itself, pulled straight
+from its published API, not guessed. A community plugin's own events are its own to document, not
+Obsidian's, so those still mean checking that plugin's own docs/source, or the developer console
+(Ctrl/Cmd+Shift+I) while you make it fire and watch what shows up. Bindings apply immediately, no
+reload needed, and every custom tag is checked against the speech file the same way the built-in
+ones are, so a typo is flagged instead of just staying silent.
 
 Deliberately generic: no debouncing, no argument-reading, no special-casing beyond what every vault
 reaction already gets. If the bound event fires on every keystroke, expect the same reaction —
