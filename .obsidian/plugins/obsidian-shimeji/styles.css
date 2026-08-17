@@ -454,27 +454,46 @@
    ChatBubble.update(); this only needs to stop the ordinary bubble's line-width cap from clamping
    the width down, and turn the bubble into a scrollable message list (no separate header — the
    room pane's own .shimeji-room-chat-toggle button is the only open/close control). */
+/* Deliberately NOT the scrolling element — see .shimeji-bubble-chat-messages below for why: an
+   element clips its own ::after along with everything else once it clips overflow at all, which
+   silently ate the tail (see the doc comment on that rule). This one stays overflow:visible so the
+   tail it owns can actually show. */
 .shimeji-bubble-chat {
 	max-width: none;
 	width: 320px;
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-	/* More headroom above the first line than the sides/bottom get — flush against the rounded top
-	   corner otherwise reads as cramped in a way the other three edges don't. */
-	padding: 18px 10px 8px;
-	overflow-y: auto;
 	text-align: left;
 	/* The fade-in reads fine for a one-line remark; on a panel this size it would look like the
 	   whole chat window sliding in every time a resident is reopened. */
 	animation: none;
 }
 
+/* The actual scrolling message list — split out from .shimeji-bubble-chat itself specifically so
+   that element can stay overflow:visible for its own tail (below) while this one clips the
+   messages that scroll past its edges. min-height:0 is load-bearing: a flex child defaults to
+   min-height:auto, which lets it grow past its flex-basis and ignore overflow-y entirely — without
+   it this never actually scrolls, it just keeps growing. */
+.shimeji-bubble-chat-messages {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	/* More headroom above the first line than the sides/bottom get — flush against the rounded top
+	   corner otherwise reads as cramped in a way the other three edges don't. */
+	padding: 18px 10px 8px;
+}
+
 /* The ordinary tail (see .shimeji-bubble::after above) sits notched into the bubble's own border,
    which reads fine pointing at a sprite's head. Pushed further down into the gap above the room
    picture instead — GAP_PX in ChatBubble.ts gives it the room — the same shape floats clear of
    both and reads as its own "scroll to the newest message" affordance. Purely decorative for now;
-   nothing is wired to actually respond to a click on it yet. */
+   nothing is wired to actually respond to a click on it yet.
+   This only works because .shimeji-bubble-chat itself (this pseudo-element's own containing box)
+   stays overflow:visible — .shimeji-bubble-chat-messages is the one that clips, and the tail isn't
+   inside it. */
 .shimeji-bubble-chat::after {
 	bottom: -18px;
 	width: 14px;

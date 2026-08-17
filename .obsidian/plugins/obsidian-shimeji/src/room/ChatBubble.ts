@@ -11,6 +11,12 @@ import type { BubbleStyle } from "../speech/SpeechBubbles";
  * the gap rather than notched into the bubble's own border, which is what makes it read as its own
  * "scroll to the newest message" affordance instead of an ordinary speech-bubble point. */
 const GAP_PX = 22;
+/** How much of the pane's own top edge to leave clear for RoomView's own .shimeji-room-chat-toggle
+ * button, which sits at a fixed `top:6px; right:8px` there regardless of anything this class does.
+ * The transcript's own top is never allowed to climb higher than this, even when the room picture
+ * is short enough that there would otherwise be plenty of headroom to do it — the button is a real
+ * click target, not something a taller transcript should be allowed to bury. */
+const TOGGLE_RESERVED_PX = 36;
 /** The input bar sits flush-ish under the picture; a little breathing room reads better than none. */
 const INPUT_GAP_PX = 4;
 const INPUT_BAR_HEIGHT = 36;
@@ -66,6 +72,7 @@ function clamp(value: number, min: number, max: number): number {
  */
 export class ChatBubble extends Component {
 	private transcriptEl?: HTMLDivElement;
+	private messagesEl?: HTMLDivElement;
 	private inputBarEl?: HTMLDivElement;
 	private inputEl?: HTMLInputElement;
 	private mascot?: Mascot;
@@ -106,6 +113,7 @@ export class ChatBubble extends Component {
 	close(): void {
 		this.transcriptEl?.remove();
 		this.transcriptEl = undefined;
+		this.messagesEl = undefined;
 		this.inputBarEl?.remove();
 		this.inputBarEl = undefined;
 		this.inputEl = undefined;
@@ -126,6 +134,10 @@ export class ChatBubble extends Component {
 		transcript.toggleClass("shimeji-bubble-comic", comic);
 		transcript.style.pointerEvents = "auto";
 		this.transcriptEl = transcript;
+		// The scrolling element is a child, not the transcript itself — see styles.css's own doc
+		// comment on .shimeji-bubble-chat-messages for why: overflow:auto clips the transcript's own
+		// ::after tail along with everything else once it clips at all.
+		this.messagesEl = transcript.createDiv({ cls: "shimeji-bubble-chat-messages" });
 
 		// Always Obsidian's own look, whatever the transcript's bubble style is set to — a text
 		// field is a control, not a line of speech.
@@ -178,7 +190,7 @@ export class ChatBubble extends Component {
 	 * muted colour, the assistant's align left in the ordinary text colour, the same "who's talking"
 	 * cue a right-aligned messaging app uses without needing a bubble outline to do it. */
 	private async renderMessages(): Promise<void> {
-		const el = this.transcriptEl;
+		const el = this.messagesEl;
 		if (!el) return;
 		const generation = ++this.renderGeneration;
 		el.empty();
@@ -205,8 +217,10 @@ export class ChatBubble extends Component {
 	 * `officeRect` is the room picture's own box (RoomView.layout().rect); `paneRect` is the whole
 	 * pane around it (RoomView.paneRect()). The transcript is sized to match officeRect's own
 	 * height, sitting GAP_PX above it — shrinking only if paneRect doesn't leave that much room,
-	 * never growing past what the picture itself is tall, and never poking above paneRect's own top
-	 * edge into whatever real UI is above the pane. The input bar takes a thin strip directly below
+	 * never growing past what the picture itself is tall, and never climbing higher than
+	 * TOGGLE_RESERVED_PX below paneRect's own top edge, so a short office picture in a tall pane
+	 * can't let the transcript grow tall enough to bury the toggle button that opened it. The input
+	 * bar takes a thin strip directly below
 	 * the picture the same way.
 	 */
 	update(residentMascot: Mascot | undefined, paneRect: Rect | undefined, officeRect: Rect | undefined): void {
@@ -234,7 +248,7 @@ export class ChatBubble extends Component {
 
 		const officeHeight = officeRect.bottom - officeRect.top;
 		const desiredTop = officeRect.top - GAP_PX - officeHeight;
-		const top = Math.max(paneRect.top, desiredTop);
+		const top = Math.max(paneRect.top + TOGGLE_RESERVED_PX, desiredTop);
 		const transcriptHeight = officeRect.top - GAP_PX - top;
 		if (transcriptHeight < MIN_VISIBLE) {
 			transcript.style.visibility = "hidden";
