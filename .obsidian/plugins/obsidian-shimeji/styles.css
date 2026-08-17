@@ -455,9 +455,11 @@
    bubble into a scrollable message list (no separate header — the room pane's own
    .shimeji-room-chat-toggle button is the only open/close control).
    The tail is NOT this element's own ::after (see .shimeji-bubble-chat-tail below for why) — it
-   used to be, but overflow:auto below on the scrolling child turned out to matter for that
-   decision too: this element deliberately stays overflow:visible even though nothing here needs it
-   to be anymore, simply because there is no reason left to clip it. */
+   used to be, and overflow:auto below on the scrolling child mattered for that decision too. It is
+   now a real child element instead, absolutely positioned to hang off this element's own bottom
+   border (see its own comment) — which is exactly why this element must stay overflow:visible: a
+   child positioned outside its parent's own box is clipped away the moment the parent clips
+   anything at all, the same rule that ate the tail back when it was this element's own ::after. */
 .shimeji-bubble-chat {
 	max-width: none;
 	width: 320px;
@@ -473,7 +475,7 @@
    border and corner radius), and that base class's own ::after is a real tail of its own — the one
    an ordinary one-line remark actually uses. Left alone here, both tails would render at once: the
    inherited one notched into this element's own bottom border, and .shimeji-bubble-chat-tail's own
-   independent element floating correctly in the gap below it. Only the second one is wanted. */
+   child element correctly hanging off the same border below it. Only the second one is wanted. */
 .shimeji-bubble-chat::after {
 	content: none;
 }
@@ -497,22 +499,28 @@
 
 /* The tail: a plain CSS border-triangle, not a rotated square like .shimeji-bubble's own ::after —
    deliberately, so its footprint is its own literal width/height with no diagonal to account for.
-   (A square rotated 45deg has a *visual* extent of `side * sqrt(2)`, not `side` — the gap this
-   floats in was sized assuming the wrong one of those twice before this became a real element.)
-   A real sibling element rather than a pseudo-element of the transcript for the same reason the
-   messages list is split out above: independent positioning in ChatBubble.update() (exact pixel
-   math, centred in the gap) rather than a hand-tuned CSS offset, and no shared box to accidentally
-   clip it. Colour matches the transcript's own background per style, so it reads as attached to it
-   despite being a separate element floating a few pixels below. */
+   (A square rotated 45deg has a *visual* extent of `side * sqrt(2)`, not `side` — the gap this used
+   to float in was sized assuming the wrong one of those twice before this became a real element.)
+   Now a real DOM *child* of the transcript (ChatBubble.build() appends it there, after the messages
+   list) rather than an independent sibling positioned by hand every frame in JS — position:absolute
+   against the transcript's own position:fixed box (see .shimeji-bubble) means `bottom: -10px` always
+   means "hanging exactly off my parent's own bottom border", automatically, on every resize, with no
+   per-frame math and no way for the two to visually drift apart or double up. This is also what
+   finally closes the gap for good: the transcript sits ChatBubble.ts's TAIL_HEIGHT above the office
+   picture and nothing more, so this element's own height *is* that space, edge to edge, rather than
+   floating somewhere inside a wider one with dead air on both sides. Colour matches the transcript's
+   own background per style, so it reads as one continuous shape rather than two touching ones. */
 .shimeji-bubble-chat-tail {
-	position: fixed;
+	position: absolute;
+	left: 50%;
+	bottom: -10px;
+	margin-left: -8px;
 	width: 0;
 	height: 0;
 	border-left: 8px solid transparent;
 	border-right: 8px solid transparent;
 	border-top: 10px solid var(--background-primary);
 	pointer-events: none;
-	z-index: 62;
 }
 
 .shimeji-bubble-chat-tail.shimeji-bubble-comic {
