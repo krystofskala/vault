@@ -16,6 +16,7 @@ import { loadPacksFromFolder } from "./shimeji/PackLoader";
 import { sounds } from "./shimeji/SoundPlayer";
 import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
+import { ChatBubble } from "./room/ChatBubble";
 import { Residency } from "./room/Residency";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 import { moodForHour } from "./room/roomArt";
@@ -90,6 +91,20 @@ export default class ShimejiPlugin extends Plugin {
 	 * the view because it is not inside the pane at all: it has to stack above the stage's own
 	 * full-window overlay, which nothing within the workspace can do. */
 	private readonly roomForeground = new RoomForeground();
+	/** The resident's own speech bubble, expanded into a chat — owned here rather than by RoomView
+	 * for the same reason residency and roomForeground are: it belongs to whichever mascot is
+	 * resident, not to the pane, and needs to keep tracking that mascot's own on-screen position
+	 * across room/pane changes RoomView has no reason to know about. */
+	private readonly chatBubble = new ChatBubble(this.speech.getLayer(), {
+		apiKey: () => this.settings.aiApiKey,
+		model: () => this.settings.aiModel,
+		personas: () => this.settings.aiPersonas,
+		style: () => this.speech.getStyle(),
+		packFor: (mascot) => {
+			const id = this.packIdOf(mascot);
+			return id ? this.availablePacks.find((p) => p.id === id) : undefined;
+		},
+	});
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
 	stage?: Stage;
 	/** What everything (settings UI, spawning, the context menu) actually consumes: basePacks
@@ -234,6 +249,8 @@ export default class ShimejiPlugin extends Plugin {
 					onLayoutChanged: () => this.residency.tick(),
 					showSurfaces: () => this.showRoomSurfaces,
 					hourOverride: () => this.roomHourOverride,
+					onToggleChat: () => this.chatBubble.toggle(this.residency.residentMascot),
+					isChatOpen: () => this.chatBubble.isOpen,
 				}),
 		);
 		this.startResidencyLoop();
@@ -427,6 +444,7 @@ export default class ShimejiPlugin extends Plugin {
 		cancelAnimationFrame(this.residencyRaf);
 		if (this.vaultEditDebounceTimer !== null) window.clearTimeout(this.vaultEditDebounceTimer);
 		this.speech.destroy();
+		this.chatBubble.destroy();
 		this.roomForeground.destroy();
 		uninstallDebugApi();
 		this.stage?.destroy();
@@ -1059,6 +1077,11 @@ export default class ShimejiPlugin extends Plugin {
 				this.roomHourOverride,
 			);
 			this.speech.tick(this.stage?.getMascots() ?? [], this.stage?.getWorldTop() ?? 0);
+			this.chatBubble.update(this.residency.residentMascot, view?.layout()?.rect);
+			// Keeps the room's own toggle button in sync when the bubble closes on its own — the
+			// resident leaving, or its own × — rather than only ever updating on a click of the
+			// button itself.
+			view?.refreshChatButton();
 			this.residencyRaf = requestAnimationFrame(step);
 		};
 		this.residencyRaf = requestAnimationFrame(step);

@@ -23,6 +23,14 @@ export interface RoomViewOptions {
 	showSurfaces(): boolean;
 	/** A forced clock hour, for looking at the room's lighting without waiting for the day. */
 	hourOverride(): number | undefined;
+	/** Opens or closes the chat bubble for whoever is currently resident — a no-op with nobody
+	 * home. RoomView only ever asks for the toggle; ChatBubble (owned at the plugin level, same as
+	 * Residency and RoomForeground) decides what "nobody home" or "already open" actually means —
+	 * this pane draws the room and nothing else, the same reasoning its own class doc gives for not
+	 * owning the resident either. */
+	onToggleChat(): void;
+	/** Whether the chat bubble is currently open, so the button here can reflect it. */
+	isChatOpen(): boolean;
 }
 
 /**
@@ -38,6 +46,7 @@ export class RoomView extends ItemView {
 	private canvas!: HTMLCanvasElement;
 	private stack!: HTMLDivElement;
 	private missing!: HTMLDivElement;
+	private chatBtn!: HTMLButtonElement;
 	private lastKey = "";
 	private lastMoved = "";
 	private resizeObserver?: ResizeObserver;
@@ -85,6 +94,17 @@ export class RoomView extends ItemView {
 		// is working, and nothing anywhere says a file was expected or where it should go.
 		this.missing = content.createDiv({ cls: "shimeji-room-missing" });
 		this.missing.hide();
+
+		// "Under the office": a fixed, always-there entry point into the chat, whatever the resident
+		// is doing — the expanded bubble it opens is drawn separately, against the resident's own
+		// sprite (see ChatBubble), so this button's only job is the toggle itself.
+		this.chatBtn = content.createEl("button", { cls: "shimeji-room-chat-toggle", text: "Chat" });
+		this.chatBtn.setAttr("aria-label", "Chat with the resident");
+		this.chatBtn.onclick = () => {
+			this.opts.onToggleChat();
+			this.refreshChatButton();
+		};
+		this.refreshChatButton();
 
 		void this.loadImage();
 
@@ -153,6 +173,13 @@ export class RoomView extends ItemView {
 	/** Forces the next refresh to redraw, whatever it thinks has changed. */
 	invalidate(): void {
 		this.lastKey = "";
+	}
+
+	/** Syncs the button's own pressed-look to whether the chat is actually open — called after every
+	 * click, and available for main.ts to call too if the chat closes on its own (the resident
+	 * leaving, ChatBubble's own close button). */
+	refreshChatButton(): void {
+		this.chatBtn?.toggleClass("is-active", this.opts.isChatOpen());
 	}
 
 	/** The area the room is drawn into, in viewport coordinates. Undefined when the pane is not on

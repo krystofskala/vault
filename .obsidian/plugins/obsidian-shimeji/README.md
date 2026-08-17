@@ -813,11 +813,9 @@ file until its own has something written in it, so setting one up is never a way
 mute a mascot mid-edit. The status line under each character says which is currently in effect and
 how many lines and tags its own file has.
 
-## AI Assistant (foundation only — no chat UI yet)
+## AI Assistant
 
-**Settings → AI Assistant**, off by default. Two pieces of a larger planned feature exist so far
-(an Anthropic API client, and now a per-character personality) — an eventual chat that expands out
-of a mascot's room, with vault search and confirmed note edits, is planned but not built yet:
+**Settings → AI Assistant**, off by default.
 
 - **Enable AI assistant** — the master switch. Nothing calls out to Anthropic while this is off.
 - **Anthropic API key** — from `console.anthropic.com`. Stored in this plugin's own settings
@@ -833,16 +831,34 @@ from a plugin's renderer process hits the same-origin/CORS restriction a direct 
 `api.anthropic.com` would trip; `requestUrl` goes out through Electron's main process instead,
 which isn't subject to it. This is why every Obsidian AI plugin uses it instead of `fetch`.
 
+### Chatting with a resident
+
+The office room has a small **Chat** button in its top-right corner. Click it and whichever mascot
+currently lives there expands its own speech bubble into a scrollable conversation — same bubble
+style (theme or comic, whatever **Settings → Speech bubble style** has set), just much bigger and
+roughly square instead of one line wide. Type underneath it and press **Enter** (or click **Send**)
+to talk; **Shift+Enter** for a newline, the **×** in the header or the toggle button again to close.
+
+It is still the mascot's own speech bubble, not a separate window: it's drawn pinned above whatever
+resident is currently home, follows the room if the pane moves or resizes, and disappears if the
+resident leaves. Closing it keeps the conversation — reopening the same resident's chat picks back
+up where it left off — but a different resident, or the same one moving out, clears it. Nothing is
+saved to disk; a restart starts fresh. With no API key set, sending a message reports that in the
+transcript instead of failing silently.
+
+Vault search and confirmed note edits (having the assistant find notes or propose Dataview/CSS
+changes it can write with your approval) are planned but not built yet — right now it's a
+conversation with whatever persona the resident has, nothing else.
+
 ### Character personality
 
 **Settings → AI Assistant → Character personality** lists every loaded character with a text area
-for its own system prompt — what it should sound like once the chat exists. Leave it empty and
-that character gets a generic-but-in-character default ("You are *name*, a small desktop companion
-living in the user's Obsidian vault...") instead of a blank or generic-sounding assistant, the same
-"an override is additive, never a way to go silent" shape Character-specific speech uses for the
-ambient speech-bubble pool above. Each row's own **Test** button sends a one-line, in-character
-reply request through that pack's resolved persona, so you can hear the voice before there's a
-chat UI to try it in properly.
+for its own system prompt — what it should sound like in chat. Leave it empty and that character
+gets a generic-but-in-character default ("You are *name*, a small desktop companion living in the
+user's Obsidian vault...") instead of a blank or generic-sounding assistant, the same "an override
+is additive, never a way to go silent" shape Character-specific speech uses for the ambient
+speech-bubble pool above. Each row's own **Test** button sends a one-line, in-character reply
+request through that pack's resolved persona — a quick way to hear the voice without opening chat.
 
 ## "Get to that spot" — Shift + triple-click
 

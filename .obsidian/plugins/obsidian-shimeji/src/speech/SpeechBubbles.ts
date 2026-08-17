@@ -94,6 +94,23 @@ export class SpeechBubbles {
 		for (const { el } of this.bubbles.values()) el.toggleClass("shimeji-bubble-comic", style === "comic");
 	}
 
+	/** Which style an ordinary remark bubble is currently drawn in — for anything else that wants
+	 * to build its own `.shimeji-bubble`-styled element consistently (ChatBubble, in particular)
+	 * without duplicating the setting lookup. */
+	getStyle(): BubbleStyle {
+		return this.style;
+	}
+
+	/** The layer ordinary remark bubbles live in — already a correctly worldTop-topped, full-viewport,
+	 * click-through-except-its-children `position:fixed` box (see this class's own `tick`), and the
+	 * one already proven not to reintroduce the title-bar-blocking bug SOURCE_AUDIT.md's Pass 35
+	 * fixed. Anything else that wants a `.shimeji-bubble`-styled element on screen (ChatBubble, in
+	 * particular) should append into this same layer rather than creating its own — a second
+	 * independent full-viewport box was exactly that bug the first time around. */
+	getLayer(): HTMLElement {
+		return this.layer;
+	}
+
 	setEnabled(enabled: boolean): void {
 		this.enabled = enabled;
 		if (!enabled) this.clear();

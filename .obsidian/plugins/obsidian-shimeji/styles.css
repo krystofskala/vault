@@ -117,6 +117,7 @@
    collision surfaces. The stylesheet centres the canvas; the geometry centres the ledges; they are
    the same sum, and if this changes that one must too. */
 .shimeji-room-pane {
+	position: relative;
 	padding: 0;
 	overflow: hidden;
 	display: flex;
@@ -425,6 +426,153 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.shimeji-bubble { animation: none; }
+}
+
+/* ---------- chat bubble (an ordinary bubble, expanded) ---------- */
+
+/* The button RoomView offers to open/close the resident's chat. Sits in the room pane itself
+   (not the speech layer — it's a real click target tied to this pane, not something drawn over
+   the mascot), styled as a quiet corner control rather than a call-to-action. */
+.shimeji-room-chat-toggle {
+	position: absolute;
+	top: 6px;
+	right: 8px;
+	z-index: 5;
+	font-size: var(--font-ui-smaller);
+	padding: 2px 10px;
+}
+
+.shimeji-room-chat-toggle.is-active {
+	color: var(--text-on-accent);
+	background: var(--interactive-accent);
+}
+
+/* Same element as .shimeji-bubble (ChatBubble builds into SpeechBubbles' own layer and keeps the
+   theme/comic modifier), just lifted out of "one line above the sprite's head" and into a
+   scrollable panel roughly as tall as it is wide. Width/height/position are all set inline, per
+   frame, by ChatBubble.update() — this only needs to stop the ordinary bubble's line-width cap
+   from clamping that down, and lay out header/messages/input as a column that fills whichever
+   size it was given. */
+.shimeji-bubble-chat {
+	max-width: none;
+	width: 320px;
+	display: flex;
+	flex-direction: column;
+	padding: 0;
+	overflow: hidden;
+	text-align: left;
+	/* The fade-in reads fine for a one-line remark; on a panel this size it would look like the
+	   whole chat window sliding in every time a resident is reopened. */
+	animation: none;
+}
+
+.shimeji-bubble-chat-header {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 6px 8px 6px 12px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	font-weight: var(--font-semibold);
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-header {
+	border-bottom-color: #111111;
+}
+
+.shimeji-bubble-chat-close {
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	font-size: 16px;
+	line-height: 1;
+	padding: 2px 6px;
+	cursor: pointer;
+	color: inherit;
+}
+
+.shimeji-bubble-chat-messages {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	padding: 8px 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.shimeji-bubble-chat-msg {
+	max-width: 88%;
+	padding: 5px 9px;
+	border-radius: 8px;
+	font-size: 12px;
+	line-height: 1.35;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.shimeji-bubble-chat-msg-user {
+	align-self: flex-end;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.shimeji-bubble-chat-msg-assistant {
+	align-self: flex-start;
+	background: var(--background-secondary);
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-msg {
+	border: 1.5px solid #111111;
+	border-radius: 10px 12px 12px 8px / 8px 10px 10px 12px;
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-msg-user {
+	background: #111111;
+	color: #ffffff;
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-msg-assistant {
+	background: #ffffff;
+	color: #111111;
+}
+
+.shimeji-bubble-chat-thinking {
+	opacity: 0.6;
+}
+
+.shimeji-bubble-chat-notice {
+	align-self: stretch;
+	font-size: 11px;
+	color: var(--text-error);
+	padding: 4px 2px 0 2px;
+}
+
+.shimeji-bubble-chat-input-row {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: flex-end;
+	gap: 6px;
+	padding: 6px 8px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-input-row {
+	border-top-color: #111111;
+}
+
+.shimeji-bubble-chat-input {
+	flex: 1 1 auto;
+	resize: none;
+	font-size: 12px;
+	font-family: inherit;
+	line-height: 1.3;
+	padding: 4px 6px;
+	max-height: 90px;
+}
+
+.shimeji-bubble-chat-send {
+	flex: 0 0 auto;
 }
 
 /* ---------- settings sections ---------- */
