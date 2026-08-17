@@ -343,8 +343,28 @@ const monitorBack: RoomFixture = {
 		p.px(60, 29, 6, 4, P.sticker3);
 		p.px(61, 24, 4, 4, P.sticker4);
 		p.px(62, 25, 2, 2, P.caseDark);
-		// Screen light spilling round the edges — the only clue it is still on, and the one thing in
-		// the room that never goes off. Brightest at night, when there is nothing to compete with it.
+	},
+};
+
+/**
+ * The screen light spilling round the edges of the case above — the only clue the machine is still
+ * on, and the one thing in the room that never goes off.
+ *
+ * Its own fixture, and deliberately **not** on the foreground layer despite sitting right on top of
+ * `monitorBack`'s case: this is translucent, and the foreground layer is painted a second time, on
+ * its own canvas, clipped to the resident. An opaque fixture survives that unchanged — the case
+ * drawn twice in the same place looks like the case — but a translucent one compounds its own
+ * alpha, and the clip's own edge shows up as a visible seam. That is exactly the bug the room-wide
+ * gloom wash had (see `atmosphere`), and this glow sits close enough to the seat — closer still
+ * since the resident was doubled in size — for the resident's own clip box to reach it.
+ *
+ * The cost is the same one `atmosphere` already accepted: a resident standing directly in front of
+ * the glow now sits in front of it, rather than the glow bleeding over it. A monitor's edge-glow
+ * losing a sliver of realism is a smaller price than a seam across the mascot.
+ */
+const monitorGlow: RoomFixture = {
+	id: "monitor-glow",
+	paint(p, mood) {
 		const { spill } = light(mood);
 		const a = (spill * (0.35 + 0.65 * (1 - mood.daylight))).toFixed(3);
 		p.px(49, 18, 1, 17, `rgba(95,143,168,${a})`);
@@ -424,5 +444,5 @@ export const OFFICE: RoomDef = {
 	// walks and stands in a room twenty pixels wide.
 	residentBehavior: "SitDown",
 	door: { x1: SEAT_X1, x2: SEAT_X1 + 6, y: SEAT_Y },
-	fixtures: [shell, brokenWindow, vines, deskLamp, chair, tower, desk, monitorBack, deskThings, atmosphere],
+	fixtures: [shell, brokenWindow, vines, deskLamp, chair, tower, desk, monitorBack, monitorGlow, deskThings, atmosphere],
 };

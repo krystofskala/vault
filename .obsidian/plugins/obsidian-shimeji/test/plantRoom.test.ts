@@ -327,14 +327,37 @@ describe("the office", () => {
 		expect(front).toContain("monitor");
 	});
 
-	it("keeps every translucent fixture off the foreground layer", () => {
+	it("keeps every translucent pixel off the foreground layer", () => {
 		// The foreground is painted a second time, on its own canvas, clipped to the resident. An
-		// opaque fixture survives that unchanged — the desk drawn twice in the same place looks like
+		// opaque pixel survives that unchanged — the desk drawn twice in the same place looks like
 		// the desk. A translucent one compounds its own alpha and the clip's outline shows up as a
-		// rectangle around the mascot, which is exactly what "it draws another overlay around
-		// character" was. The room-wide gloom is the one that did it.
-		const front = OFFICE.fixtures.filter((f) => f.layer === "foreground").map((f) => f.id);
-		expect(front, "the gloom wash is translucent and covers the whole room — it cannot be drawn twice").not.toContain("atmosphere");
+		// visible seam over the mascot — reported twice now: once for the room-wide gloom wash, and
+		// once more for the monitor's own screen-glow spill, which sits inside the same fixture as
+		// the monitor's very-much-opaque case.
+		//
+		// Checking fixture ids by name is exactly how the glow slipped through the first fix: the
+		// gloom wash was excluded by id, and the test had nothing to say about a *different*
+		// fixture that is mostly opaque but paints a few translucent pixels of its own. This asks
+		// every foreground fixture what it actually paints, at a spread of hours so a glow that is
+		// only translucent at night cannot hide behind a check made at noon.
+		const translucent: string[] = [];
+		const alphaOf = (color: string): number | undefined => {
+			const m = /^rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\s*\)$/.exec(color);
+			return m ? Number(m[1]) : undefined;
+		};
+		for (const fixture of OFFICE.fixtures) {
+			if ((fixture.layer ?? "background") !== "foreground") continue;
+			const check = (color: string): void => {
+				const a = alphaOf(color);
+				if (a !== undefined && a < 1) translucent.push(`${fixture.id}: ${color}`);
+			};
+			const painter = {
+				px: (_x: number, _y: number, _w: number, _h: number, color: string) => check(color),
+				polygon: (_points: Array<[number, number]>, color: string) => check(color),
+			};
+			for (const hour of [0, 3, 6, 9, 12, 15, 18, 21]) fixture.paint(painter, moodForHour(hour, 0));
+		}
+		expect(translucent, `translucent pixels on the foreground layer: ${translucent.join(", ")}`).toHaveLength(0);
 	});
 });
 
