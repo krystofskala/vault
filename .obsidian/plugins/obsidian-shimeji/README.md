@@ -817,19 +817,48 @@ how many lines and tags its own file has.
 
 **Settings → AI Assistant**, off by default.
 
-- **Enable AI assistant** — the master switch. Nothing calls out to Anthropic while this is off.
-- **Anthropic API key** — from `console.anthropic.com`. Stored in this plugin's own settings
-  (`data.json`), the same trust model as every other setting on this page — there is no separate
-  secret store. Sent as the request's `x-api-key` header, nothing else.
+- **Enable AI assistant** — the master switch. Nothing calls out to either provider while this is
+  off.
+- **Provider** — **Anthropic (cloud)** or **Local server (Ollama, LM Studio, ...)**. Each keeps its
+  own settings below in its own collapsible group (whichever one is active starts expanded), so
+  switching back and forth never loses what's typed into the other — a laptop that can't or
+  shouldn't run a local model (locked-down/underpowered) can point at Anthropic instead, on the
+  same plugin, without retyping anything if you switch back later.
+
+**Anthropic (cloud)**:
+- **API key** — from `console.anthropic.com`. Sent as the request's `x-api-key` header, nothing
+  else.
 - **Model** — a plain text field rather than a fixed dropdown, since Anthropic ships new models
   regularly and a hardcoded list would go stale fast.
 - **Test connection** — sends one trivial message and reports success or failure, independent of
-  the enable toggle above, so a key can be verified before switching the feature on.
+  the enable toggle and the provider selection above, so a key can be verified before switching to
+  it.
 
-Requests go out through Obsidian's own `requestUrl` rather than the browser's `fetch` — `fetch`
-from a plugin's renderer process hits the same-origin/CORS restriction a direct call to
-`api.anthropic.com` would trip; `requestUrl` goes out through Electron's main process instead,
-which isn't subject to it. This is why every Obsidian AI plugin uses it instead of `fetch`.
+**Local server (Ollama, LM Studio, ...)**:
+- **Server URL** — base URL of any server that speaks the OpenAI-compatible chat-completions
+  format; `/chat/completions` is appended automatically. Ollama's own compat endpoint is typically
+  `http://localhost:11434/v1`, LM Studio's `http://localhost:1234/v1` once its server is started.
+  Not locked to either one specifically — anything speaking the same wire format works, including
+  llama.cpp's own server mode or a llamafile, which is worth knowing about on a machine where
+  installing a background service (what Ollama/LM Studio both are) isn't an option: a llamafile is
+  a single self-contained executable, no installer or admin rights needed.
+- **Model** — a name the server already has pulled or loaded, e.g. `llama3.2` for Ollama. No
+  fallback default the way Anthropic's model field has one — which models are actually available
+  depends entirely on that machine, so guessing would be as likely wrong as right.
+- **API key** — almost always blank; most local servers, Ollama included, don't check one at all.
+  Sent as a Bearer token only when non-empty.
+- **Test connection** — same as the cloud provider's, against the local server instead.
+
+Reaching a local server from **Obsidian Mobile** means the server has to be reachable over the
+network — the same Wi-Fi at home, or a tunnel like Tailscale when away from it — since a phone
+can't run the server itself (no Obsidian plugin can run local inference on iOS/Android; there is no
+native bridge for it). That is a networking setup on your own end, not something a provider choice
+changes.
+
+Both providers' requests go out through Obsidian's own `requestUrl` rather than the browser's
+`fetch` — `fetch` from a plugin's renderer process hits the same-origin/CORS restriction a direct
+call to an API would trip; `requestUrl` goes out through Electron's main process instead, which
+isn't subject to it. This is why every Obsidian AI plugin uses it instead of `fetch`.
 
 ### Chatting with a resident
 

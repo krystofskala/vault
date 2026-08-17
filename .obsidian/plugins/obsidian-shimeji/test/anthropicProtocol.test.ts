@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildAnthropicRequest, parseAnthropicResponse, type AiSettings, type ChatMessage } from "../src/ai/anthropicProtocol";
+import { buildAnthropicRequest, parseAnthropicResponse, type AiSettings } from "../src/ai/anthropicProtocol";
+import type { ChatMessage } from "../src/ai/types";
 
 const SETTINGS: AiSettings = { apiKey: "sk-ant-test-key", model: "claude-sonnet-5" };
 

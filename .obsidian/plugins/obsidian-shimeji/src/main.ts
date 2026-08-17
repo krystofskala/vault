@@ -1,5 +1,6 @@
 import { Events, type EventRef, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
 import { resolvePersona } from "./ai/persona";
+import { sendAiMessage, type AiDispatchSettings } from "./ai/providers";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { ObsidianDomEnvironment } from "./engine/Environment";
 import { Mascot } from "./engine/Mascot";
@@ -108,8 +109,7 @@ export default class ShimejiPlugin extends Plugin {
 	 * belongs to whichever mascot is resident, not to the pane, and needs to keep tracking who that
 	 * is (closing itself on a resident change) independent of anything RoomView itself tracks. */
 	private readonly chatBubble = new ChatBubble(this.speech.getLayer(), {
-		apiKey: () => this.settings.aiApiKey,
-		model: () => this.settings.aiModel,
+		sendMessage: (messages, systemPrompt) => sendAiMessage(this.aiDispatchSettings(), messages, systemPrompt),
 		personas: () => this.personaTexts,
 		style: () => this.speech.getStyle(),
 		packFor: (mascot) => {
@@ -719,6 +719,18 @@ export default class ShimejiPlugin extends Plugin {
 	/** Which character a mascot wears, or null for the built-in placeholder. */
 	private packIdOf(mascot: Mascot): string | null {
 		return this.mascotPackId.get(mascot) ?? null;
+	}
+
+	/** Gathers both providers' settings into the one shape ai/providers.ts's dispatcher needs —
+	 * read fresh from live settings on every call (never cached), the same "read live via thunks"
+	 * shape the chat bubble's own deps use, so switching the active provider mid-conversation takes
+	 * effect on the very next message with nothing here to invalidate. */
+	aiDispatchSettings(): AiDispatchSettings {
+		return {
+			provider: this.settings.aiProvider,
+			anthropic: { apiKey: this.settings.aiApiKey, model: this.settings.aiModel || "claude-sonnet-5" },
+			local: { baseUrl: this.settings.aiLocalBaseUrl, apiKey: this.settings.aiLocalApiKey, model: this.settings.aiLocalModel },
+		};
 	}
 
 	/** True when `other` wears the same character (pack, including "no pack"/placeholder) as

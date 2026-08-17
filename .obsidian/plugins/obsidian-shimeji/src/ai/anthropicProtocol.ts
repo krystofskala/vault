@@ -6,14 +6,11 @@
  * API key or a real request.
  */
 
+import type { ChatMessage } from "./types";
+
 export interface AiSettings {
 	apiKey: string;
 	model: string;
-}
-
-export interface ChatMessage {
-	role: "user" | "assistant";
-	content: string;
 }
 
 export interface AnthropicRequest {

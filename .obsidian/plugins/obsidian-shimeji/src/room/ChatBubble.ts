@@ -1,7 +1,6 @@
 import { Component, MarkdownRenderer } from "obsidian";
-import type { ChatMessage } from "../ai/anthropicProtocol";
-import { sendChatMessage } from "../ai/AnthropicClient";
 import { resolvePersona } from "../ai/persona";
+import type { ChatMessage } from "../ai/types";
 import type { Mascot } from "../engine/Mascot";
 import type { Rect } from "../engine/types";
 import type { MascotPack } from "../shimeji/types";
@@ -19,8 +18,11 @@ const INPUT_BAR_HEIGHT = 36;
 const MIN_VISIBLE = 40;
 
 export interface ChatBubbleDeps {
-	apiKey(): string;
-	model(): string;
+	/** Sends through whichever AI provider is currently active (see ai/providers.ts) — ChatBubble
+	 * itself has no idea whether that's Anthropic or a local server, and never needs to: a thrown
+	 * Error (no key/URL configured, the request failed) is caught and shown in the transcript the
+	 * same way regardless of which provider produced it. */
+	sendMessage(messages: ChatMessage[], systemPrompt: string): Promise<string>;
 	personas(): ReadonlyMap<string, string>;
 	/** Matches whichever style ordinary remark bubbles are currently drawn in — see
 	 * SpeechBubbles.getStyle(). Only the transcript follows it; the input bar is a UI control, not
@@ -150,12 +152,6 @@ export class ChatBubble extends Component {
 		if (!this.inputEl || !this.mascot || this.sending) return;
 		const text = this.inputEl.value.trim();
 		if (!text) return;
-		const apiKey = this.deps.apiKey().trim();
-		if (!apiKey) {
-			this.notice = "No API key configured — set one in Settings → AI Assistant.";
-			void this.renderMessages();
-			return;
-		}
 		this.notice = undefined;
 		this.inputEl.value = "";
 		this.history.push({ role: "user", content: text });
@@ -163,12 +159,14 @@ export class ChatBubble extends Component {
 		void this.renderMessages();
 		try {
 			const persona = resolvePersona(this.deps.packFor(this.mascot), this.deps.personas());
-			const reply = await sendChatMessage({ apiKey, model: this.deps.model() || "claude-sonnet-5" }, this.history, persona);
+			const reply = await this.deps.sendMessage(this.history, persona);
 			this.history.push({ role: "assistant", content: reply });
 		} catch (e) {
 			// Deliberately not pushed into history: an error string sent back as a future "assistant"
 			// turn would confuse the model about what it actually said last, for a message that was
-			// never really part of the conversation at all.
+			// never really part of the conversation at all. Covers "not configured" the same as any
+			// other failure (see ai/providers.ts's providerConfigError) — the message stays visible in
+			// the transcript below the turn that triggered it either way.
 			this.notice = e instanceof Error ? e.message : String(e);
 		} finally {
 			this.sending = false;

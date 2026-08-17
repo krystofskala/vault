@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
-import { buildAnthropicRequest, parseAnthropicResponse, type AiSettings, type ChatMessage } from "./anthropicProtocol";
+import { buildAnthropicRequest, parseAnthropicResponse, type AiSettings } from "./anthropicProtocol";
+import type { ChatMessage } from "./types";
 
 /**
  * The one place that actually reaches the network for the AI assistant. Uses Obsidian's own
