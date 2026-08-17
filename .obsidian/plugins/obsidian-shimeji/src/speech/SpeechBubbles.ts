@@ -61,6 +61,10 @@ export class SpeechBubbles {
 		 * the engine's Mascot type carries itself. */
 		private packIdOf: (mascot: Mascot) => string | null = () => null,
 		private rng: () => number = Math.random,
+		/** Lets an open AI chat claim a mascot's scripted line for its own transcript instead of a
+		 * floating bubble — returns true if it did. Checked first in `show`, so a mascot mid-chat
+		 * never gets a bubble the user didn't ask to see popping up over its head as well. */
+		private tryRedirect: (mascot: Mascot, text: string) => boolean = () => false,
 	) {
 		this.scheduler = new SpeechScheduler(options);
 		this.layer = document.createElement("div");
@@ -177,6 +181,7 @@ export class SpeechBubbles {
 	}
 
 	private show(mascot: Mascot, text: string): void {
+		if (this.tryRedirect(mascot, text)) return;
 		const existing = this.bubbles.get(mascot);
 		const el = existing?.el ?? this.layer.createDiv({ cls: "shimeji-bubble" });
 		el.setText(text);

@@ -64,7 +64,9 @@ const SPOT_ORDER_CLICKS = 3;
 
 export default class ShimejiPlugin extends Plugin {
 	/** What the mascots say. Purely an observer of the engine — see SpeechBubbles. */
-	readonly speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS, (mascot) => this.packIdOf(mascot));
+	readonly speech: SpeechBubbles = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS, (mascot) => this.packIdOf(mascot), Math.random, (mascot, text) =>
+		this.chatBubble.addScriptedLine(mascot, text),
+	);
 	/** Last parse of the speech file, for the settings screen. Undefined until first read. */
 	speechStats?: SpeechStats;
 	/** The parsed pool, kept so shimejiDebug.speech() can show which behaviours are actually
@@ -108,7 +110,7 @@ export default class ShimejiPlugin extends Plugin {
 	 * — owned here rather than by RoomView for the same reason residency and roomForeground are: it
 	 * belongs to whichever mascot is resident, not to the pane, and needs to keep tracking who that
 	 * is (closing itself on a resident change) independent of anything RoomView itself tracks. */
-	private readonly chatBubble = new ChatBubble(this.speech.getLayer(), {
+	private readonly chatBubble: ChatBubble = new ChatBubble(this.speech.getLayer(), {
 		sendMessage: (messages, systemPrompt) => sendAiMessage(this.aiDispatchSettings(), messages, systemPrompt),
 		personas: () => this.personaTexts,
 		style: () => this.speech.getStyle(),

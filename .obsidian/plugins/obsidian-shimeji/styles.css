@@ -544,10 +544,18 @@
 	color: var(--text-normal);
 }
 
+/* A mascot's own ambient/vault-reaction line, redirected here instead of a floating bubble while
+   this chat is open (see SpeechBubbles' tryRedirect and ChatBubble.addScriptedLine) — coloured on
+   its own so it reads as "the mascot said this on its own", not a reply from the model. */
+.shimeji-bubble-chat-msg-scripted {
+	text-align: left;
+	color: var(--text-error);
+}
+
 /* Comic mode's bubble background is fixed white regardless of theme (see .shimeji-bubble-comic
-   above) — the theme-relative colours the two rules above use are made for --background-primary,
-   which in a dark theme is a colour close to this fixed white's opposite, so both roles washed out
-   to a similar low-contrast light grey against it. Comic mode gets its own fixed pair instead, the
+   above) — the theme-relative colours the rules above use are made for --background-primary,
+   which in a dark theme is a colour close to this fixed white's opposite, so those roles washed out
+   to a similar low-contrast light grey against it. Comic mode gets its own fixed set instead, the
    same "ignores the active theme on purpose" reasoning the bubble background itself already uses. */
 .shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-msg-assistant {
 	color: #111111;
@@ -555,6 +563,10 @@
 
 .shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-msg-user {
 	color: #555555;
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-msg-scripted {
+	color: #b91c1c;
 }
 
 .shimeji-bubble-chat-thinking {

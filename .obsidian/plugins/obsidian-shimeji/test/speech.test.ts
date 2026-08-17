@@ -3,6 +3,7 @@ import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, withRef
 import { DEFAULT_SPEECH_OPTIONS, SpeechScheduler } from "../src/speech/SpeechScheduler";
 import { resolveSpeechPool, SpeechBubbles } from "../src/speech/SpeechBubbles";
 import { DEFAULT_VAULT_REACTION_OPTIONS } from "../src/speech/vaultReactions";
+import type { Mascot } from "../src/engine/Mascot";
 
 /** A deterministic stand-in for Math.random: hands back the given values in order, then repeats
  * the last one, so a test states exactly the rolls it means. */
@@ -511,5 +512,38 @@ describe("SpeechBubbles.tick worldTop wiring", () => {
 		speech.tick([], 40);
 		speech.tick([], 64);
 		expect(latestSpeechLayer()?.style.top).toBe("64px");
+	});
+});
+
+describe("SpeechBubbles redirect (tryRedirect)", () => {
+	// An open AI chat should absorb a mascot's scripted lines into its own transcript instead of a
+	// floating bubble popping up over it as well (see ChatBubble.addScriptedLine). Only the "the
+	// callback claimed it" side is checked here, not the fallback: `show()`'s un-redirected path
+	// calls the real Obsidian `createDiv` convenience method, which -- unlike everything else this
+	// file exercises -- is a runtime-only monkeypatch this test setup has no stub for (see
+	// test/stubs/obsidian.ts), so it is only reachable in the real app or a future test upgrade.
+	const mascot = {} as unknown as Mascot;
+
+	it("hands say() to the callback and never touches the DOM once it claims the line", () => {
+		const calls: Array<[Mascot, string]> = [];
+		const speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS, undefined, undefined, (m, text) => {
+			calls.push([m, text]);
+			return true;
+		});
+		speech.say(mascot, "hello");
+		expect(calls).toEqual([[mascot, "hello"]]);
+		expect(speech.getLayer().querySelectorAll(".shimeji-bubble").length).toBe(0);
+	});
+
+	it("hands announceEvent()'s resolved line to the callback the same way", () => {
+		const { pool } = parseSpeechLines("Welcome back! @note:open");
+		const calls: string[] = [];
+		const speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS, undefined, rolls(0), (_m, text) => {
+			calls.push(text);
+			return true;
+		});
+		speech.setPool(pool);
+		speech.announceEvent(mascot, "note:open");
+		expect(calls).toEqual(["Welcome back!"]);
 	});
 });

@@ -9,7 +9,7 @@ import type { BubbleStyle } from "../speech/SpeechBubbles";
 /** Gap between the bottom of the transcript and the top of the room picture — room for the tail to
  * float clear of both, which is what makes it read as its own "scroll to the newest message"
  * affordance instead of an ordinary speech-bubble point notched into the border. */
-const GAP_PX = 22;
+const GAP_PX = 16;
 /** The tail's own exact size, in real pixels — see styles.css's .shimeji-bubble-chat-tail, a plain
  * CSS border-triangle with these same two numbers as its width/height. Kept here rather than only
  * in CSS specifically so update() can centre it in the gap by *computed* pixel math instead of a
@@ -48,6 +48,23 @@ export interface ChatBubbleDeps {
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, value));
+}
+
+/** The transcript's own timeline is a superset of what the AI actually sees: a "scripted" entry is
+ * one of the mascot's ordinary ambient/vault-reaction lines, redirected here instead of popping up
+ * as its own floating bubble while chat is open (see main.ts's wiring of SpeechBubbles' tryRedirect
+ * and this class's own addScriptedLine below). It has to render alongside real turns, but it is not
+ * something anyone said to the model or the model said back — sendMessage must never see it. */
+type TimelineRole = ChatMessage["role"] | "scripted";
+interface TimelineEntry {
+	role: TimelineRole;
+	content: string;
+}
+
+/** Drops scripted lines before a turn goes out over the wire, so a mascot's ambient chatter can
+ * never masquerade as conversation history the model believes it or the user actually said. */
+function toChatMessages(entries: readonly TimelineEntry[]): ChatMessage[] {
+	return entries.filter((entry): entry is ChatMessage => entry.role !== "scripted");
 }
 
 /**
@@ -89,7 +106,7 @@ export class ChatBubble extends Component {
 	private inputBarEl?: HTMLDivElement;
 	private inputEl?: HTMLInputElement;
 	private mascot?: Mascot;
-	private history: ChatMessage[] = [];
+	private history: TimelineEntry[] = [];
 	private sending = false;
 	private notice?: string;
 	/** Bumped on every renderMessages() call so an older, still-in-flight one (markdown rendering
@@ -139,6 +156,17 @@ export class ChatBubble extends Component {
 		this.mascot = undefined;
 		this.history = [];
 		this.unload();
+	}
+
+	/** Called from SpeechBubbles' tryRedirect hook when this mascot's chat is open, so an ambient
+	 * line appears as a red entry in the transcript instead of its own floating bubble. Returns
+	 * false (and touches nothing) for any mascot other than this bubble's own open one, so
+	 * SpeechBubbles falls back to its normal floating bubble for everyone else. */
+	addScriptedLine(mascot: Mascot, text: string): boolean {
+		if (!this.isOpen || this.mascot !== mascot) return false;
+		this.history.push({ role: "scripted", content: text });
+		void this.renderMessages();
+		return true;
 	}
 
 	private build(): void {
@@ -195,7 +223,7 @@ export class ChatBubble extends Component {
 		void this.renderMessages();
 		try {
 			const persona = resolvePersona(this.deps.packFor(this.mascot), this.deps.personas());
-			const reply = await this.deps.sendMessage(this.history, persona);
+			const reply = await this.deps.sendMessage(toChatMessages(this.history), persona);
 			this.history.push({ role: "assistant", content: reply });
 		} catch (e) {
 			// Deliberately not pushed into history: an error string sent back as a future "assistant"

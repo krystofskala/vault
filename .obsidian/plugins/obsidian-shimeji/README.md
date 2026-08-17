@@ -885,6 +885,12 @@ The assistant is always told to reply with only the words actually spoken — no
 no stage directions — regardless of persona; this is a format rule, not character voice, so a
 custom persona file doesn't need to ask for it itself.
 
+While chat is open, the resident's own ambient and vault-reaction lines (Character-specific speech
+and Custom triggers, below) stop popping up as a separate floating bubble over its head — they
+appear as a red entry inside the transcript instead, so a mid-conversation aside doesn't compete
+with the chat bubble for the same spot on screen. They're shown, not sent: the assistant never sees
+them as something it or you said.
+
 Vault search and confirmed note edits (having the assistant find notes or propose Dataview/CSS
 changes it can write with your approval) are planned but not built yet — right now it's a
 conversation with whatever persona the resident has, nothing else.
