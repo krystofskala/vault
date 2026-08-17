@@ -469,6 +469,15 @@
 	animation: none;
 }
 
+/* This element still carries the plain .shimeji-bubble class too (for the theme/comic background,
+   border and corner radius), and that base class's own ::after is a real tail of its own — the one
+   an ordinary one-line remark actually uses. Left alone here, both tails would render at once: the
+   inherited one notched into this element's own bottom border, and .shimeji-bubble-chat-tail's own
+   independent element floating correctly in the gap below it. Only the second one is wanted. */
+.shimeji-bubble-chat::after {
+	content: none;
+}
+
 /* The actual scrolling message list — split out from .shimeji-bubble-chat itself specifically so
    that element can stay overflow:visible for its own tail (below) while this one clips the
    messages that scroll past its edges. min-height:0 is load-bearing: a flex child defaults to
