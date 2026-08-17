@@ -192,7 +192,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowNoteMischief: false,
 	customContent: {},
 	roomResident: null,
-	roomStyle: "apartment",
+	roomStyle: "office",
 	roomIntroduced: false,
 	speechEnabled: true,
 	speechFilePath: "",
@@ -729,9 +729,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			new Setting(containerEl)
 				.setName("Plant room")
 				.setDesc(
-					"Which room the shimeji lives in. The two illustrated rooms each need their picture " +
-						"saved in the plugin's own room/ folder (see the README there); without it, the room " +
-						"the plugin draws itself is shown instead.",
+					"Which room the shimeji lives in — currently just the office, drawn by the plugin " +
+						"itself, so there's no picture file to provide.",
 				)
 				.addDropdown((dropdown) => {
 					for (const id of ROOM_STYLE_IDS) dropdown.addOption(id, ROOM_STYLES[id].label);
@@ -747,7 +746,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			});
 
 			// Which rooms actually have their picture, so a missing file is visible here rather than only
-			// as the room quietly showing something else.
+			// as the room quietly showing something else. Nothing currently listed needs one (office is
+			// self-drawn) \u2014 this stays silent rather than printing an empty status line for zero rooms.
 			const roomStatus = containerEl.createEl("p", { cls: "setting-item-description" });
 			void (async () => {
 				const lines: string[] = [];
@@ -757,7 +757,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					const found = await this.plugin.findRoomImage(style);
 					lines.push(`${style.label}: ${found ? `using ${found}` : `no picture yet \u2014 save one as ${style.imageBase}.png`}`);
 				}
-				roomStatus.setText(`${lines.join(" \u00b7 ")}  (inside ${this.plugin.roomFolder()}/)`);
+				if (lines.length > 0) roomStatus.setText(`${lines.join(" \u00b7 ")}  (inside ${this.plugin.roomFolder()}/)`);
 			})();
 		});
 

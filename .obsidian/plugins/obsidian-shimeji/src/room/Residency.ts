@@ -27,10 +27,10 @@ const THRESHOLD_REACH_PX = 52;
  * How tall the resident stands, as a fraction of the room's own drawn height.
  *
  * Derived from the room rather than a fixed multiplier, because "half size" is only the right answer
- * for one particular room at one particular pane width. The painted room is a tall narrow nook and
- * the apartment is a whole flat seen in isometric; the same mascot has to look at home in both, and
- * both change size whenever the sidebar is dragged. Sizing it against the room keeps the proportion
- * fixed and lets everything else move.
+ * for one particular room at one particular pane width — a tall narrow nook and a wide desk-height
+ * office read completely differently at the same fixed scale, and either changes size whenever the
+ * sidebar is dragged besides. Sizing it against the room keeps the proportion fixed and lets
+ * everything else move.
  *
  * A sixth of the room's height puts it comfortably between the bookshelf's shelves and makes the
  * furniture read as furniture — but only for a room that asks for it. Applied to every room by

@@ -1,18 +1,19 @@
-import { APARTMENT } from "./apartment";
-import { CELLAR } from "./cellar";
 import { OFFICE } from "./office";
-import { LIVING_ROOM, type RoomDef } from "./roomDef";
+import type { RoomDef } from "./roomDef";
 
 /**
  * The rooms on offer.
  *
- * Two of them are supplied artwork with hand-authored geometry; the third is the small nook the
- * plugin draws itself, which is also what any of the others falls back to when its image file is
- * missing. Adding a fourth is a definition file and an entry here — the room feature has no other
- * idea how many there are.
+ * Office is the only one currently listed — self-drawn by the plugin, no image file needed. Two
+ * supplied-artwork styles (apartment, cellar) and a second self-drawn one ("painted", the plant
+ * nook) existed here before and were removed by request; their code is gone from apartment.ts/
+ * cellar.ts (deleted) but the plant nook's own definition, `LIVING_ROOM`, is still exported from
+ * roomDef.ts — RoomView.ts keeps it as the generic "image not ready yet" fallback for any
+ * *future* image-based room, even with none currently registered here. Adding a room back is a
+ * definition file and an entry here — the feature itself has no other idea how many there are.
  */
 
-export type RoomStyleId = "apartment" | "cellar" | "office" | "painted";
+export type RoomStyleId = "office";
 
 export interface RoomStyle {
 	id: RoomStyleId;
@@ -28,35 +29,15 @@ export interface RoomStyle {
 }
 
 export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
-	apartment: {
-		id: "apartment",
-		label: "Apartment",
-		description: "A square studio flat: bed, bookshelf, desk, a plant on the nightstand.",
-		def: APARTMENT,
-		imageBase: "room/room",
-	},
-	cellar: {
-		id: "cellar",
-		label: "Cellar",
-		description: "A timber grow-room: hydroponic rack, a tank of seedlings, a heater and an armchair.",
-		def: CELLAR,
-		imageBase: "room/room2",
-	},
 	office: {
 		id: "office",
 		label: "Office",
 		description: "A post-apocalyptic office, drawn by the plugin: broken window, damp concrete, one lamp still working. The shimeji sits at the desk and stays there, behind the monitor.",
 		def: OFFICE,
 	},
-	painted: {
-		id: "painted",
-		label: "Plant nook (drawn by the plugin)",
-		description: "A tall narrow nook full of plants. Needs no image file.",
-		def: LIVING_ROOM,
-	},
 };
 
-export const ROOM_STYLE_IDS: RoomStyleId[] = ["apartment", "cellar", "office", "painted"];
+export const ROOM_STYLE_IDS: RoomStyleId[] = ["office"];
 
 /** Tried in order. PNG first because that is what pixel art is normally saved as. */
 export const ROOM_IMAGE_EXTENSIONS = ["png", "webp", "jpg", "jpeg", "gif"] as const;
@@ -68,5 +49,5 @@ export function roomImageCandidates(style: RoomStyle): string[] {
 }
 
 export function roomStyle(id: string | undefined): RoomStyle {
-	return ROOM_STYLES[(id ?? "apartment") as RoomStyleId] ?? ROOM_STYLES.apartment;
+	return ROOM_STYLES[(id ?? "office") as RoomStyleId] ?? ROOM_STYLES.office;
 }
