@@ -1,4 +1,5 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { sendChatMessage } from "./ai/AnthropicClient";
 import type ShimejiPlugin from "./main";
 import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
 import { CharacterEditorModal } from "./wizard/CharacterEditorModal";
@@ -149,6 +150,18 @@ export interface ShimejiSettings {
 	 * mascot is not competing with your thumb while you type. Animation and reactions carry on
 	 * regardless — this gates input, not life. */
 	mobileReadingViewOnly: boolean;
+	/** Whether the AI assistant is available at all — off by default, the same reasoning as
+	 * soundsEnabled/vaultReactionsEnabled: a note-taking app quietly starting to send your text to
+	 * an external API is a bigger proposition than anything else this plugin does unprompted, and
+	 * it costs real money per message on top of that. */
+	aiEnabled: boolean;
+	/** Sent as the `x-api-key` header on every request — see AnthropicClient.ts. Stored in this
+	 * plugin's own settings (data.json) like every other setting here; no separate secret store. */
+	aiApiKey: string;
+	/** A plain configurable string rather than a fixed dropdown of choices — Anthropic ships new
+	 * models regularly, and hardcoding a fixed list would go stale faster than this setting would
+	 * ever get revisited. */
+	aiModel: string;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -190,6 +203,9 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	customVaultReactions: [],
 	responsiveScale: true,
 	mobileReadingViewOnly: true,
+	aiEnabled: false,
+	aiApiKey: "",
+	aiModel: "claude-sonnet-5",
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
@@ -743,6 +759,75 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				}
 				roomStatus.setText(`${lines.join(" \u00b7 ")}  (inside ${this.plugin.roomFolder()}/)`);
 			})();
+		});
+
+		this.section(containerEl, "AI Assistant", false, (containerEl) => {
+			this.callout(
+				containerEl,
+				"info",
+				"Off by default. Turning this on lets your chat messages \u2014 and, once vault search ships, matching note excerpts \u2014 leave your machine and go to Anthropic's API. The key below is stored in this plugin's own settings, the same trust model as everything else on this page.",
+			);
+
+			new Setting(containerEl)
+				.setName("Enable AI assistant")
+				.setDesc("Turns on the AI chat features. Needs a working API key below regardless of this toggle.")
+				.addToggle((toggle) =>
+					toggle.setValue(this.plugin.settings.aiEnabled).onChange(async (value) => {
+						this.plugin.settings.aiEnabled = value;
+						await this.plugin.saveSettings();
+					}),
+				);
+
+			new Setting(containerEl)
+				.setName("Anthropic API key")
+				.setDesc("From console.anthropic.com. Sent as-is with every request, never logged.")
+				.addText((text) => {
+					text.inputEl.type = "password";
+					text
+						.setPlaceholder("sk-ant-...")
+						.setValue(this.plugin.settings.aiApiKey)
+						.onChange(async (value) => {
+							this.plugin.settings.aiApiKey = value.trim();
+							await this.plugin.saveSettings();
+						});
+				});
+
+			new Setting(containerEl)
+				.setName("Model")
+				.setDesc("Anthropic model name \u2014 a plain string rather than a fixed list, since new ones ship regularly.")
+				.addText((text) =>
+					text
+						.setPlaceholder(DEFAULT_SETTINGS.aiModel)
+						.setValue(this.plugin.settings.aiModel)
+						.onChange(async (value) => {
+							this.plugin.settings.aiModel = value.trim();
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			new Setting(containerEl)
+				.setName("Test connection")
+				.setDesc("Sends a trivial message and reports whether it worked \u2014 independent of the enable toggle above, so you can verify a key before switching the feature on.")
+				.addButton((b) =>
+					b.setButtonText("Test").onClick(async () => {
+						const apiKey = this.plugin.settings.aiApiKey.trim();
+						if (!apiKey) {
+							new Notice("Enter an API key first.");
+							return;
+						}
+						b.setDisabled(true).setButtonText("Testing\u2026");
+						try {
+							const reply = await sendChatMessage({ apiKey, model: this.plugin.settings.aiModel || DEFAULT_SETTINGS.aiModel }, [
+								{ role: "user", content: "Reply with just the word 'Connected.' and nothing else." },
+							]);
+							new Notice(`AI assistant says: ${reply}`);
+						} catch (e) {
+							new Notice(`Connection failed: ${e instanceof Error ? e.message : String(e)}`);
+						} finally {
+							b.setDisabled(false).setButtonText("Test");
+						}
+					}),
+				);
 		});
 
 		this.section(containerEl, "What it may touch", false, (containerEl) => {

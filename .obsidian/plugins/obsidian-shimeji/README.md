@@ -813,6 +813,27 @@ file until its own has something written in it, so setting one up is never a way
 mute a mascot mid-edit. The status line under each character says which is currently in effect and
 how many lines and tags its own file has.
 
+## AI Assistant (foundation only — no chat UI yet)
+
+**Settings → AI Assistant**, off by default. This is the first of several planned pieces (an
+Anthropic API client and its settings, nothing more yet): an eventual chat that expands out of a
+mascot's room, with a per-character personality and vault search, is planned but not built. What's
+here now is just the plumbing everything else will sit on:
+
+- **Enable AI assistant** — the master switch. Nothing calls out to Anthropic while this is off.
+- **Anthropic API key** — from `console.anthropic.com`. Stored in this plugin's own settings
+  (`data.json`), the same trust model as every other setting on this page — there is no separate
+  secret store. Sent as the request's `x-api-key` header, nothing else.
+- **Model** — a plain text field rather than a fixed dropdown, since Anthropic ships new models
+  regularly and a hardcoded list would go stale fast.
+- **Test connection** — sends one trivial message and reports success or failure, independent of
+  the enable toggle above, so a key can be verified before switching the feature on.
+
+Requests go out through Obsidian's own `requestUrl` rather than the browser's `fetch` — `fetch`
+from a plugin's renderer process hits the same-origin/CORS restriction a direct call to
+`api.anthropic.com` would trip; `requestUrl` goes out through Electron's main process instead,
+which isn't subject to it. This is why every Obsidian AI plugin uses it instead of `fetch`.
+
 ## "Get to that spot" — Shift + triple-click
 
 **Shift + triple-click anywhere** in the window and the nearest mascot goes there. Not near there —
