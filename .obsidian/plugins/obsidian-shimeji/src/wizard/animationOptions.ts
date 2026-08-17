@@ -86,6 +86,38 @@ export function buildReplacementActionSpec(existingDef: ActionDef, optionPoseSeq
 	};
 }
 
+/**
+ * What velocity a freshly sliced replacement frame should start with, so slicing new art for
+ * (say) Walk doesn't quietly turn it into a held-in-place animation. `posesFromPlan` always zeroes
+ * a fresh slice's velocity — correctly, in isolation: how far a step carries the mascot is a
+ * property of the action, not of the picture, and a guessed nonzero speed would be its own kind of
+ * wrong (see poseSlicing.ts's own reasoning). But when the slice is *replacing* an action's
+ * existing frames, that context — the speed this action already, actually moves at — is right
+ * there and worth carrying forward as the new frames' own starting point, still fully editable
+ * afterward. Real Move actions hold one constant velocity across every Pose in the cycle (Walk's
+ * four Poses all carry the identical `Velocity="-2,0"` in the bundled schema), so any pose already
+ * in play is a representative sample — this returns the first nonzero one it finds. Checks
+ * `currentPoses` (whatever the action *actually* plays right now — an existing custom override,
+ * if there is one) before `standardDef` (the pack's original definition), since a custom override
+ * already changing the speed is the more current truth. `undefined` for an action that
+ * legitimately never moves (Stay, Sit, ...), so nothing here would put a fake velocity on one.
+ */
+export function findReferenceVelocity(standardDef: ActionDef | undefined, ...currentPoses: CustomPoseSpec[][]): { x: number; y: number } | undefined {
+	for (const poses of currentPoses) {
+		for (const pose of poses) {
+			if (pose.velocityX !== 0 || pose.velocityY !== 0) return { x: pose.velocityX, y: pose.velocityY };
+		}
+	}
+	for (const variant of standardDef?.animations ?? []) {
+		for (const pose of variant.poses) {
+			if (pose.velocity && (pose.velocity.x !== 0 || pose.velocity.y !== 0)) {
+				return { x: pose.velocity.x / SHIMEJI_TICKS_PER_SEC, y: pose.velocity.y / SHIMEJI_TICKS_PER_SEC };
+			}
+		}
+	}
+	return undefined;
+}
+
 export interface AnimatedActionChecklist {
 	/** Names of actions with their own animation, eligible for multiple randomized options. */
 	required: string[];

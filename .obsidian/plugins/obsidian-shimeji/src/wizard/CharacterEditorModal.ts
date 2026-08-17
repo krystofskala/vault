@@ -22,7 +22,7 @@ import { decodeImageBlob, decodeVaultImage, deletePackImage, importPackImage, ov
 import { RemoveBackgroundModal } from "../sprites/RemoveBackgroundModal";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
 import { AnimationOptionsModal } from "./AnimationOptionsModal";
-import { deriveAnimatedActions, randomVariantConditions, type AnimatedActionChecklist } from "./animationOptions";
+import { deriveAnimatedActions, findReferenceVelocity, randomVariantConditions, type AnimatedActionChecklist } from "./animationOptions";
 import { deriveRequiredPoses, type PoseChecklist, type PoseChecklistEntry } from "./deriveRequiredPoses";
 import { PoseFitCanvas } from "./PoseFitCanvas";
 import { PoseFitModal } from "./PoseFitModal";
@@ -1004,18 +1004,22 @@ export class CharacterEditorModal extends Modal {
 			return;
 		}
 		const imgDir = this.imgDir;
+		const standardDef = this.plugin.availablePacks.find((p) => p.id === this.packId)?.actions.get(this.draftAction?.name ?? "");
+		const currentPoseGroups = this.draftAction ? this.draftAction.animations.map((a) => a.poses) : [variant.poses];
 		new SpriteSheetModal(this.app, {
 			imgDir,
 			images: this.packImages,
 			initialImage: variant.poses.find((p) => p.image)?.image ?? this.packImages[0],
 			actionName: this.draftAction?.name ?? "pose",
 			onPoses: (poses) => {
-				// Same finetune stop as the simple "Set frames…" flow — flip/rotate and place each
-				// frame's anchor one at a time before it joins this variant; see
-				// PoseSequenceFitModal's own doc comment.
+				// Same finetune stop as the simple "Set frames…" flow — resize to match the rest of
+				// the character, flip/rotate, and place each frame's anchor one at a time before it
+				// joins this variant; see PoseSequenceFitModal's own doc comment.
 				new PoseSequenceFitModal(this.app, {
 					imgDir,
+					packImages: this.packImages,
 					poses,
+					referenceVelocity: findReferenceVelocity(standardDef, ...currentPoseGroups),
 					onDone: async (finetuned) => {
 						variant.poses.push(...finetuned);
 						await this.refreshPackImages();

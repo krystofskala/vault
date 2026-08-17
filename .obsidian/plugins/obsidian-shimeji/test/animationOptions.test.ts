@@ -12,7 +12,7 @@ import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "../src/shimeji/constants
 import { evaluateCondition, parseCondition } from "../src/shimeji/Expression";
 import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
 import type { ActionDef, MascotPack, PoseDef } from "../src/shimeji/types";
-import { buildReplacementActionSpec, deriveAnimatedActions, poseDefToCustomPoseSpec, randomVariantConditions } from "../src/wizard/animationOptions";
+import { buildReplacementActionSpec, deriveAnimatedActions, findReferenceVelocity, poseDefToCustomPoseSpec, randomVariantConditions } from "../src/wizard/animationOptions";
 
 const actionsXml = readFileSync(resolve(process.cwd(), "Shimeji/conf/actions.xml"), "utf-8");
 
@@ -219,6 +219,68 @@ describe("buildReplacementActionSpec", () => {
 		}
 
 		expect(seen).toEqual(new Set(["resolved:/optionA.png", "resolved:/optionB.png"]));
+	});
+});
+
+describe("findReferenceVelocity", () => {
+	const held = (image: string): CustomPoseSpec => ({ ...newPoseSpec(), image, velocityX: 0, velocityY: 0 });
+	const moving = (image: string, x: number, y: number): CustomPoseSpec => ({ ...newPoseSpec(), image, velocityX: x, velocityY: y });
+
+	it("returns undefined when nothing — current poses or the standard def — ever moves", () => {
+		const standing: ActionDef = { name: "Sit", type: "Stay", loop: false, animations: [{ poses: [{ image: "/sit.png", anchor: { x: 0, y: 0 }, durationMs: 100 }], hotspots: [] }], children: [], params: {} };
+		expect(findReferenceVelocity(standing, [held("/a.png")])).toBeUndefined();
+		expect(findReferenceVelocity(undefined, [])).toBeUndefined();
+	});
+
+	it("prefers a nonzero velocity already on the current (custom) poses over the standard def", () => {
+		const standard: ActionDef = {
+			name: "Walk",
+			type: "Move",
+			loop: true,
+			animations: [{ poses: [{ image: "/shime1.png", anchor: { x: 64, y: 128 }, velocity: { x: -2 * SHIMEJI_TICKS_PER_SEC, y: 0 }, durationMs: 100 }], hotspots: [] }],
+			children: [],
+			params: {},
+		};
+		const result = findReferenceVelocity(standard, [moving("/custom.png", 5, -1)]);
+		expect(result).toEqual({ x: 5, y: -1 });
+	});
+
+	it("falls back to the standard def's velocity when the current poses are all held", () => {
+		const standard: ActionDef = {
+			name: "Walk",
+			type: "Move",
+			loop: true,
+			animations: [{ poses: [{ image: "/shime1.png", anchor: { x: 64, y: 128 }, velocity: { x: -2 * SHIMEJI_TICKS_PER_SEC, y: 0 }, durationMs: 100 }], hotspots: [] }],
+			children: [],
+			params: {},
+		};
+		const result = findReferenceVelocity(standard, [held("/a.png"), held("/b.png")]);
+		expect(result).toEqual({ x: -2, y: 0 });
+	});
+
+	it("checks every pose group passed, not just the first", () => {
+		const result = findReferenceVelocity(undefined, [held("/a.png")], [held("/b.png"), moving("/c.png", 3, 0)]);
+		expect(result).toEqual({ x: 3, y: 0 });
+	});
+
+	it("scans every variant of the standard def, not just the first", () => {
+		const standard: ActionDef = {
+			name: "Multi",
+			type: "Move",
+			loop: false,
+			animations: [
+				{ poses: [{ image: "/1.png", anchor: { x: 0, y: 0 }, durationMs: 50 }], hotspots: [] },
+				{ poses: [{ image: "/2.png", anchor: { x: 0, y: 0 }, velocity: { x: 4 * SHIMEJI_TICKS_PER_SEC, y: 2 * SHIMEJI_TICKS_PER_SEC }, durationMs: 50 }], hotspots: [] },
+			],
+			children: [],
+			params: {},
+		};
+		expect(findReferenceVelocity(standard, [])).toEqual({ x: 4, y: 2 });
+	});
+
+	it("matches the real Walk action's own velocity, straight from the bundled schema", () => {
+		const actions = parseActionsXml(actionsXml);
+		expect(findReferenceVelocity(actions.get("Walk"), [])).toEqual({ x: -2, y: 0 });
 	});
 });
 

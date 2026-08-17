@@ -449,6 +449,98 @@ export function rotateAnchorCounterClockwise(anchor: AnchorPoint, width: number)
 	return { x: anchor.y, y: width - 1 - anchor.x };
 }
 
+/**
+ * Uniformly scales an image by `factor` — nearest-neighbor, matching every other pixel operation
+ * in this file, and consistent with how a pixel-art sprite sheet actually wants to be resized
+ * (crisp blocks, not blurred interpolation). Unlike `compositeIntoFrame`, this never pads or crops:
+ * output dimensions are exactly `round(width*factor)` x `round(height*factor)`, so a non-square
+ * source stays non-square — there is no fixed target frame to fit into here, only a consistent
+ * size relative to the rest of a character's own art (see `scaleAnchor`, and Mascot.ts's own
+ * render(), which sizes a pose's on-screen box directly from its image's pixel dimensions with no
+ * normalization of its own — a sliced frame at a sprite sheet's native cell size, often much
+ * smaller than the 128px the rest of a pack's art is authored at, would otherwise render the whole
+ * character at that cell's size instead of the character's actual size).
+ */
+export function resizePixels(pixels: Pixels, factor: number): Pixels {
+	const outWidth = Math.max(1, Math.round(pixels.width * factor));
+	const outHeight = Math.max(1, Math.round(pixels.height * factor));
+	const out = new Uint8ClampedArray(outWidth * outHeight * 4);
+	for (let ty = 0; ty < outHeight; ty++) {
+		const sy = Math.min(pixels.height - 1, Math.floor((ty * pixels.height) / outHeight));
+		for (let tx = 0; tx < outWidth; tx++) {
+			const sx = Math.min(pixels.width - 1, Math.floor((tx * pixels.width) / outWidth));
+			const from = (sy * pixels.width + sx) * 4;
+			const to = (ty * outWidth + tx) * 4;
+			out[to] = pixels.data[from];
+			out[to + 1] = pixels.data[from + 1];
+			out[to + 2] = pixels.data[from + 2];
+			out[to + 3] = pixels.data[from + 3];
+		}
+	}
+	return { data: out, width: outWidth, height: outHeight };
+}
+
+/** Keeps an anchor point in sync with `resizePixels` — the same uniform `factor` applied to the
+ * point itself, since resizing (unlike a flip or a quarter turn) never changes which corner is
+ * which, only the scale of the coordinate space both share. */
+export function scaleAnchor(anchor: AnchorPoint, factor: number): AnchorPoint {
+	return { x: anchor.x * factor, y: anchor.y * factor };
+}
+
+/**
+ * Alpha-composites `overlay` onto `base` at an integer pixel offset — e.g. a particle effect
+ * layered on top of a couple of frames in a jump animation, built up one placed layer at a time
+ * rather than as several simultaneous, independently-adjustable layers (see PoseSequenceFitModal's
+ * own doc comment for why: it is the smaller build, at the cost of not being able to nudge an
+ * earlier layer once a later one is placed). Standard "source-over" blending — an overlay's own
+ * semi-transparent pixels blend with whatever is already there instead of simply replacing it,
+ * which matters for anything with soft/antialiased edges (most particle art). Output is always
+ * exactly `base`'s own width/height: whatever part of `overlay` its offset places outside those
+ * bounds is left out, the same "no silent resize" rule `compositeIntoFrame` uses, so placing a
+ * layer can never accidentally change the frame's own dimensions (and so never fights with
+ * `resizePixels`, which is the only thing here that is allowed to do that, deliberately). `base`
+ * itself is untouched — this returns a fresh buffer — so a caller can always fall back to the
+ * pre-layer pixels if the placement is cancelled instead of committed.
+ */
+export function compositeOverlay(base: Pixels, overlay: Pixels, offsetX: number, offsetY: number): Pixels {
+	const out = new Uint8ClampedArray(base.data);
+	const ox = Math.round(offsetX);
+	const oy = Math.round(offsetY);
+	for (let sy = 0; sy < overlay.height; sy++) {
+		const ty = sy + oy;
+		if (ty < 0 || ty >= base.height) continue;
+		for (let sx = 0; sx < overlay.width; sx++) {
+			const tx = sx + ox;
+			if (tx < 0 || tx >= base.width) continue;
+			const from = (sy * overlay.width + sx) * 4;
+			const srcA = overlay.data[from + 3] / 255;
+			if (srcA <= 0) continue;
+			const to = (ty * base.width + tx) * 4;
+			if (srcA >= 1) {
+				out[to] = overlay.data[from];
+				out[to + 1] = overlay.data[from + 1];
+				out[to + 2] = overlay.data[from + 2];
+				out[to + 3] = 255;
+				continue;
+			}
+			const dstA = out[to + 3] / 255;
+			const outA = srcA + dstA * (1 - srcA);
+			if (outA <= 0) {
+				out[to] = 0;
+				out[to + 1] = 0;
+				out[to + 2] = 0;
+				out[to + 3] = 0;
+				continue;
+			}
+			out[to] = (overlay.data[from] * srcA + out[to] * dstA * (1 - srcA)) / outA;
+			out[to + 1] = (overlay.data[from + 1] * srcA + out[to + 1] * dstA * (1 - srcA)) / outA;
+			out[to + 2] = (overlay.data[from + 2] * srcA + out[to + 2] * dstA * (1 - srcA)) / outA;
+			out[to + 3] = Math.round(outA * 255);
+		}
+	}
+	return { data: out, width: base.width, height: base.height };
+}
+
 /** Where a source image sits inside the fixed target frame the character wizard's pose editor
  * composites onto: `offsetX`/`offsetY` are the source's own top-left corner, in *target-frame*
  * pixels (panning), and `scale` is how many target pixels one source pixel covers (zooming) — 2

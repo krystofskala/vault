@@ -535,9 +535,10 @@ every row:
   schema treats as one static image — walking, standing, anything — instead of forcing it into a
   single picture. The first time, whatever the action currently plays becomes "Option 1"
   automatically; **+ Add another option** cuts a further one from a sheet, keeping every frame you
-  select, in order, as that option's whole sequence. Selecting more than one frame at once walks
-  you through them one at a time to finetune — flip, rotate, place the anchor — before they're
-  added; see "Slicing poses out of a sprite sheet" below. Multiple options are picked between at
+  select, in order, as that option's whole sequence. Every slice walks you through a finetune flow
+  first — match this character's size, then flip/rotate/place the anchor (and optionally layer
+  another image on top) one frame at a time — before anything's added; see "Slicing poses out of a
+  sprite sheet" below. Multiple options are picked between at
   random, equally likely, every time the action starts — click **Make equally likely** to fill in
   the `Math.random()` conditions that guarantee that (a naive one-condition-per-option would bias
   toward the earlier ones; this doesn't). **Reset to standard animation** drops the whole override,
@@ -657,18 +658,36 @@ sideways as poses change. Fix it up in the finetune step below, or by hand after
 
 When you're slicing frames for an action's animation (via **Set frames…** or the advanced
 editor's own **Slice from a sheet…**, rather than fitting one image into a single standard pose
-slot), selecting more than one frame opens a **finetune** step before they're added anywhere: one
-frame at a time, at its own native size, with **Flip ↔ / Flip ↕ / Rotate ↺ / Rotate ↻** and a
-draggable anchor crosshair — the same orientation tools the pose checklist's own fitting canvas
-uses, just never forced into that canvas's fixed 128×128 frame, since a game-sprite frame's whole
-point is often to be a different size. **Next** moves to the next frame (**Finish** on the last
-one); **Skip remaining** accepts whatever's left exactly as sliced; closing the step early (or
-**Cancel**) only skips adding this batch — the sliced files stay in the pack folder regardless,
-same as any other slice.
+slot), the sliced frames go through a **finetune** flow before they're added anywhere:
 
-**Velocity is left at zero** on every sliced pose. How far a step carries the mascot belongs to
-the action, not to the picture, so a freshly sliced Walk is a held animation until you fill that
-in — visible and fixable, rather than a guessed speed nothing in the pack asked for.
+- First, once, for the whole batch: **match this character's size**. A sheet's own cells are
+  almost always a very different pixel size than the rest of a pack's 128×128 art, and unlike the
+  standard pose slots (fixed to that size, cropped/padded to fit) a custom animation frame keeps
+  whatever size it's given — so left alone, the mascot would visibly shrink or grow the moment this
+  action played. A suggested scale factor (proportional, no distortion) is filled in for you, sized
+  so the tallest frame in the batch lands around 128px tall; **Continue** applies it to every frame
+  in the batch, or pick **Keep native size (1x)** if a different size is deliberate here (a "grown"
+  transformation action, say).
+- Then, one frame at a time: **Flip ↔ / Flip ↕ / Rotate ↺ / Rotate ↻** and a draggable anchor
+  crosshair — the same orientation tools the pose checklist's own fitting canvas uses. **Next**
+  moves to the next frame (**Finish** on the last one); **Skip remaining** accepts whatever's left
+  as-is; closing the step early (or **Cancel**, at either stage) only skips adding this batch — the
+  sliced files stay in the pack folder regardless, same as any other slice.
+- **Layers**, on any frame: place another image on top of it — a particle effect over a couple of
+  frames of a jump, say. Pick an existing pack image, upload one, or slice one from a sheet; drag it
+  into position, flip/rotate it if it needs orienting, then **Place layer** to flatten it into the
+  frame. Sequential rather than simultaneous — once placed, a layer is just part of the frame and
+  can't be nudged independently afterward — which keeps this a small addition rather than a full
+  multi-layer editor with its own undo/reorder/visibility machinery.
+
+**Velocity** is left at zero on a fresh slice on its own (`posesFromPlan`'s neutral default — how
+far a step carries the mascot belongs to the action, not to the picture, so a guessed speed would
+be its own kind of wrong). But when the finetune flow above is *replacing* an action's own frames,
+it already knows that action's real speed — its current custom animation if it has one, otherwise
+the pack's original definition — and carries that forward onto the new frames automatically (every
+Pose in a real Move action holds one constant velocity across its cycle, so this is exact, not a
+guess). An action that never moves (Sit, Stay, …) is untouched either way. Adjust it by hand
+afterwards in **Advanced edit…** if the new frames should move differently than the old ones did.
 
 ### Seeing it move
 

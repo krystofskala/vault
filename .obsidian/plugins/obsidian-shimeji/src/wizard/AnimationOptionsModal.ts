@@ -3,7 +3,7 @@ import type ShimejiPlugin from "../main";
 import { listPackImages } from "../shimeji/PackLoader";
 import type { CustomActionSpec, CustomPoseSpec } from "../shimeji/customContent";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
-import { buildReplacementActionSpec, poseDefToCustomPoseSpec, randomVariantConditions } from "./animationOptions";
+import { buildReplacementActionSpec, findReferenceVelocity, poseDefToCustomPoseSpec, randomVariantConditions } from "./animationOptions";
 import { PoseSequenceFitModal } from "./PoseSequenceFitModal";
 
 /** True only if every condition in `spec` matches what randomVariantConditions would itself have
@@ -148,6 +148,7 @@ export class AnimationOptionsModal extends Modal {
 	private openSlicerForOption(index: number): void {
 		if (!this.imgDir) return;
 		const imgDir = this.imgDir;
+		const standardDef = this.plugin.availablePacks.find((p) => p.id === this.packId)?.actions.get(this.actionName);
 		new SpriteSheetModal(this.app, {
 			imgDir,
 			images: this.packImages,
@@ -156,13 +157,19 @@ export class AnimationOptionsModal extends Modal {
 			onPoses: (poses) => {
 				if (poses.length === 0) return;
 				if (!this.packImages.includes(poses[0].image)) this.packImages = [...this.packImages, ...poses.map((p) => p.image).filter((img) => !this.packImages.includes(img))];
-				// One more stop before these become the option's frames: flip/rotate whatever came
-				// out of the sheet facing the wrong way, and place each frame's anchor, one at a
-				// time — see PoseSequenceFitModal's own doc comment for why that's a separate modal
-				// rather than the fixed-128px PoseFitCanvas the rest of the checklist uses.
+				// One more stop before these become the option's frames: resize to match the rest of
+				// the character, flip/rotate whatever came out of the sheet facing the wrong way, and
+				// place each frame's anchor, one at a time — see PoseSequenceFitModal's own doc comment
+				// for why that's a separate modal rather than the fixed-128px PoseFitCanvas the rest of
+				// the checklist uses.
 				new PoseSequenceFitModal(this.app, {
 					imgDir,
+					packImages: this.packImages,
 					poses,
+					// A fresh slice's own poses are always velocity 0,0 (posesFromPlan's neutral
+					// default); this is what keeps replacing Walk's art from also silently turning
+					// Walk into a held-in-place animation, by carrying its real speed forward instead.
+					referenceVelocity: findReferenceVelocity(standardDef, ...this.options),
 					onDone: (finetuned) => {
 						this.options[index] = finetuned;
 						this.render();

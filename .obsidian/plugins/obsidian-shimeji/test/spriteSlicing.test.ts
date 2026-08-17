@@ -3,6 +3,7 @@ import {
 	applyColorKey,
 	cellRect,
 	compositeIntoFrame,
+	compositeOverlay,
 	cropPixels,
 	deriveAnchor,
 	detectFrames,
@@ -15,10 +16,12 @@ import {
 	rgbToHex,
 	rotate90Clockwise,
 	rotate90CounterClockwise,
+	resizePixels,
 	rotateAnchorClockwise,
 	rotateAnchorCounterClockwise,
 	sameRect,
 	samplePixel,
+	scaleAnchor,
 	stripFrames,
 	type Pixels,
 } from "../src/sprites/pixels";
@@ -491,6 +494,117 @@ describe("flipAnchorHorizontal / flipAnchorVertical / rotateAnchorClockwise / ro
 		}
 		expect(anchor).toEqual({ x: 1, y: 0 });
 		expect([width, height]).toEqual([3, 1]);
+	});
+});
+
+describe("resizePixels / scaleAnchor", () => {
+	it("upscales: each source pixel expands into a factor x factor block of the same colour", () => {
+		const pixels = pixelsFrom(["k#", "#k"]);
+		const resized = resizePixels(pixels, 2);
+		expect(resized).toMatchObject({ width: 4, height: 4 });
+		// top-left source pixel "k" (black) should now fill the top-left 2x2 block.
+		expect(samplePixel(resized, 0, 0)).toEqual({ r: 0, g: 0, b: 0 });
+		expect(samplePixel(resized, 1, 0)).toEqual({ r: 0, g: 0, b: 0 });
+		expect(samplePixel(resized, 0, 1)).toEqual({ r: 0, g: 0, b: 0 });
+		expect(samplePixel(resized, 1, 1)).toEqual({ r: 0, g: 0, b: 0 });
+		// top-right source pixel "#" (white) should fill the top-right 2x2 block.
+		expect(samplePixel(resized, 2, 0)).toEqual({ r: 255, g: 255, b: 255 });
+		expect(samplePixel(resized, 3, 1)).toEqual({ r: 255, g: 255, b: 255 });
+	});
+
+	it("downscales without padding or cropping", () => {
+		const pixels = pixelsFrom(["kkkk", "kkkk", "kkkk", "kkkk"]);
+		const resized = resizePixels(pixels, 0.5);
+		expect(resized).toMatchObject({ width: 2, height: 2 });
+	});
+
+	it("preserves a non-square aspect ratio — no padding into a square frame", () => {
+		const pixels = pixelsFrom(["kk", "kk", "kk"]); // 2 wide, 3 tall
+		expect(resizePixels(pixels, 2)).toMatchObject({ width: 4, height: 6 });
+		expect(resizePixels(pixels, 0.5)).toMatchObject({ width: 1, height: 2 });
+	});
+
+	it("rounds fractional target dimensions rather than truncating", () => {
+		const pixels = pixelsFrom(["kkkkkkkkkk"]); // 10 wide, 1 tall
+		expect(resizePixels(pixels, 0.25)).toMatchObject({ width: 3, height: 1 }); // 2.5 -> 3
+	});
+
+	it("preserves alpha, not just colour", () => {
+		const pixels = pixelsFrom(["k."]);
+		const resized = resizePixels(pixels, 2);
+		expect(alphaAt(resized, 0, 0)).toBe(255);
+		expect(alphaAt(resized, 2, 0)).toBe(0);
+	});
+
+	it("scaleAnchor applies the same uniform factor to a point", () => {
+		expect(scaleAnchor({ x: 10, y: 20 }, 2)).toEqual({ x: 20, y: 40 });
+		expect(scaleAnchor({ x: 10, y: 20 }, 0.5)).toEqual({ x: 5, y: 10 });
+	});
+});
+
+describe("compositeOverlay", () => {
+	it("a fully opaque overlay pixel replaces the base pixel underneath", () => {
+		const base = pixelsFrom(["k"]); // opaque black
+		const overlay = pixelsFrom(["#"]); // opaque white
+		const result = compositeOverlay(base, overlay, 0, 0);
+		expect(samplePixel(result, 0, 0)).toEqual({ r: 255, g: 255, b: 255 });
+		expect(alphaAt(result, 0, 0)).toBe(255);
+	});
+
+	it("a fully transparent overlay pixel leaves the base pixel unchanged", () => {
+		const base = pixelsFrom(["k"]);
+		const overlay = pixelsFrom(["."]);
+		const result = compositeOverlay(base, overlay, 0, 0);
+		expect(samplePixel(result, 0, 0)).toEqual({ r: 0, g: 0, b: 0 });
+		expect(alphaAt(result, 0, 0)).toBe(255);
+	});
+
+	it("blends a semi-transparent overlay proportionally over an opaque base", () => {
+		const base = pixelsFrom(["b"], { b: [0, 0, 255, 255] }); // opaque blue
+		const overlay = pixelsFrom(["r"], { r: [255, 0, 0, 128] }); // ~50% red
+		const result = compositeOverlay(base, overlay, 0, 0);
+		expect(samplePixel(result, 0, 0)).toEqual({ r: 128, g: 0, b: 127 });
+		expect(alphaAt(result, 0, 0)).toBe(255);
+	});
+
+	it("places the overlay at the given offset", () => {
+		const base = pixelsFrom(["...", "...", "..."]);
+		const overlay = pixelsFrom(["#"]);
+		const result = compositeOverlay(base, overlay, 1, 2);
+		expect(alphaAt(result, 1, 2)).toBe(255);
+		expect(alphaAt(result, 0, 0)).toBe(0);
+		expect(alphaAt(result, 2, 2)).toBe(0);
+	});
+
+	it("clips overlay pixels that fall outside the base bounds instead of wrapping or crashing", () => {
+		const base = pixelsFrom(["..", ".."]); // 2x2, all transparent
+		const overlay = pixelsFrom(["##", "##"]); // 2x2, opaque white
+		const result = compositeOverlay(base, overlay, 1, 1); // only overlay's own (0,0) corner lands inside base
+		expect(result).toMatchObject({ width: 2, height: 2 });
+		expect(alphaAt(result, 1, 1)).toBe(255);
+		expect(alphaAt(result, 0, 0)).toBe(0);
+	});
+
+	it("a negative offset is also clipped cleanly", () => {
+		const base = pixelsFrom(["..", ".."]);
+		const overlay = pixelsFrom(["##", "##"]);
+		const result = compositeOverlay(base, overlay, -1, -1); // only overlay's own bottom-right corner lands inside base
+		expect(alphaAt(result, 0, 0)).toBe(255);
+		expect(alphaAt(result, 1, 1)).toBe(0);
+	});
+
+	it("output size always matches base, never the overlay", () => {
+		const base = pixelsFrom(["...", "...", "..."]); // 3x3
+		const overlay = pixelsFrom(["#####", "#####"]); // 5x2, bigger than base
+		const result = compositeOverlay(base, overlay, 0, 0);
+		expect(result).toMatchObject({ width: 3, height: 3 });
+	});
+
+	it("does not mutate the base buffer", () => {
+		const base = pixelsFrom(["k"]);
+		const originalData = new Uint8ClampedArray(base.data);
+		compositeOverlay(base, pixelsFrom(["#"]), 0, 0);
+		expect(base.data).toEqual(originalData);
 	});
 });
 
