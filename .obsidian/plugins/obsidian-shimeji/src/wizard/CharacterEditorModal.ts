@@ -22,6 +22,7 @@ import { decodeImageBlob, decodeVaultImage, deletePackImage, importPackImage, ov
 import { RemoveBackgroundModal } from "../sprites/RemoveBackgroundModal";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
 import { AnimationOptionsModal } from "./AnimationOptionsModal";
+import { describeActionHint } from "./actionHints";
 import { deriveAnimatedActions, findReferenceVelocity, randomVariantConditions, type AnimatedActionChecklist } from "./animationOptions";
 import { deriveRequiredPoses, type PoseChecklist, type PoseChecklistEntry } from "./deriveRequiredPoses";
 import { PoseFitCanvas } from "./PoseFitCanvas";
@@ -414,9 +415,11 @@ export class CharacterEditorModal extends Modal {
 	private renderAnimatedActionRow(containerEl: HTMLElement, name: string): void {
 		const spec = this.content.actions.find((a) => a.name.trim() === name);
 		const count = spec?.animations.length ?? 0;
+		const countText = count > 0 ? `${count} option${count === 1 ? "" : "s"}` : "Standard animation";
+		const hint = describeActionHint(name);
 		const row = new Setting(containerEl)
 			.setName(name)
-			.setDesc(count > 0 ? `${count} option${count === 1 ? "" : "s"}` : "Standard animation")
+			.setDesc(hint ? `${hint} · ${countText}` : countText)
 			.addButton((b) => b.setButtonText(count > 0 ? "Edit frames…" : "Set frames…").onClick(() => this.openAnimationOptions(name)));
 		if (spec) row.addButton((b) => b.setButtonText("Advanced edit…").onClick(() => this.openActionEditor(spec)));
 	}
