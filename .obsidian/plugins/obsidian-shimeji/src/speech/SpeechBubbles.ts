@@ -122,8 +122,19 @@ export class SpeechBubbles {
 	/**
 	 * One frame: offer every mascot's behaviour to the scheduler, then reposition and expire what
 	 * is on screen. Called from the plugin's existing loop rather than owning one of its own.
+	 *
+	 * `worldTop` re-tops `this.layer` (a permanent `position:fixed; inset:0` box, same as Stage's
+	 * own overlay) below Obsidian's title bar/tab-strip chrome. This is a *second*, independent
+	 * full-viewport element the plugin creates — `Stage`'s own overlay already gets this treatment
+	 * (`Stage.recomputeLedges`), and `shimejiDebug.hideOverlay()` only ever hid *that* one, which is
+	 * exactly why it tested as "no effect" even though the underlying cause (a plugin-owned box
+	 * geometrically sitting over the real OS drag region, blocking Electron's `-webkit-app-region:
+	 * drag` hit-testing regardless of `pointer-events`) was the same confirmed mechanism as the
+	 * original title-bar bug — this element just never received the same fix. Cheap to redo every
+	 * frame (one style write) rather than threading a change-notification through from Stage.
 	 */
-	tick(mascots: readonly Mascot[]): void {
+	tick(mascots: readonly Mascot[], worldTop = 0): void {
+		this.layer.style.top = `${worldTop}px`;
 		const now = performance.now();
 
 		if (this.enabled) {

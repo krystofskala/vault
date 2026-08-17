@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, withRefreshedCheatSheet } from "../src/speech/speechLines";
-import { SpeechScheduler } from "../src/speech/SpeechScheduler";
-import { resolveSpeechPool } from "../src/speech/SpeechBubbles";
+import { DEFAULT_SPEECH_OPTIONS, SpeechScheduler } from "../src/speech/SpeechScheduler";
+import { resolveSpeechPool, SpeechBubbles } from "../src/speech/SpeechBubbles";
 import { DEFAULT_VAULT_REACTION_OPTIONS } from "../src/speech/vaultReactions";
 
 /** A deterministic stand-in for Math.random: hands back the given values in order, then repeats
@@ -473,5 +473,43 @@ describe("resolveSpeechPool", () => {
 		// pool for that character.
 		const packPools = new Map([["some-pack", new Map()]]);
 		expect(resolveSpeechPool("some-pack", general, packPools)).toBe(general);
+	});
+});
+
+describe("SpeechBubbles.tick worldTop wiring", () => {
+	// Regression guard for the bug this exists to fix: .shimeji-speech-layer is a permanent
+	// position:fixed; inset:0 box (styles.css), a *second* full-viewport overlay independent of
+	// Stage's own .shimeji-stage. Only .shimeji-stage ever got re-topped below Obsidian's title
+	// bar/tab strip (Stage.recomputeLedges) -- this element geometrically sat over that chrome at
+	// all times regardless, which blocks Electron's native window-drag hit-testing the same way
+	// .shimeji-stage used to before that fix (see Ledges/Environment's own worldTop comments), and
+	// shimejiDebug.hideOverlay() never caught it because that helper only ever hid .shimeji-stage.
+	//
+	// Each `new SpeechBubbles(...)` appends its own layer div and nothing here ever removes one, so
+	// three tests leave three of them in `document.body` by the end -- querySelector would just keep
+	// returning the first (oldest) one. Taking the *last* match instead always finds the one the
+	// instance just created, regardless of what earlier tests left behind.
+	function latestSpeechLayer(): HTMLElement | undefined {
+		const layers = document.querySelectorAll<HTMLElement>(".shimeji-speech-layer");
+		return layers[layers.length - 1];
+	}
+
+	it("re-tops the speech layer to worldTop on every tick", () => {
+		const speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS);
+		speech.tick([], 40);
+		expect(latestSpeechLayer()?.style.top).toBe("40px");
+	});
+
+	it("defaults to 0 when no worldTop is known (e.g. a non-Obsidian host, or before Stage exists)", () => {
+		const speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS);
+		speech.tick([]);
+		expect(latestSpeechLayer()?.style.top).toBe("0px");
+	});
+
+	it("follows worldTop as it changes across ticks, the same as Stage's own overlay", () => {
+		const speech = new SpeechBubbles(DEFAULT_SPEECH_OPTIONS);
+		speech.tick([], 40);
+		speech.tick([], 64);
+		expect(latestSpeechLayer()?.style.top).toBe("64px");
 	});
 });

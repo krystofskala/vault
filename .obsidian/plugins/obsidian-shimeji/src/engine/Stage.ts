@@ -382,6 +382,14 @@ export class Stage {
 		return this.mascots;
 	}
 
+	/** For any other full-viewport overlay the plugin owns but Stage doesn't — see
+	 * SpeechBubbles.tick's own use of this. Live (this.worldTop's *current* value), not fixed at
+	 * some earlier read, for the same reason createMascot's own getWorldTop thunk is: the tab strip
+	 * can change height, and every recomputeLedges refreshes it. */
+	getWorldTop(): number {
+		return this.worldTop;
+	}
+
 	getLedges(): Ledge[] {
 		return this.ledges;
 	}

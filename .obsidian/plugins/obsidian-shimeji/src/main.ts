@@ -1058,7 +1058,7 @@ export default class ShimejiPlugin extends Plugin {
 				resident && resident.width > 0 ? { left: resident.left, top: resident.top, right: resident.right, bottom: resident.bottom } : undefined,
 				this.roomHourOverride,
 			);
-			this.speech.tick(this.stage?.getMascots() ?? []);
+			this.speech.tick(this.stage?.getMascots() ?? [], this.stage?.getWorldTop() ?? 0);
 			this.residencyRaf = requestAnimationFrame(step);
 		};
 		this.residencyRaf = requestAnimationFrame(step);

@@ -105,6 +105,16 @@ export function installDebugApi(
 			} else {
 				console.info("[obsidian-shimeji] no stage");
 			}
+			// A second, independent full-viewport box the plugin owns — see SpeechBubbles.tick's own
+			// comment. hideOverlay() only ever hid .shimeji-stage, so a "no change" result from that
+			// test never actually ruled this one out; reported directly here for the same reason the
+			// stage overlay is, above.
+			const speechLayer = document.querySelector<HTMLElement>(".shimeji-speech-layer");
+			if (speechLayer) {
+				const r = speechLayer.getBoundingClientRect();
+				const top = getComputedStyle(speechLayer).top;
+				console.info(`[obsidian-shimeji] .shimeji-speech-layer box: top=${Math.round(r.top)} (style.top=${top}) bottom=${Math.round(r.bottom)}`);
+			}
 			const w = window.innerWidth;
 			const xs = [20, Math.round(w / 2), Math.max(20, w - 20)];
 			for (const x of xs) {

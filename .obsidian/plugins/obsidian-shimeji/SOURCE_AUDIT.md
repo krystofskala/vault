@@ -1830,3 +1830,52 @@ trims a wall ledge's climbable span to end `standingHeight` short of worldTop (d
 entirely if that leaves nothing to climb), the same buffer already used for floors.
 
 610 tests.
+
+## Pass 35: the title bar, a fourth time — a second full-viewport overlay nobody had looked at (2026-08-17)
+
+Reported again after Pass 34: title bar still undraggable. This time the user was asked to actually
+run the decisive test Pass 14 built for exactly this and never got a confirmed answer from
+(`shimejiDebug.hideOverlay()`) instead of shipping another guess against `.shimeji-stage`/worldTop —
+the same file/ledge code had already been re-read twice this session with nothing new found by
+inspection alone, so another pass of that would only have repeated Pass 12-14's own mistake.
+
+**Result, from the user's live console**: `hideOverlay()` — no change, title bar still undraggable.
+Disabling the whole plugin — fixed it. That pair of facts rules out `.shimeji-stage` (and everything
+inside it, every mascot included) outright: hiding that element hides its entire subtree, so if a
+mascot or the stage's own box were the cause, hiding it would have been enough. Something *outside*
+`.shimeji-stage` that only disabling the whole plugin removes is the real blocker.
+
+**Root cause**: `SpeechBubbles` appends its own `.shimeji-speech-layer` — `position:fixed; inset:0`,
+a second, completely independent full-viewport box — straight to `document.body`, never as a child of
+`.shimeji-stage`. `RoomForeground`'s canvas is the only other element appended directly to
+`document.body`, but it's sized and positioned to a specific pane's own live rect, which by
+construction never extends above Obsidian's real tab-header row — not a suspect. The speech layer,
+by contrast, was never given the `top: worldTop` treatment `.shimeji-stage` got in Pass 16 (only that
+one element's box was ever re-topped; nothing else the plugin draws was), so it sat over the title
+bar/tab-strip drag region *permanently*, blocking Electron's native `-webkit-app-region: drag`
+hit-testing by mere geometric presence — the exact mechanism Pass 16 confirmed for `.shimeji-stage`
+itself, just never checked for this second element. `shimejiDebug.hideOverlay()` only ever toggled
+`.shimeji-stage`, so it could never have caught this even in earlier passes.
+
+**Fixed**: `Stage` gained a public `getWorldTop()` (the existing private field, already read live by
+each mascot's own dependency thunk). `SpeechBubbles.tick(mascots, worldTop)` now re-tops its layer
+every frame the same way `Stage.recomputeLedges` re-tops its own — cheap (one style write) and
+self-correcting if worldTop ever changes mid-session, no new change-notification plumbing needed.
+`elementsAtTop()` now reports the speech layer's own box directly, alongside the stage overlay's, so
+a future report doesn't require re-deriving this from scratch.
+
+**Honest framing**: this is evidence-based, not yet live-confirmed — the user's own hideOverlay/
+disable-plugin result is what pointed here, but nobody has yet reloaded with this exact fix and
+confirmed the title bar drags again. Given this file's own history with this bug (four rounds
+counting this one), that confirmation is load-bearing before calling it closed.
+
+**Separately reported same round**: a custom Move action's frames (sliced via the "Set frames…"
+wizard, Aug 16-17 work) sliced with velocity left at 0 still don't move after pulling the fix that
+makes *new* slices inherit velocity (`findReferenceVelocity`). Not a bug in that fix — it only ever
+changes what a fresh slice starts with; it has no way to reach back and rewrite a `CustomPoseSpec`
+already written to `data.json` from before the fix existed. The direct fix for existing data is
+manual: Advanced edit… → the action → each pose's own Velocity (x,y) field, already present and
+editable. No code change accompanies this entry; it's recorded here so the "still broken" report
+isn't mistaken for the same class of bug as the title bar above.
+
+636 tests.
