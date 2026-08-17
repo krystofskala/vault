@@ -448,16 +448,16 @@
 }
 
 /* Same element as .shimeji-bubble (ChatBubble builds into SpeechBubbles' own layer, keeps the
-   theme/comic modifier, and its rounded corners + tail unmodified) — the transcript, docked
-   directly above the room picture, sized to match its height rather than however much dead space
-   the pane happens to leave above it. Width/position/height are all set inline, per frame, by
-   ChatBubble.update(); this only needs to stop the ordinary bubble's line-width cap from clamping
-   the width down, and turn the bubble into a scrollable message list (no separate header — the
-   room pane's own .shimeji-room-chat-toggle button is the only open/close control). */
-/* Deliberately NOT the scrolling element — see .shimeji-bubble-chat-messages below for why: an
-   element clips its own ::after along with everything else once it clips overflow at all, which
-   silently ate the tail (see the doc comment on that rule). This one stays overflow:visible so the
-   tail it owns can actually show. */
+   theme/comic modifier and its rounded corners) — the transcript, docked directly above the room
+   picture, sized to match its height rather than however much dead space the pane happens to leave
+   above it. Width/position/height are all set inline, per frame, by ChatBubble.update(); this only
+   needs to stop the ordinary bubble's line-width cap from clamping the width down, and turn the
+   bubble into a scrollable message list (no separate header — the room pane's own
+   .shimeji-room-chat-toggle button is the only open/close control).
+   The tail is NOT this element's own ::after (see .shimeji-bubble-chat-tail below for why) — it
+   used to be, but overflow:auto below on the scrolling child turned out to matter for that
+   decision too: this element deliberately stays overflow:visible even though nothing here needs it
+   to be anymore, simply because there is no reason left to clip it. */
 .shimeji-bubble-chat {
 	max-width: none;
 	width: 320px;
@@ -486,26 +486,29 @@
 	padding: 18px 10px 8px;
 }
 
-/* The ordinary tail (see .shimeji-bubble::after above) sits notched into the bubble's own border,
-   which reads fine pointing at a sprite's head. Pushed further down into the gap above the room
-   picture instead — GAP_PX in ChatBubble.ts gives it the room — the same shape floats clear of
-   both and reads as its own "scroll to the newest message" affordance. Purely decorative for now;
-   nothing is wired to actually respond to a click on it yet.
-   This only works because .shimeji-bubble-chat itself (this pseudo-element's own containing box)
-   stays overflow:visible — .shimeji-bubble-chat-messages is the one that clips, and the tail isn't
-   inside it. */
-.shimeji-bubble-chat::after {
-	bottom: -18px;
-	width: 14px;
-	height: 14px;
-	margin-left: -7px;
+/* The tail: a plain CSS border-triangle, not a rotated square like .shimeji-bubble's own ::after —
+   deliberately, so its footprint is its own literal width/height with no diagonal to account for.
+   (A square rotated 45deg has a *visual* extent of `side * sqrt(2)`, not `side` — the gap this
+   floats in was sized assuming the wrong one of those twice before this became a real element.)
+   A real sibling element rather than a pseudo-element of the transcript for the same reason the
+   messages list is split out above: independent positioning in ChatBubble.update() (exact pixel
+   math, centred in the gap) rather than a hand-tuned CSS offset, and no shared box to accidentally
+   clip it. Colour matches the transcript's own background per style, so it reads as attached to it
+   despite being a separate element floating a few pixels below. */
+.shimeji-bubble-chat-tail {
+	position: fixed;
+	width: 0;
+	height: 0;
+	border-left: 8px solid transparent;
+	border-right: 8px solid transparent;
+	border-top: 10px solid var(--background-primary);
+	pointer-events: none;
+	z-index: 62;
 }
 
-.shimeji-bubble-chat.shimeji-bubble-comic::after {
-	bottom: -20px;
-	width: 16px;
-	height: 16px;
-	margin-left: -8px;
+.shimeji-bubble-chat-tail.shimeji-bubble-comic {
+	border-top-color: #ffffff;
+	filter: drop-shadow(0 1.5px 0 #111111);
 }
 
 /* Free-flowing markdown text (MarkdownRenderer.renderMarkdown, not a plain textContent line), not

@@ -6,11 +6,20 @@ import type { Rect } from "../engine/types";
 import type { MascotPack } from "../shimeji/types";
 import type { BubbleStyle } from "../speech/SpeechBubbles";
 
-/** Gap between the bottom of the transcript and the top of the room picture — room for the tail
- * (see styles.css's .shimeji-bubble-chat::after) to sit clear of both, floating in the middle of
- * the gap rather than notched into the bubble's own border, which is what makes it read as its own
- * "scroll to the newest message" affordance instead of an ordinary speech-bubble point. */
+/** Gap between the bottom of the transcript and the top of the room picture — room for the tail to
+ * float clear of both, which is what makes it read as its own "scroll to the newest message"
+ * affordance instead of an ordinary speech-bubble point notched into the border. */
 const GAP_PX = 22;
+/** The tail's own exact size, in real pixels — see styles.css's .shimeji-bubble-chat-tail, a plain
+ * CSS border-triangle with these same two numbers as its width/height. Kept here rather than only
+ * in CSS specifically so update() can centre it in the gap by *computed* pixel math instead of a
+ * hand-tuned offset: a `transform: rotate()` diamond's own visual footprint is its diagonal
+ * (`side * sqrt(2)`), not its side length, which is exactly the arithmetic that made three rounds
+ * of eyeballed CSS offsets all come out subtly wrong. A plain rectangle has no such conversion to
+ * get wrong — TAIL_HEIGHT only ever has to be comfortably less than GAP_PX for both edges below to
+ * stay positive. */
+const TAIL_WIDTH = 16;
+const TAIL_HEIGHT = 10;
 /** How much of the pane's own top edge to leave clear for RoomView's own .shimeji-room-chat-toggle
  * button, which sits at a fixed `top:6px; right:8px` there regardless of anything this class does.
  * The transcript's own top is never allowed to climb higher than this, even when the room picture
@@ -73,6 +82,10 @@ function clamp(value: number, min: number, max: number): number {
 export class ChatBubble extends Component {
 	private transcriptEl?: HTMLDivElement;
 	private messagesEl?: HTMLDivElement;
+	/** A real element, not a CSS ::after on the transcript — independently positioned in update()
+	 * so its placement is exact, computed pixel math rather than a value tuned by eye against a
+	 * screenshot and hoped to generalize. */
+	private tailEl?: HTMLDivElement;
 	private inputBarEl?: HTMLDivElement;
 	private inputEl?: HTMLInputElement;
 	private mascot?: Mascot;
@@ -114,6 +127,8 @@ export class ChatBubble extends Component {
 		this.transcriptEl?.remove();
 		this.transcriptEl = undefined;
 		this.messagesEl = undefined;
+		this.tailEl?.remove();
+		this.tailEl = undefined;
 		this.inputBarEl?.remove();
 		this.inputBarEl = undefined;
 		this.inputEl = undefined;
@@ -135,9 +150,18 @@ export class ChatBubble extends Component {
 		transcript.style.pointerEvents = "auto";
 		this.transcriptEl = transcript;
 		// The scrolling element is a child, not the transcript itself — see styles.css's own doc
-		// comment on .shimeji-bubble-chat-messages for why: overflow:auto clips the transcript's own
-		// ::after tail along with everything else once it clips at all.
+		// comment on .shimeji-bubble-chat-messages for why: an element that clips its own overflow
+		// clips *all* of its own box content once it clips anything at all, which is exactly what ate
+		// the tail back when it was this element's own ::after (see the tail's own doc comment for
+		// the full story of why it's a plain sibling element now instead).
 		this.messagesEl = transcript.createDiv({ cls: "shimeji-bubble-chat-messages" });
+
+		// A real element rather than a pseudo-element specifically so update() can position it with
+		// exact pixel math instead of a hand-tuned CSS offset — see TAIL_WIDTH/TAIL_HEIGHT's own doc
+		// comment for why that matters here.
+		const tail = this.layer.createDiv({ cls: "shimeji-bubble-chat-tail" });
+		tail.toggleClass("shimeji-bubble-comic", comic);
+		this.tailEl = tail;
 
 		// Always Obsidian's own look, whatever the transcript's bubble style is set to — a text
 		// field is a control, not a line of speech.
@@ -219,9 +243,11 @@ export class ChatBubble extends Component {
 	 * height, sitting GAP_PX above it — shrinking only if paneRect doesn't leave that much room,
 	 * never growing past what the picture itself is tall, and never climbing higher than
 	 * TOGGLE_RESERVED_PX below paneRect's own top edge, so a short office picture in a tall pane
-	 * can't let the transcript grow tall enough to bury the toggle button that opened it. The input
-	 * bar takes a thin strip directly below
-	 * the picture the same way.
+	 * can't let the transcript grow tall enough to bury the toggle button that opened it. The tail
+	 * centres itself in whatever's left of the gap once the transcript is placed — its own bottom
+	 * edge is always exactly GAP_PX above the office regardless of whether the top got clamped, so
+	 * the tail's math never needs to know which case it's in. The input bar takes a thin strip
+	 * directly below the picture the same way.
 	 */
 	update(residentMascot: Mascot | undefined, paneRect: Rect | undefined, officeRect: Rect | undefined): void {
 		if (!this.isOpen) return;
@@ -230,10 +256,12 @@ export class ChatBubble extends Component {
 			return;
 		}
 		const transcript = this.transcriptEl;
+		const tail = this.tailEl;
 		const inputBar = this.inputBarEl;
-		if (!transcript || !inputBar) return;
+		if (!transcript || !tail || !inputBar) return;
 		if (!paneRect || !officeRect) {
 			transcript.style.visibility = "hidden";
+			tail.style.visibility = "hidden";
 			inputBar.style.visibility = "hidden";
 			return;
 		}
@@ -242,6 +270,7 @@ export class ChatBubble extends Component {
 		const width = officeRect.right - officeRect.left;
 		if (width <= 0) {
 			transcript.style.visibility = "hidden";
+			tail.style.visibility = "hidden";
 			inputBar.style.visibility = "hidden";
 			return;
 		}
@@ -252,12 +281,18 @@ export class ChatBubble extends Component {
 		const transcriptHeight = officeRect.top - GAP_PX - top;
 		if (transcriptHeight < MIN_VISIBLE) {
 			transcript.style.visibility = "hidden";
+			tail.style.visibility = "hidden";
 		} else {
 			transcript.style.visibility = "";
 			transcript.style.left = `${Math.round(left)}px`;
 			transcript.style.top = `${Math.round(top)}px`;
 			transcript.style.width = `${Math.round(width)}px`;
 			transcript.style.height = `${Math.round(transcriptHeight)}px`;
+
+			const bubbleBottom = top + transcriptHeight;
+			tail.style.visibility = "";
+			tail.style.left = `${Math.round(left + width / 2 - TAIL_WIDTH / 2)}px`;
+			tail.style.top = `${Math.round(bubbleBottom + Math.max(0, (GAP_PX - TAIL_HEIGHT) / 2))}px`;
 		}
 
 		const inputTop = officeRect.bottom + INPUT_GAP_PX;
