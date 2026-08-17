@@ -354,9 +354,10 @@ describe("a resident that ends up outside its own room", () => {
 
 describe("how big the resident is", () => {
 	it("keeps the size it walked in at, when the room does not ask otherwise", () => {
-		// Shrinking a mascot on the way through the door was a decision nobody asked for. Only a
-		// room whose composition depends on it (the office, at its desk) gets to resize its
-		// resident; everywhere else it stays the character it was outside.
+		// Shrinking a mascot on the way through the door was a decision nobody asked for. Resizing
+		// is opt-in per room, and no room currently asks for it (the office, whose desk-height
+		// composition depended on it, has been removed); everywhere else it stays the character it
+		// was outside.
 		const s = scene();
 		const m = s.add(fakeMascot(400, 900));
 		m.height = 20; // comfortably inside the test room, so the fit clamp cannot apply

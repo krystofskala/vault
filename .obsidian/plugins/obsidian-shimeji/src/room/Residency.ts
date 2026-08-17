@@ -28,7 +28,7 @@ const THRESHOLD_REACH_PX = 52;
  *
  * Derived from the room rather than a fixed multiplier, because "half size" is only the right answer
  * for one particular room at one particular pane width — a tall narrow nook and a wide desk-height
- * office read completely differently at the same fixed scale, and either changes size whenever the
+ * room read completely differently at the same fixed scale, and either changes size whenever the
  * sidebar is dragged besides. Sizing it against the room keeps the proportion fixed and lets
  * everything else move.
  *
@@ -216,9 +216,10 @@ export class Residency {
 	/**
 	 * How big the resident should be in this room.
 	 *
-	 * Resizing is **opt-in**, and only the office asks for it — its whole composition is built
-	 * around a figure of a particular size at a desk, so leaving that to whatever the mascot
-	 * happened to be would put it through the furniture. Every other room leaves the mascot exactly
+	 * Resizing is **opt-in**, and no room currently asks for it. The option exists for a room whose
+	 * composition is built around a figure of a particular size — the office, removed since, was
+	 * built around exactly that: a desk-height figure that had to match its furniture instead of
+	 * whatever size the mascot happened to be outside. Every other room leaves the mascot exactly
 	 * the size it walked in at: it is the same character either side of the threshold, and shrinking
 	 * it on the way through was a decision nobody asked for.
 	 *

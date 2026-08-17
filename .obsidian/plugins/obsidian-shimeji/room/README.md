@@ -1,7 +1,7 @@
 # The plant room's artwork
 
-Currently nothing to put here: **Office**, the only room style on offer right now, is drawn by the
-plugin itself and needs no picture file.
+Currently nothing to put here: **the plant room**, the only room style on offer right now, is drawn
+by the plugin itself and needs no picture file.
 
 This folder — and the settings dropdown's per-style `imageBase` field — exist for a future
 supplied-artwork room (an "Apartment" or "Cellar" style once lived here, since removed). Adding one

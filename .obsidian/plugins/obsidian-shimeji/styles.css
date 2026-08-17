@@ -168,17 +168,6 @@
 	font-size: calc(var(--font-ui-smaller) * 0.92);
 }
 
-/* The part of a room drawn in front of its resident. Fixed and above the stage overlay, because
-   mascots live on that overlay and nothing inside the workspace can paint over it — see
-   room/RoomForeground.ts. Click-through: it is a picture, and the mascot beneath the parts it
-   overlaps has to stay grabbable. */
-.shimeji-room-foreground {
-	position: fixed;
-	pointer-events: none;
-	z-index: 61;
-	image-rendering: pixelated;
-}
-
 /* ---------- sprite sheet editor ---------- */
 
 .shimeji-sheet-modal {
@@ -352,9 +341,9 @@
 
 /* ---------- speech bubbles ---------- */
 
-/* Its own fixed layer, above both the mascot overlay (60) and the room's foreground (61): a line
-   has to stay readable while the mascot is sitting behind the office desk. Never interactive —
-   a bubble that swallowed a click would break dragging the mascot underneath it. */
+/* Its own fixed layer, above the mascot overlay (60), so a speech line stays readable no matter
+   what the mascot is standing near. Never interactive — a bubble that swallowed a click would
+   break dragging the mascot underneath it. */
 .shimeji-speech-layer {
 	position: fixed;
 	inset: 0;
@@ -506,7 +495,7 @@
    against the transcript's own position:fixed box (see .shimeji-bubble) means `bottom: -10px` always
    means "hanging exactly off my parent's own bottom border", automatically, on every resize, with no
    per-frame math and no way for the two to visually drift apart or double up. This is also what
-   finally closes the gap for good: the transcript sits ChatBubble.ts's TAIL_HEIGHT above the office
+   finally closes the gap for good: the transcript sits ChatBubble.ts's TAIL_HEIGHT above the room
    picture and nothing more, so this element's own height *is* that space, edge to edge, rather than
    floating somewhere inside a wider one with dead air on both sides. Colour matches the transcript's
    own background per style, so it reads as one continuous shape rather than two touching ones. */

@@ -34,8 +34,8 @@ export function resolveSpeechPool(packId: string | null, defaultPool: SpeechPool
  * Bubbles live in their own fixed layer on `document.body` rather than inside the mascot's element,
  * for two reasons. The sprite's element is exactly sprite-sized and its inner box is mirrored to
  * face the mascot's direction — a bubble inside it would be clipped, and its text would come out
- * backwards half the time. And a fixed layer above the room's foreground means a line is still
- * readable when the mascot is sitting behind the office desk.
+ * backwards half the time. And a fixed layer above the mascot overlay means a line is still
+ * readable no matter what the mascot is standing near.
  *
  * Purely an observer: it reads each mascot's current behaviour every frame and never tells the
  * engine anything. That is why adding speech needed no engine change at all.

@@ -862,12 +862,12 @@ isn't subject to it. This is why every Obsidian AI plugin uses it instead of `fe
 
 ### Chatting with a resident
 
-The office room has a small **Chat** button in its top-right corner. Click it and the room picture
+The plant room has a small **Chat** button in its top-right corner. Click it and the room picture
 gets a transcript docked directly above it — same bubble look (theme or comic, whatever
 **Settings → Speech bubble style** has set, tail and all) as an ordinary remark, sized to match the
-office picture's own width and height rather than filling whatever space happens to be free above
+room picture's own width and height rather than filling whatever space happens to be free above
 it — and a thin input bar, always in Obsidian's own native look regardless of that style, docked
-directly below the picture. The office itself never changes size or position to make room for
+directly below the picture. The room itself never changes size or position to make room for
 either one; they only ever use whatever space the pane already has above and below it, shrinking
 rather than growing past it, which is why the layout suits a tall sidebar particularly well. Type
 in the bar and press **Enter** (or click **Send**) to talk; the toggle button closes it again.

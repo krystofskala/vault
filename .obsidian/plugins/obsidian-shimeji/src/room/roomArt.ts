@@ -88,12 +88,6 @@ function painterFor(ctx: CanvasRenderingContext2D): Painter {
 	};
 }
 
-/** Whether a room has anything drawn in front of its resident at all — most do not, and no
- * foreground canvas is created for them. */
-export function hasForeground(def: RoomDef): boolean {
-	return def.fixtures.some((f) => f.layer === "foreground");
-}
-
 /** Draws one layer of the room into `canvas`, sized and mirrored to match a RoomLayout. */
 export function paintRoom(
 	canvas: HTMLCanvasElement,

@@ -122,8 +122,10 @@ export interface RoomFixture {
 	 * counter it is standing behind.
 	 *
 	 * It cannot be done by draw order alone: mascots are not drawn into the room's canvas at all,
-	 * they live on the stage's own full-window overlay above the workspace. So a foreground fixture
-	 * is painted onto a second canvas that sits above that overlay in turn — see RoomForeground.
+	 * they live on the stage's own full-window overlay above the workspace. Making this work needs a
+	 * second canvas painted above that overlay in turn — the room this was built for (the office, a
+	 * desk the resident sat behind) was removed after that second canvas proved too hard to keep in
+	 * register with the one behind it. No room currently sets this to "foreground".
 	 */
 	layer?: "background" | "foreground";
 }
@@ -152,20 +154,20 @@ export interface RoomDef {
 	 * Leaves the pane around the room in the theme's own colour instead of painting it from the
 	 * room's palette.
 	 *
-	 * For a room that reads as a scene rather than as a picture hung on a wall: the office is a
-	 * view *into* somewhere, so a slab of invented wall colour around it just looks like the pane
-	 * failed to fill. Letting Obsidian's own sidebar colour run right up to the art makes the room
-	 * sit in the workspace instead of on top of it.
+	 * For a room that reads as a scene rather than as a picture hung on a wall — the office, for
+	 * instance, was a view *into* somewhere, so a slab of invented wall colour around it would have
+	 * just looked like the pane failed to fill. Letting Obsidian's own sidebar colour run right up
+	 * to the art makes the room sit in the workspace instead of on top of it.
 	 */
 	paneBackdrop?: boolean;
 	/**
 	 * How tall the resident stands, in the room's *own* coordinate units.
 	 *
 	 * Preferred over `residentHeightFraction` for any room whose furniture the mascot has to line
-	 * up with, because it is stated in the same units as that furniture. The office's desktop is at
-	 * y=38 and its chair at y=47, so a resident 20 units tall puts its head at 27 — eleven units
-	 * clear of the desk — and that stays true at every pane size, which a fraction-of-pixels
-	 * derivation does not.
+	 * up with, because it is stated in the same units as that furniture. The office, for example,
+	 * had its desktop at y=38 and its chair at y=47, so a resident 20 units tall put its head at 27
+	 * — eleven units clear of the desk — and that stayed true at every pane size, which a
+	 * fraction-of-pixels derivation would not.
 	 */
 	residentHeightUnits?: number;
 	/**
@@ -222,20 +224,9 @@ export interface RoomDef {
 	door: { x1: number; x2: number; y: number };
 	fixtures: RoomFixture[];
 	/**
-	 * An ambient tint re-applied after the foreground layer's own fixtures, so the sliver of them
-	 * redrawn over the resident ends up the same shade as the rest of the room.
-	 *
-	 * Exists because of a conflict `RoomFixture.layer`'s own doc does not mention: a *background*
-	 * wash that darkens the whole room (see office's `atmosphere`) cannot be a foreground fixture
-	 * itself — that already shipped broken once, as a visible rectangle where the wash's alpha
-	 * compounded inside the clip — but leaving it background-only means the foreground repaint never
-	 * receives it at all. The desk drawn once, dimmed by the wash, and the same desk redrawn a
-	 * second time over the resident, at raw undimmed colour, split it into two visibly different
-	 * shades along the clip's own edge — reported as "the colour of the table only looks different
-	 * in the overlay", and it was this.
-	 *
-	 * Called once, after every foreground fixture, exactly the way the background pass calls the
-	 * wash once, after every fixture — so each canvas ends up tinted exactly once, never twice.
+	 * An ambient tint that would be re-applied after the foreground layer's own fixtures, so the
+	 * sliver of them redrawn over the resident ends up the same shade as the rest of the room. No
+	 * room currently has a foreground layer to need this — see `RoomFixture.layer`.
 	 */
 	foregroundWash?(p: Painter, mood: RoomMood): void;
 }

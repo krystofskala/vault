@@ -1,19 +1,21 @@
-import { OFFICE } from "./office";
-import type { RoomDef } from "./roomDef";
+import { LIVING_ROOM, type RoomDef } from "./roomDef";
 
 /**
  * The rooms on offer.
  *
- * Office is the only one currently listed — self-drawn by the plugin, no image file needed. Two
- * supplied-artwork styles (apartment, cellar) and a second self-drawn one ("painted", the plant
- * nook) existed here before and were removed by request; their code is gone from apartment.ts/
- * cellar.ts (deleted) but the plant nook's own definition, `LIVING_ROOM`, is still exported from
- * roomDef.ts — RoomView.ts keeps it as the generic "image not ready yet" fallback for any
- * *future* image-based room, even with none currently registered here. Adding a room back is a
- * definition file and an entry here — the feature itself has no other idea how many there are.
+ * Just the plant room for now — self-drawn by the plugin, no image file needed. The office (a desk
+ * the resident sat behind, with a second canvas painted over the mascot to fake the furniture being
+ * in front of it) was removed by request: the overlay it depended on kept drifting out of register
+ * with the room behind it in ways that were never fully pinned down, and a plain room with no such
+ * trick has nothing to drift. Two supplied-artwork styles (apartment, cellar) existed before that
+ * and were removed too; their code is gone from apartment.ts/cellar.ts (deleted), but the plant
+ * room's own definition, `LIVING_ROOM`, is still exported from roomDef.ts — RoomView.ts keeps it as
+ * the generic "image not ready yet" fallback for any *future* image-based room, even with none
+ * currently registered here. Adding a room back is a definition file and an entry here — the
+ * feature itself has no other idea how many there are.
  */
 
-export type RoomStyleId = "office";
+export type RoomStyleId = "plant-room";
 
 export interface RoomStyle {
 	id: RoomStyleId;
@@ -29,15 +31,15 @@ export interface RoomStyle {
 }
 
 export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
-	office: {
-		id: "office",
-		label: "Office",
-		description: "A post-apocalyptic office, drawn by the plugin: broken window, damp concrete, one lamp still working. The shimeji sits at the desk and stays there, behind the monitor.",
-		def: OFFICE,
+	"plant-room": {
+		id: "plant-room",
+		label: "Plant room",
+		description: "A small room drawn by the plugin: a window, a bookshelf, a sofa, a couple of plants. The shimeji comes and goes as it does outdoors — nothing about this room resizes or repositions it.",
+		def: LIVING_ROOM,
 	},
 };
 
-export const ROOM_STYLE_IDS: RoomStyleId[] = ["office"];
+export const ROOM_STYLE_IDS: RoomStyleId[] = ["plant-room"];
 
 /** Tried in order. PNG first because that is what pixel art is normally saved as. */
 export const ROOM_IMAGE_EXTENSIONS = ["png", "webp", "jpg", "jpeg", "gif"] as const;
@@ -49,5 +51,5 @@ export function roomImageCandidates(style: RoomStyle): string[] {
 }
 
 export function roomStyle(id: string | undefined): RoomStyle {
-	return ROOM_STYLES[(id ?? "office") as RoomStyleId] ?? ROOM_STYLES.office;
+	return ROOM_STYLES[(id ?? "plant-room") as RoomStyleId] ?? ROOM_STYLES["plant-room"];
 }

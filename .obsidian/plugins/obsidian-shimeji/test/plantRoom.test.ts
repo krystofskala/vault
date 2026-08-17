@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { layoutRoom, shouldMirror } from "../src/room/RoomGeometry";
 import { LIVING_ROOM, roomSurfaces, roomWalls } from "../src/room/roomDef";
-import { OFFICE, OFFICE_DESK_Y } from "../src/room/office";
-import { residentScaleFor } from "../src/room/Residency";
-import { hasForeground, moodForHour } from "../src/room/roomArt";
+import { moodForHour } from "../src/room/roomArt";
 import { ROOM_STYLES, ROOM_STYLE_IDS, roomStyle } from "../src/room/rooms";
 import { findRoute } from "../src/engine/Routing";
 import { findFloorBelow } from "../src/engine/Ledges";
@@ -198,8 +196,10 @@ describe("the rooms on offer", () => {
 			expect(style.label.length).toBeGreaterThan(0);
 		}
 		// A settings file from a future version, or a hand-edited one, must not take the room down.
-		expect(roomStyle("no-such-room").id).toBe("office");
-		expect(roomStyle(undefined).id).toBe("office");
+		// This also covers "office", the room this file used to name here before it was removed.
+		expect(roomStyle("no-such-room").id).toBe("plant-room");
+		expect(roomStyle("office").id).toBe("plant-room");
+		expect(roomStyle(undefined).id).toBe("plant-room");
 	});
 });
 
@@ -222,174 +222,6 @@ describe("where the room sits in its pane", () => {
 				expect(Math.abs(l.rect.left - pane.left - (pane.right - l.rect.right)), `${id} is off-centre horizontally`).toBeLessThanOrEqual(1);
 			}
 		}
-	});
-});
-
-describe("the office", () => {
-	const layout = layoutRoom(OFFICE, { left: 1420, top: 120, right: 1740, bottom: 1360 }, VIEWPORT_W)!;
-
-	it("draws the desk in front of the resident, and the chair behind it", () => {
-		// The whole point of the room. A desk on the background layer would have the mascot standing
-		// on top of it rather than sitting at it.
-		expect(hasForeground(OFFICE), "nothing is drawn in front of the resident").toBe(true);
-		const front = OFFICE.fixtures.filter((f) => f.layer === "foreground").map((f) => f.id);
-		expect(front).toContain("desk");
-		expect(front).toContain("monitor");
-		// The chair is what it sits *in*, so it must stay behind.
-		expect(OFFICE.fixtures.find((f) => f.id === "chair")?.layer ?? "background").toBe("background");
-	});
-
-	it("gives the resident nowhere to go but the seat", () => {
-		// It stays at the desk by having no alternative, not by any rule policing it — the same
-		// substitute-the-world trick confinement itself uses, applied once more in the small.
-		const floors = layout.ledges().filter((l) => l.kind === "floor");
-		expect(floors).toHaveLength(1);
-		const seat = floors[0] as Extract<Ledge, { kind: "floor" }>;
-		expect(seat.x1).toBeGreaterThan(layout.rect.left);
-		expect(seat.x2).toBeLessThan(layout.rect.right);
-		// Walled at both ends, so it cannot walk off the short run it has.
-		const walls = layout.ledges().filter((l): l is Extract<Ledge, { kind: "wall" }> => l.kind === "wall");
-		expect(walls.some((w) => Math.abs(w.x - seat.x1) < 1)).toBe(true);
-		expect(walls.some((w) => Math.abs(w.x - seat.x2) < 1)).toBe(true);
-	});
-
-	it("sits the desktop across the resident's body, not above or below it", () => {
-		// If the desk line sits above the mascot's head it hides the whole thing; below its feet and
-		// the mascot appears to stand in front. Either way the room fails at the one thing it is for,
-		// and both depend on the resident's size — so they are checked together.
-		//
-		// The size is the *effective* one, cap included. Computing it from the fraction alone is how
-		// this test passed while the room shipped showing a scalp: the cap of 1 was silently winning
-		// in every pane wide enough to matter, and the test never knew.
-		const roomHeight = layout.rect.bottom - layout.rect.top;
-		const NATURAL_SPRITE_PX = 128;
-		// The room's own function, not a copy of it. Restating the arithmetic here is exactly how
-		// this shipped hidden twice: the test agreed with a version nobody was running.
-		const spriteHeight = NATURAL_SPRITE_PX * residentScaleFor(layout, NATURAL_SPRITE_PX, roomHeight, 1);
-		const feet = layout.toViewport(0, OFFICE.floorY).y;
-		const head = feet - spriteHeight;
-		const desktop = layout.toViewport(0, OFFICE_DESK_Y).y;
-		expect(desktop, "the desk is above the mascot's head — it would be hidden entirely").toBeGreaterThan(head);
-		expect(desktop, "the desk is below the mascot's feet — it would not hide anything").toBeLessThan(feet);
-		// Bounded at both ends, because "across the body" is a range and not a side. Too little above
-		// the desktop and only a scalp shows; too much and the desk is a skirting board it happens to
-		// be standing behind. Between a third and three quarters reads as sitting at it.
-		const showing = (desktop - head) / spriteHeight;
-		// Raised from 0.4: "some of it shows" is not the requirement, "the whole head shows" is, and
-		// a head is roughly the top quarter of a character sprite. Half clear of the desk leaves the
-		// head and shoulders with room to spare even for art that sits low in its own frame.
-		expect(showing, "not enough of the mascot clears the desk to show a whole head").toBeGreaterThan(0.5);
-		expect(showing, "the desk hides almost nothing — it does not read as sitting at it").toBeLessThan(0.85);
-	});
-
-	it("clears the desk by a whole head, in the room's own units", () => {
-		// The same guarantee as above, stated where the numbers live so it can be checked against the
-		// room by eye: chair at 47, desktop at 38, resident 20 tall puts the head at 27.
-		const height = OFFICE.residentHeightUnits;
-		expect(height, "the office no longer states its resident height in room units").toBeDefined();
-		const headY = OFFICE.floorY - height!;
-		const clearance = OFFICE_DESK_Y - headY;
-		expect(headY, "the resident's head is below the desktop — it would be hidden").toBeLessThan(OFFICE_DESK_Y);
-		expect(clearance / height!, "less than a head clears the desk").toBeGreaterThan(0.5);
-	});
-
-	it("pins which way it faces, and what it is doing", () => {
-		// Shimeji artwork is side-on and has no front-facing pose, so facing settles the side rather
-		// than turning it to camera. The held behaviour is the other half: without it the pack picks
-		// freely from walks and stands in a room twenty pixels wide, which reads as shaking.
-		expect(OFFICE.residentFacing).toBeDefined();
-		expect(OFFICE.residentBehavior, "nothing holds the resident still").toBeDefined();
-	});
-
-	it("seats the resident the same way at every pane size", () => {
-		// The bug this room shipped with, generalised. `residentMaxScale` capped the sprite at its
-		// natural 128px, so how much of it cleared the desk depended entirely on how wide the sidebar
-		// happened to be — full height in a narrow one, a scalp in a wide one. The proportion has to
-		// be a property of the room, not of the pane.
-		const NATURAL_SPRITE_PX = 128;
-		const seen: number[] = [];
-		for (const width of [220, 300, 420, 700, 1100]) {
-			const l = layoutRoom(OFFICE, { left: 0, top: 0, right: width, bottom: 1240 }, VIEWPORT_W);
-			if (!l) continue;
-			const roomHeight = l.rect.bottom - l.rect.top;
-			const sprite = NATURAL_SPRITE_PX * residentScaleFor(l, NATURAL_SPRITE_PX, roomHeight, 1);
-			const feet = l.toViewport(0, OFFICE.floorY).y;
-			seen.push((l.toViewport(0, OFFICE_DESK_Y).y - (feet - sprite)) / sprite);
-		}
-		expect(seen.length).toBeGreaterThan(3);
-		expect(Math.max(...seen) - Math.min(...seen), `how much clears the desk varies by pane width: ${seen.map((v) => v.toFixed(2)).join(", ")}`).toBeLessThan(0.05);
-	});
-
-	it("puts the back of the monitor to the viewer, with something on it", () => {
-		// The mascot faces us across the desk, so the screen faces away. A blank grey rectangle is
-		// what that leaves unless something is stuck to it.
-		const front = OFFICE.fixtures.filter((f) => f.layer === "foreground").map((f) => f.id);
-		expect(front).toContain("monitor");
-	});
-
-	it("keeps every translucent pixel off the foreground layer", () => {
-		// The foreground is painted a second time, on its own canvas, clipped to the resident. An
-		// opaque pixel survives that unchanged — the desk drawn twice in the same place looks like
-		// the desk. A translucent one compounds its own alpha and the clip's outline shows up as a
-		// visible seam over the mascot — reported twice now: once for the room-wide gloom wash, and
-		// once more for the monitor's own screen-glow spill, which sits inside the same fixture as
-		// the monitor's very-much-opaque case.
-		//
-		// Checking fixture ids by name is exactly how the glow slipped through the first fix: the
-		// gloom wash was excluded by id, and the test had nothing to say about a *different*
-		// fixture that is mostly opaque but paints a few translucent pixels of its own. This asks
-		// every foreground fixture what it actually paints, at a spread of hours so a glow that is
-		// only translucent at night cannot hide behind a check made at noon.
-		const translucent: string[] = [];
-		const alphaOf = (color: string): number | undefined => {
-			const m = /^rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\s*\)$/.exec(color);
-			return m ? Number(m[1]) : undefined;
-		};
-		for (const fixture of OFFICE.fixtures) {
-			if ((fixture.layer ?? "background") !== "foreground") continue;
-			const check = (color: string): void => {
-				const a = alphaOf(color);
-				if (a !== undefined && a < 1) translucent.push(`${fixture.id}: ${color}`);
-			};
-			const painter = {
-				px: (_x: number, _y: number, _w: number, _h: number, color: string) => check(color),
-				polygon: (_points: Array<[number, number]>, color: string) => check(color),
-			};
-			for (const hour of [0, 3, 6, 9, 12, 15, 18, 21]) fixture.paint(painter, moodForHour(hour, 0));
-		}
-		expect(translucent, `translucent pixels on the foreground layer: ${translucent.join(", ")}`).toHaveLength(0);
-	});
-
-	it("tints its foreground repaint the same way the background pass tints the room", () => {
-		// The bug sitting on top of the one just fixed above: keeping a translucent fixture off the
-		// foreground layer (so it cannot double-composite into a seam) also means the foreground
-		// canvas's own repaint never receives it at all, unless something puts it back — so a
-		// fixture drawn once (tinted) and the same fixture redrawn a second time over the resident
-		// (untinted) end up two visibly different shades, split along the clip's own edge. Reported
-		// twice on two different fixtures: the room-wide gloom over the desk ("the colour of the
-		// table only looks different in the overlay"), then the monitor's own screen-glow over its
-		// case ("colour of background now has a difference") — the second one slipped through
-		// because the first fix only put back the one translucent fixture it was chasing.
-		//
-		// OFFICE.foregroundWash is what puts the tint back for the foreground pass; this checks it
-		// paints exactly what every translucent background fixture over foreground furniture paints,
-		// at the same hour, rather than a stale copy of just one of them.
-		const translucentOverForeground = ["atmosphere", "monitor-glow"];
-		const fixtures = translucentOverForeground.map((id) => OFFICE.fixtures.find((f) => f.id === id));
-		for (const [i, f] of fixtures.entries()) expect(f, `the office lost its ${translucentOverForeground[i]} fixture`).toBeDefined();
-		expect(OFFICE.foregroundWash, "the foreground repaint is never tinted to match the rest of the room").toBeDefined();
-
-		const calls: unknown[] = [];
-		const painter = {
-			px: (...args: unknown[]) => calls.push(["px", ...args]),
-			polygon: (...args: unknown[]) => calls.push(["polygon", ...args]),
-		};
-		const mood = moodForHour(21, 0);
-		OFFICE.foregroundWash!(painter, mood);
-		const fromWash = [...calls];
-		calls.length = 0;
-		for (const f of fixtures) f!.paint(painter, mood);
-		expect(fromWash).toEqual(calls);
 	});
 });
 
@@ -434,58 +266,5 @@ describe("the room's daylight", () => {
 		expect(moodForHour(2).dusk).toBe(true);
 		expect(moodForHour(13).dusk).toBe(false);
 		expect(moodForHour(21).dusk).toBe(true);
-	});
-});
-
-describe("the office's animation", () => {
-	it("declares itself animated, unlike the still rooms", () => {
-		// Opt-in: repainting a supplied photograph ten times a second to no visible effect is waste.
-		expect(OFFICE.animated).toBe(true);
-		expect(LIVING_ROOM.animated ?? false).toBe(false);
-	});
-
-	it("paints differently from one moment to the next", () => {
-		// The actual claim: two frames a fifth of a second apart are not the same picture. Compared by
-		// what the fixtures draw rather than by a rendered canvas, since there is no canvas here.
-		const drawnAt = (t: number) => {
-			const calls: string[] = [];
-			const painter = { px: (x: number, y: number, w: number, h: number, c: string) => calls.push(`${x},${y},${w},${h},${c}`), polygon: () => {} };
-			for (const f of OFFICE.fixtures) f.paint(painter, moodForHour(21, t));
-			return calls.join("|");
-		};
-		expect(drawnAt(0)).not.toBe(drawnAt(0.2));
-		expect(drawnAt(0)).not.toBe(drawnAt(1.7));
-	});
-
-	it("paints differently at different times of day", () => {
-		const drawnAt = (hour: number) => {
-			const calls: string[] = [];
-			const painter = { px: (x: number, y: number, w: number, h: number, c: string) => calls.push(`${x},${y},${w},${h},${c}`), polygon: () => {} };
-			for (const f of OFFICE.fixtures) f.paint(painter, moodForHour(hour, 0));
-			return calls.join("|");
-		};
-		const hours = [3, 6.5, 12, 17.5, 21].map(drawnAt);
-		expect(new Set(hours).size, "some hours of the day look identical").toBe(hours.length);
-	});
-});
-
-describe("the room's foreground layer", () => {
-	// The two rules that stop a desk covering things it is not in front of. Both were reported from
-	// a live window: a mascot climbing the sidebar's outer wall had half its face cut off by the
-	// office desk, and the desk itself sat out of register with the one drawn behind it.
-	it("draws every layer into the room's own canvas, so the desk is complete without the overlay", () => {
-		// The overlay only ever paints the sliver over the resident, so anything a room wants
-		// visible when nobody is home has to be in the in-pane canvas too.
-		const foreground = OFFICE.fixtures.filter((f) => f.layer === "foreground");
-		expect(foreground.length, "the office has no foreground fixtures to test").toBeGreaterThan(0);
-		const painted: string[] = [];
-		const painter = { px: () => painted.push("px"), polygon: () => painted.push("poly") };
-		for (const f of OFFICE.fixtures) f.paint(painter, moodForHour(12));
-		expect(painted.length).toBeGreaterThan(0);
-	});
-
-	it("is only needed by rooms that actually have something in front", () => {
-		expect(hasForeground(OFFICE)).toBe(true);
-		expect(hasForeground(LIVING_ROOM), "the plant nook has nothing in front of its resident").toBe(false);
 	});
 });

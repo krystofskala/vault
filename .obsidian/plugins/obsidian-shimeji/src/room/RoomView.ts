@@ -25,7 +25,7 @@ export interface RoomViewOptions {
 	hourOverride(): number | undefined;
 	/** Opens or closes the chat bubble for whoever is currently resident — a no-op with nobody
 	 * home. RoomView only ever asks for the toggle; ChatBubble (owned at the plugin level, same as
-	 * Residency and RoomForeground) decides what "nobody home" or "already open" actually means —
+	 * Residency) decides what "nobody home" or "already open" actually means —
 	 * this pane draws the room and nothing else, the same reasoning its own class doc gives for not
 	 * owning the resident either. */
 	onToggleChat(): void;
@@ -209,22 +209,6 @@ export class RoomView extends ItemView {
 	 * for the outer limit, layout().rect for the box it has to stay clear of. */
 	paneRect(): Rect | undefined {
 		return this.contentRect();
-	}
-
-	/**
-	 * Where the room's own canvas actually ended up, read straight from the DOM.
-	 *
-	 * Not the same thing as `layout().rect`, on purpose: that is a JS prediction of where CSS will
-	 * centre the canvas, computed independently of the CSS that actually does it, and the two agree
-	 * on the room's size exactly but not always on its position to better than a fraction of a
-	 * pixel. RoomForeground aligns its own overlay to this instead, so it can only ever match where
-	 * the room in fact is.
-	 */
-	canvasRect(): Rect | undefined {
-		if (!this.canvas) return undefined;
-		const r = this.canvas.getBoundingClientRect();
-		if (r.width <= 0 || r.height <= 0) return undefined;
-		return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
 	}
 
 	/** What shimejiDebug.room() reports about the artwork. */

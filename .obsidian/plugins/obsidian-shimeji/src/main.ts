@@ -23,7 +23,6 @@ import { Residency } from "./room/Residency";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 import { moodForHour } from "./room/roomArt";
 import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
-import { RoomForeground } from "./room/RoomForeground";
 import { SpeechBubbles } from "./speech/SpeechBubbles";
 import { DEFAULT_SPEECH_OPTIONS } from "./speech/SpeechScheduler";
 import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, withRefreshedCheatSheet, type SpeechPool } from "./speech/speechLines";
@@ -102,14 +101,10 @@ export default class ShimejiPlugin extends Plugin {
 		packIdOf: (mascot) => this.packIdOf(mascot),
 	});
 	private residencyRaf = 0;
-	/** The part of the room drawn over the mascot — a desk it sits behind. Owned here rather than by
-	 * the view because it is not inside the pane at all: it has to stack above the stage's own
-	 * full-window overlay, which nothing within the workspace can do. */
-	private readonly roomForeground = new RoomForeground();
 	/** The resident's own speech bubble, expanded into a chat docked around the room's own picture
-	 * — owned here rather than by RoomView for the same reason residency and roomForeground are: it
-	 * belongs to whichever mascot is resident, not to the pane, and needs to keep tracking who that
-	 * is (closing itself on a resident change) independent of anything RoomView itself tracks. */
+	 * — owned here rather than by RoomView for the same reason residency is: it belongs to whichever
+	 * mascot is resident, not to the pane, and needs to keep tracking who that is (closing itself on
+	 * a resident change) independent of anything RoomView itself tracks. */
 	private readonly chatBubble: ChatBubble = new ChatBubble(this.speech.getLayer(), {
 		sendMessage: (messages, systemPrompt) => sendAiMessage(this.aiDispatchSettings(), messages, systemPrompt),
 		personas: () => this.personaTexts,
@@ -463,7 +458,6 @@ export default class ShimejiPlugin extends Plugin {
 		if (this.vaultEditDebounceTimer !== null) window.clearTimeout(this.vaultEditDebounceTimer);
 		this.speech.destroy();
 		this.chatBubble.destroy();
-		this.roomForeground.destroy();
 		uninstallDebugApi();
 		this.stage?.destroy();
 		// The clip registry is a module-level singleton (as the real `Sounds` is a static class),
@@ -1097,16 +1091,6 @@ export default class ShimejiPlugin extends Plugin {
 			this.residency.tick();
 			const view = this.roomView();
 			view?.refresh();
-			// The resident's own box, so the foreground only ever covers the mascot the room is
-			// actually furnished around — see RoomForeground.
-			const resident = this.residency.residentMascot?.el.getBoundingClientRect();
-			this.roomForeground.update(
-				view?.def,
-				view?.layout(),
-				view?.canvasRect(),
-				resident && resident.width > 0 ? { left: resident.left, top: resident.top, right: resident.right, bottom: resident.bottom } : undefined,
-				this.roomHourOverride,
-			);
 			this.speech.tick(this.stage?.getMascots() ?? [], this.stage?.getWorldTop() ?? 0);
 			this.chatBubble.update(this.residency.residentMascot, view?.paneRect(), view?.layout()?.rect);
 			// Keeps the room's own toggle button in sync when the bubble closes on its own — the

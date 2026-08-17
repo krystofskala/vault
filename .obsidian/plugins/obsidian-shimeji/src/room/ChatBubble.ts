@@ -64,7 +64,7 @@ function toChatMessages(entries: readonly TimelineEntry[]): ChatMessage[] {
 
 /**
  * The chat surface: a transcript docked directly above the room picture, sized to match its own
- * height and width, and a thin input bar docked directly below it — "bubble on top, office under,
+ * height and width, and a thin input bar docked directly below it — "bubble on top, room under,
  * and under that a thin input field". Both float in SpeechBubbles' own layer (see its `getLayer()`)
  * rather than a layer of their own — a second independent full-viewport box was exactly the
  * title-bar-blocking bug SOURCE_AUDIT.md's Pass 35 fixed — and both are positioned off the room's
@@ -248,26 +248,26 @@ export class ChatBubble extends Component {
 	}
 
 	/**
-	 * Called every frame from the same loop that already drives SpeechBubbles/RoomForeground.
+	 * Called every frame from the same loop that already drives SpeechBubbles.
 	 * `residentMascot` is the room's *current* resident (not necessarily this bubble's own mascot,
 	 * which is why it's passed in rather than read off `this.mascot`) — a resident change closes an
 	 * open chat rather than leaving it floating over a room its own mascot has left, the same way a
 	 * remark bubble already disappears once its mascot is gone.
 	 *
-	 * `officeRect` is the room picture's own box (RoomView.layout().rect); `paneRect` is the whole
-	 * pane around it (RoomView.paneRect()). The transcript is sized to match officeRect's own
+	 * `roomRect` is the room picture's own box (RoomView.layout().rect); `paneRect` is the whole
+	 * pane around it (RoomView.paneRect()). The transcript is sized to match roomRect's own
 	 * height, sitting exactly TAIL_HEIGHT above it — shrinking only if paneRect doesn't leave that
 	 * much room, never growing past what the picture itself is tall, and never climbing higher than
-	 * TOGGLE_RESERVED_PX below paneRect's own top edge, so a short office picture in a tall pane
+	 * TOGGLE_RESERVED_PX below paneRect's own top edge, so a short room picture in a tall pane
 	 * can't let the transcript grow tall enough to bury the toggle button that opened it. The tail
 	 * itself needs no position math at all any more: it is a CSS child of the transcript (see
 	 * build() and styles.css), hanging off its parent's own bottom border, so there is no separate
-	 * gap left for it to sit in — the space between transcript and office is exactly the tail's own
-	 * height, filled edge to edge, and the two move as one element by construction rather than by two
-	 * independently-computed positions agreeing. The input bar takes a thin strip directly below the
-	 * picture the same way the transcript does above it.
+	 * gap left for it to sit in — the space between transcript and room picture is exactly the
+	 * tail's own height, filled edge to edge, and the two move as one element by construction rather
+	 * than by two independently-computed positions agreeing. The input bar takes a thin strip
+	 * directly below the picture the same way the transcript does above it.
 	 */
-	update(residentMascot: Mascot | undefined, paneRect: Rect | undefined, officeRect: Rect | undefined): void {
+	update(residentMascot: Mascot | undefined, paneRect: Rect | undefined, roomRect: Rect | undefined): void {
 		if (!this.isOpen) return;
 		if (this.mascot !== residentMascot) {
 			this.close();
@@ -276,14 +276,14 @@ export class ChatBubble extends Component {
 		const transcript = this.transcriptEl;
 		const inputBar = this.inputBarEl;
 		if (!transcript || !inputBar) return;
-		if (!paneRect || !officeRect) {
+		if (!paneRect || !roomRect) {
 			transcript.style.visibility = "hidden";
 			inputBar.style.visibility = "hidden";
 			return;
 		}
 
-		const left = officeRect.left;
-		const width = officeRect.right - officeRect.left;
+		const left = roomRect.left;
+		const width = roomRect.right - roomRect.left;
 		if (width <= 0) {
 			transcript.style.visibility = "hidden";
 			inputBar.style.visibility = "hidden";
@@ -295,10 +295,10 @@ export class ChatBubble extends Component {
 		// exactly on `bottom` instead of drifting up to a pixel off it from two separately-rounded
 		// numbers. That pixel is what the CSS-positioned tail hangs its own top from, so landing on
 		// it exactly is what keeps the tail visually flush against both the transcript above it and
-		// the office picture below it, with nothing in between.
-		const officeHeight = officeRect.bottom - officeRect.top;
-		const bottom = Math.round(officeRect.top - TAIL_HEIGHT);
-		const top = Math.round(Math.max(paneRect.top + TOGGLE_RESERVED_PX, officeRect.top - TAIL_HEIGHT - officeHeight));
+		// the room picture below it, with nothing in between.
+		const roomHeight = roomRect.bottom - roomRect.top;
+		const bottom = Math.round(roomRect.top - TAIL_HEIGHT);
+		const top = Math.round(Math.max(paneRect.top + TOGGLE_RESERVED_PX, roomRect.top - TAIL_HEIGHT - roomHeight));
 		const transcriptHeight = bottom - top;
 		if (transcriptHeight < MIN_VISIBLE) {
 			transcript.style.visibility = "hidden";
@@ -310,7 +310,7 @@ export class ChatBubble extends Component {
 			transcript.style.height = `${transcriptHeight}px`;
 		}
 
-		const inputTop = officeRect.bottom + INPUT_GAP_PX;
+		const inputTop = roomRect.bottom + INPUT_GAP_PX;
 		const inputHeight = clamp(paneRect.bottom - inputTop, 0, INPUT_BAR_HEIGHT);
 		if (inputHeight < MIN_VISIBLE / 2) {
 			inputBar.style.visibility = "hidden";
