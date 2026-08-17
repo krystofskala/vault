@@ -815,10 +815,9 @@ how many lines and tags its own file has.
 
 ## AI Assistant (foundation only — no chat UI yet)
 
-**Settings → AI Assistant**, off by default. This is the first of several planned pieces (an
-Anthropic API client and its settings, nothing more yet): an eventual chat that expands out of a
-mascot's room, with a per-character personality and vault search, is planned but not built. What's
-here now is just the plumbing everything else will sit on:
+**Settings → AI Assistant**, off by default. Two pieces of a larger planned feature exist so far
+(an Anthropic API client, and now a per-character personality) — an eventual chat that expands out
+of a mascot's room, with vault search and confirmed note edits, is planned but not built yet:
 
 - **Enable AI assistant** — the master switch. Nothing calls out to Anthropic while this is off.
 - **Anthropic API key** — from `console.anthropic.com`. Stored in this plugin's own settings
@@ -833,6 +832,17 @@ Requests go out through Obsidian's own `requestUrl` rather than the browser's `f
 from a plugin's renderer process hits the same-origin/CORS restriction a direct call to
 `api.anthropic.com` would trip; `requestUrl` goes out through Electron's main process instead,
 which isn't subject to it. This is why every Obsidian AI plugin uses it instead of `fetch`.
+
+### Character personality
+
+**Settings → AI Assistant → Character personality** lists every loaded character with a text area
+for its own system prompt — what it should sound like once the chat exists. Leave it empty and
+that character gets a generic-but-in-character default ("You are *name*, a small desktop companion
+living in the user's Obsidian vault...") instead of a blank or generic-sounding assistant, the same
+"an override is additive, never a way to go silent" shape Character-specific speech uses for the
+ambient speech-bubble pool above. Each row's own **Test** button sends a one-line, in-character
+reply request through that pack's resolved persona, so you can hear the voice before there's a
+chat UI to try it in properly.
 
 ## "Get to that spot" — Shift + triple-click
 

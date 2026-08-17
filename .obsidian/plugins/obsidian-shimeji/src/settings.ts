@@ -1,5 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { sendChatMessage } from "./ai/AnthropicClient";
+import { resolvePersona } from "./ai/persona";
 import type ShimejiPlugin from "./main";
 import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
 import { CharacterEditorModal } from "./wizard/CharacterEditorModal";
@@ -162,6 +163,10 @@ export interface ShimejiSettings {
 	 * models regularly, and hardcoding a fixed list would go stale faster than this setting would
 	 * ever get revisited. */
 	aiModel: string;
+	/** Per-character system prompts for the AI assistant, keyed by pack id — see
+	 * ai/persona.ts's resolvePersona. Absent or empty for a pack means "use the generic default,"
+	 * not "no persona," the same shape packSpeechFiles already uses for its own per-pack override. */
+	aiPersonas: Record<string, string>;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -206,6 +211,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	aiEnabled: false,
 	aiApiKey: "",
 	aiModel: "claude-sonnet-5",
+	aiPersonas: {},
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
@@ -828,6 +834,61 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						}
 					}),
 				);
+
+			this.section(containerEl, "Character personality", false, (containerEl) => {
+				this.callout(
+					containerEl,
+					"info",
+					"Give one character its own system prompt for the AI assistant. Leave it empty and that character gets a generic-but-in-character default instead of going silent or bland — the same “introducing an override never mutes anyone” shape Character-specific speech above uses.",
+				);
+
+				if (this.plugin.availablePacks.length === 0) {
+					containerEl.createEl("p", {
+						text: "No character packs loaded yet — nothing to give its own personality.",
+						cls: "setting-item-description",
+					});
+				}
+				for (const pack of this.plugin.availablePacks) {
+					const box = containerEl.createDiv({ cls: "shimeji-cc-box" });
+					new Setting(box)
+						.setName(pack.name)
+						.setDesc(this.plugin.settings.aiPersonas[pack.id]?.trim() ? "Custom persona set." : "Uses the generic default.")
+						.addTextArea((text) =>
+							text
+								.setPlaceholder(resolvePersona(pack, {}))
+								.setValue(this.plugin.settings.aiPersonas[pack.id] ?? "")
+								.onChange(async (value) => {
+									const trimmed = value.trim();
+									if (trimmed) this.plugin.settings.aiPersonas[pack.id] = trimmed;
+									else delete this.plugin.settings.aiPersonas[pack.id];
+									await this.plugin.saveSettings();
+								}),
+						)
+						.addButton((b) =>
+							b.setButtonText("Test").onClick(async () => {
+								const apiKey = this.plugin.settings.aiApiKey.trim();
+								if (!apiKey) {
+									new Notice("Enter an API key above first.");
+									return;
+								}
+								b.setDisabled(true).setButtonText("Testing…");
+								try {
+									const persona = resolvePersona(pack, this.plugin.settings.aiPersonas);
+									const reply = await sendChatMessage(
+										{ apiKey, model: this.plugin.settings.aiModel || DEFAULT_SETTINGS.aiModel },
+										[{ role: "user", content: "Say hello, briefly, in character." }],
+										persona,
+									);
+									new Notice(`${pack.name} says: ${reply}`);
+								} catch (e) {
+									new Notice(`Connection failed: ${e instanceof Error ? e.message : String(e)}`);
+								} finally {
+									b.setDisabled(false).setButtonText("Test");
+								}
+							}),
+						);
+				}
+			});
 		});
 
 		this.section(containerEl, "What it may touch", false, (containerEl) => {
