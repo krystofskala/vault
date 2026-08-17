@@ -852,13 +852,19 @@ conversation with whatever persona the resident has, nothing else.
 
 ### Character personality
 
-**Settings → AI Assistant → Character personality** lists every loaded character with a text area
-for its own system prompt — what it should sound like in chat. Leave it empty and that character
-gets a generic-but-in-character default ("You are *name*, a small desktop companion living in the
-user's Obsidian vault...") instead of a blank or generic-sounding assistant, the same "an override
-is additive, never a way to go silent" shape Character-specific speech uses for the ambient
-speech-bubble pool above. Each row's own **Test** button sends a one-line, in-character reply
-request through that pack's resolved persona — a quick way to hear the voice without opening chat.
+**Settings → AI Assistant → Character personality** lists every loaded character with a field for
+its own **persona file** — a plain note in your vault, the same idea as Character-specific speech's
+files above. Click the pencil to create and open one (seeded with that character's current default,
+so you're editing something rather than staring at a blank page); whatever is written there,
+verbatim, becomes its system prompt. Saving the note in Obsidian reloads it immediately, same as a
+speech file — no round trip through the settings screen needed.
+
+No file set, or the file is empty, and that character gets a generic-but-in-character default
+("You are *name*, a small desktop companion living in the user's Obsidian vault...") instead of a
+blank or generic-sounding assistant — the same "an override is additive, never a way to go silent"
+shape Character-specific speech uses for the ambient speech-bubble pool above. Each row's own
+**Test** button sends a one-line, in-character reply request through that pack's resolved persona —
+a quick way to hear the voice without opening chat.
 
 ## "Get to that spot" — Shift + triple-click
 

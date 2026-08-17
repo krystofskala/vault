@@ -7,11 +7,16 @@ import type { MascotPack } from "../shimeji/types";
  * Falls back to a generic, still-in-character default when a pack has no override of its own,
  * the same "introducing a per-character override is additive, never a way to go silent" shape
  * packSpeechFiles/resolveSpeechPool already use for the ambient speech-bubble pool — a pack nobody
- * has configured a persona for still gets a working, on-brand assistant rather than a blank or
+ * has written a persona file for still gets a working, on-brand assistant rather than a blank or
  * generic-sounding one.
+ *
+ * `personas` is the *loaded text* of each pack's persona file (main.ts's personaTexts, read live
+ * from settings.aiPersonaFiles the same way SpeechBubbles reads packPools from packSpeechFiles) —
+ * a Map rather than a Record for the same reason resolveSpeechPool's own packPools is one: this
+ * never held settings directly, only ever what got read off disk for it.
  */
-export function resolvePersona(pack: MascotPack | undefined, personas: Record<string, string>): string {
-	const override = pack ? personas[pack.id]?.trim() : "";
+export function resolvePersona(pack: MascotPack | undefined, personas: ReadonlyMap<string, string>): string {
+	const override = pack ? personas.get(pack.id)?.trim() : "";
 	if (override) return override;
 	const name = pack?.name?.trim() || "a shimeji";
 	return (

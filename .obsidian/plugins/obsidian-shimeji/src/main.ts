@@ -1,4 +1,5 @@
 import { Events, type EventRef, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
+import { resolvePersona } from "./ai/persona";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { ObsidianDomEnvironment } from "./engine/Environment";
 import { Mascot } from "./engine/Mascot";
@@ -72,6 +73,17 @@ export default class ShimejiPlugin extends Plugin {
 	 * per-pack equivalent of speechStats, for the settings screen. Empty until reloadSpeechLines has
 	 * run at least once. */
 	packSpeechStats: Map<string, SpeechStats> = new Map();
+	/** Loaded text of each configured persona file, keyed by pack id — what resolvePersona and the
+	 * chat's own persona lookup actually read, kept in sync with settings.aiPersonaFiles' paths by
+	 * reloadPersonas the same way packSpeechFiles' paths feed speech's own packPools. Absent means
+	 * "no override configured, or not read yet" — resolvePersona already treats that as "use the
+	 * generic default," the same as an empty file. */
+	personaTexts: Map<string, string> = new Map();
+	/** Whether each pack's own persona file exists on disk, keyed by pack id — populated alongside
+	 * personaTexts by reloadPersonas, kept separate because resolvePersona has no use for it: a
+	 * missing file and an empty one resolve to the same generic-default outcome, they only explain
+	 * differently on the settings screen (packSpeechStats.fileExists is the speech-file precedent). */
+	personaFileExists: Map<string, boolean> = new Map();
 	/** Who lives in the plant room. Created unconditionally — it is inert until the room's pane
 	 * is actually open, and having it always present keeps every call site free of a null check. */
 	readonly residency = new Residency({
@@ -98,7 +110,7 @@ export default class ShimejiPlugin extends Plugin {
 	private readonly chatBubble = new ChatBubble(this.speech.getLayer(), {
 		apiKey: () => this.settings.aiApiKey,
 		model: () => this.settings.aiModel,
-		personas: () => this.settings.aiPersonas,
+		personas: () => this.personaTexts,
 		style: () => this.speech.getStyle(),
 		packFor: (mascot) => {
 			const id = this.packIdOf(mascot);
@@ -264,6 +276,9 @@ export default class ShimejiPlugin extends Plugin {
 				const isGeneral = this.settings.speechFilePath && file.path === this.settings.speechFilePath;
 				const isPackOverride = Object.values(this.settings.packSpeechFiles).some((p) => p.trim() === file.path);
 				if (isGeneral || isPackOverride) void this.reloadSpeechLines();
+				// Same reasoning, for persona files: editing one in Obsidian should be all it takes.
+				const isPersonaFile = Object.values(this.settings.aiPersonaFiles).some((p) => p.trim() === file.path);
+				if (isPersonaFile) void this.reloadPersonas();
 			}),
 		);
 		this.addCommand({
@@ -391,6 +406,7 @@ export default class ShimejiPlugin extends Plugin {
 		// forever after, because the file is only ever created once.
 		await this.ensureSpeechFile();
 		await this.reloadSpeechLines();
+		await this.reloadPersonas();
 		this.applyMobileInteractivity();
 
 		if (this.settings.autoSpawn) {
@@ -1187,6 +1203,81 @@ export default class ShimejiPlugin extends Plugin {
 			return;
 		}
 		await this.app.workspace.getLeaf(true).openFile(file);
+	}
+
+	/**
+	 * The persona equivalent of ensurePackSpeechFile: makes sure the pack has a dedicated file if
+	 * it is meant to, creating and pointing settings.aiPersonaFiles at one when it doesn't. Seeded
+	 * with the pack's own generic default (see ai/persona.ts's resolvePersona) rather than left
+	 * blank — something concrete and already on-brand to edit or replace, not an intimidating empty
+	 * page. Unlike a speech file there is no tag syntax to explain, so the file holds nothing but
+	 * that starting text: whatever ends up written here is used verbatim, no parsing at all.
+	 */
+	async ensurePackPersonaFile(packId: string, packName: string): Promise<void> {
+		const existing = this.settings.aiPersonaFiles[packId]?.trim();
+		if (existing && (await this.app.vault.adapter.exists(existing))) return;
+
+		const folder = this.app.fileManager.getNewFileParent("")?.path ?? "";
+		const base = folder && folder !== "/" ? `${folder}/` : "";
+		const safeName = packName.replace(/[\\/:*?"<>|]/g, "-").trim() || packId;
+		let candidate = `${base}Shimeji persona - ${safeName}.md`;
+		let suffix = 2;
+		while (await this.app.vault.adapter.exists(candidate)) {
+			candidate = `${base}Shimeji persona - ${safeName} ${suffix}.md`;
+			suffix++;
+		}
+		const pack = this.availablePacks.find((p) => p.id === packId);
+		try {
+			await this.app.vault.create(candidate, resolvePersona(pack, new Map()));
+		} catch (e) {
+			console.warn(`[obsidian-shimeji] could not create the persona file at "${candidate}"`, e);
+			return;
+		}
+		this.settings.aiPersonaFiles[packId] = candidate;
+		await this.saveSettings();
+		await this.reloadPersonas();
+	}
+
+	/** Opens a character's own persona file, creating one first (see ensurePackPersonaFile) if it
+	 * doesn't have one yet — the persona equivalent of openPackSpeechFile. */
+	async openPackPersonaFile(packId: string, packName: string): Promise<void> {
+		const existing = this.settings.aiPersonaFiles[packId]?.trim();
+		if (!existing || !(await this.app.vault.adapter.exists(existing))) {
+			await this.ensurePackPersonaFile(packId, packName);
+		}
+		const path = this.settings.aiPersonaFiles[packId]?.trim();
+		const file = path ? this.app.vault.getFileByPath(path) : null;
+		if (!file) {
+			new Notice(`Couldn't open "${path || "that character's persona file"}".`);
+			return;
+		}
+		await this.app.workspace.getLeaf(true).openFile(file);
+	}
+
+	/**
+	 * (Re)reads every configured persona file (settings.aiPersonaFiles) into personaTexts/
+	 * personaFileExists. Safe to call at any time — on load, on a settings change, and
+	 * automatically whenever one of those exact files is saved (see the vault "modify" listener in
+	 * onload). No parsing at all, unlike loadSpeechFile: a persona file's entire trimmed content
+	 * *is* the persona, so there is nothing here to scan for tags or report as unmatched.
+	 */
+	async reloadPersonas(): Promise<void> {
+		const texts = new Map<string, string>();
+		const exists = new Map<string, boolean>();
+		for (const [packId, rawPath] of Object.entries(this.settings.aiPersonaFiles)) {
+			const path = rawPath.trim();
+			if (!path) continue;
+			const fileExists = await this.app.vault.adapter.exists(path);
+			exists.set(packId, fileExists);
+			if (!fileExists) continue;
+			try {
+				texts.set(packId, (await this.app.vault.adapter.read(path)).trim());
+			} catch (e) {
+				console.warn(`[obsidian-shimeji] could not read the persona file at "${path}"`, e);
+			}
+		}
+		this.personaTexts = texts;
+		this.personaFileExists = exists;
 	}
 
 	/** (Re)reads and parses the general speech file and every character-specific override

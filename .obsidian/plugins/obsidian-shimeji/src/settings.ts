@@ -163,10 +163,16 @@ export interface ShimejiSettings {
 	 * models regularly, and hardcoding a fixed list would go stale faster than this setting would
 	 * ever get revisited. */
 	aiModel: string;
-	/** Per-character system prompts for the AI assistant, keyed by pack id — see
-	 * ai/persona.ts's resolvePersona. Absent or empty for a pack means "use the generic default,"
-	 * not "no persona," the same shape packSpeechFiles already uses for its own per-pack override. */
-	aiPersonas: Record<string, string>;
+	/**
+	 * Per-character override files for the AI assistant's system prompt, keyed by pack id — the
+	 * exact same shape packSpeechFiles uses for character-specific speech. A pack with an entry
+	 * here, pointing at a file that actually has something written in it, uses that file's own
+	 * content (verbatim, whatever is written there) as its persona; every other pack, and this one
+	 * for as long as its file is empty or doesn't exist yet, gets the generic in-character default
+	 * from ai/persona.ts's resolvePersona. Absent or empty for a pack means "no override," not "no
+	 * persona" — introducing a file never silences a character that was already working.
+	 */
+	aiPersonaFiles: Record<string, string>;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -211,7 +217,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	aiEnabled: false,
 	aiApiKey: "",
 	aiModel: "claude-sonnet-5",
-	aiPersonas: {},
+	aiPersonaFiles: {},
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
@@ -839,7 +845,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				this.callout(
 					containerEl,
 					"info",
-					"Give one character its own system prompt for the AI assistant. Leave it empty and that character gets a generic-but-in-character default instead of going silent or bland — the same “introducing an override never mutes anyone” shape Character-specific speech above uses.",
+					"Give one character its own persona file — a plain note in your vault, edited like any other. Whatever is written in it, verbatim, becomes that character's system prompt. Leave it empty (or don't set one) and that character gets a generic-but-in-character default instead of going silent or bland — the same “introducing an override never mutes anyone” shape Character-specific speech above uses.",
 				);
 
 				if (this.plugin.availablePacks.length === 0) {
@@ -848,21 +854,45 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						cls: "setting-item-description",
 					});
 				}
+
+				const describePackPersona = (packId: string, path: string): string => {
+					if (!path) return "Uses the generic default.";
+					const fileExists = this.plugin.personaFileExists.get(packId);
+					if (fileExists === undefined) return "Not read yet.";
+					if (!fileExists) return "File not found yet — the pencil button creates it.";
+					const text = this.plugin.personaTexts.get(packId);
+					if (!text) return "Its own file is empty — uses the generic default until something is written in it.";
+					return "Custom persona set, from its own file.";
+				};
+
 				for (const pack of this.plugin.availablePacks) {
-					const box = containerEl.createDiv({ cls: "shimeji-cc-box" });
-					new Setting(box)
+					const path = this.plugin.settings.aiPersonaFiles[pack.id]?.trim() ?? "";
+					new Setting(containerEl)
 						.setName(pack.name)
-						.setDesc(this.plugin.settings.aiPersonas[pack.id]?.trim() ? "Custom persona set." : "Uses the generic default.")
-						.addTextArea((text) =>
+						.setDesc(describePackPersona(pack.id, path))
+						.addText((text) =>
 							text
-								.setPlaceholder(resolvePersona(pack, {}))
-								.setValue(this.plugin.settings.aiPersonas[pack.id] ?? "")
+								.setPlaceholder("uses the generic default")
+								.setValue(path)
 								.onChange(async (value) => {
 									const trimmed = value.trim();
-									if (trimmed) this.plugin.settings.aiPersonas[pack.id] = trimmed;
-									else delete this.plugin.settings.aiPersonas[pack.id];
+									if (trimmed) this.plugin.settings.aiPersonaFiles[pack.id] = trimmed;
+									else delete this.plugin.settings.aiPersonaFiles[pack.id];
 									await this.plugin.saveSettings();
+									await this.plugin.reloadPersonas();
 								}),
+						)
+						.addExtraButton((b) =>
+							b
+								.setIcon("pencil")
+								.setTooltip("Open it for editing (creates one first if it doesn't have one yet)")
+								.onClick(() => void this.plugin.openPackPersonaFile(pack.id, pack.name).then(() => this.display())),
+						)
+						.addExtraButton((b) =>
+							b
+								.setIcon("refresh-cw")
+								.setTooltip("Re-read it now")
+								.onClick(() => void this.plugin.reloadPersonas().then(() => this.display())),
 						)
 						.addButton((b) =>
 							b.setButtonText("Test").onClick(async () => {
@@ -873,7 +903,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								}
 								b.setDisabled(true).setButtonText("Testing…");
 								try {
-									const persona = resolvePersona(pack, this.plugin.settings.aiPersonas);
+									const persona = resolvePersona(pack, this.plugin.personaTexts);
 									const reply = await sendChatMessage(
 										{ apiKey, model: this.plugin.settings.aiModel || DEFAULT_SETTINGS.aiModel },
 										[{ role: "user", content: "Say hello, briefly, in character." }],

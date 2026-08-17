@@ -9,39 +9,39 @@ function pack(id: string, name: string): MascotPack {
 describe("resolvePersona", () => {
 	it("returns the configured override for that pack, trimmed", () => {
 		const p = pack("pack-a", "Jacob");
-		const result = resolvePersona(p, { "pack-a": "  You are a grumpy pirate.  " });
+		const result = resolvePersona(p, new Map([["pack-a", "  You are a grumpy pirate.  "]]));
 		expect(result).toBe("You are a grumpy pirate.");
 	});
 
 	it("falls back to a generic default when the pack has no override at all", () => {
 		const p = pack("pack-a", "Jacob");
-		const result = resolvePersona(p, {});
+		const result = resolvePersona(p, new Map());
 		expect(result).toContain("Jacob");
 	});
 
 	it("falls back to the generic default when the override is present but blank", () => {
 		const p = pack("pack-a", "Jacob");
-		expect(resolvePersona(p, { "pack-a": "" })).toContain("Jacob");
-		expect(resolvePersona(p, { "pack-a": "   " })).toContain("Jacob");
+		expect(resolvePersona(p, new Map([["pack-a", ""]]))).toContain("Jacob");
+		expect(resolvePersona(p, new Map([["pack-a", "   "]]))).toContain("Jacob");
 	});
 
 	it("only uses this pack's own override, never another pack's", () => {
 		const p = pack("pack-a", "Jacob");
-		const result = resolvePersona(p, { "pack-b": "You are a grumpy pirate." });
+		const result = resolvePersona(p, new Map([["pack-b", "You are a grumpy pirate."]]));
 		expect(result).not.toContain("pirate");
 		expect(result).toContain("Jacob");
 	});
 
 	it("interpolates each pack's own name into its default persona", () => {
-		const a = resolvePersona(pack("pack-a", "Jacob"), {});
-		const b = resolvePersona(pack("pack-b", "Momo"), {});
+		const a = resolvePersona(pack("pack-a", "Jacob"), new Map());
+		const b = resolvePersona(pack("pack-b", "Momo"), new Map());
 		expect(a).toContain("Jacob");
 		expect(b).toContain("Momo");
 		expect(a).not.toBe(b);
 	});
 
 	it("degrades gracefully with no active pack at all", () => {
-		expect(() => resolvePersona(undefined, {})).not.toThrow();
-		expect(resolvePersona(undefined, {}).length).toBeGreaterThan(0);
+		expect(() => resolvePersona(undefined, new Map())).not.toThrow();
+		expect(resolvePersona(undefined, new Map()).length).toBeGreaterThan(0);
 	});
 });

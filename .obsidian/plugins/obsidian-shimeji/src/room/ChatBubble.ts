@@ -18,7 +18,7 @@ const MAX_HEIGHT = 560;
 export interface ChatBubbleDeps {
 	apiKey(): string;
 	model(): string;
-	personas(): Record<string, string>;
+	personas(): ReadonlyMap<string, string>;
 	/** Matches whichever style ordinary remark bubbles are currently drawn in — see
 	 * SpeechBubbles.getStyle(). */
 	style(): BubbleStyle;
