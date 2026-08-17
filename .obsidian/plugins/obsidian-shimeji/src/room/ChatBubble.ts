@@ -7,9 +7,11 @@ import type { Rect } from "../engine/types";
 import type { MascotPack } from "../shimeji/types";
 import type { BubbleStyle } from "../speech/SpeechBubbles";
 
-/** Gap between the bottom of the transcript and the top of the room picture — just enough room
- * for the tail (see styles.css's .shimeji-bubble::after) to point at what it belongs to. */
-const GAP_PX = 8;
+/** Gap between the bottom of the transcript and the top of the room picture — room for the tail
+ * (see styles.css's .shimeji-bubble-chat::after) to sit clear of both, floating in the middle of
+ * the gap rather than notched into the bubble's own border, which is what makes it read as its own
+ * "scroll to the newest message" affordance instead of an ordinary speech-bubble point. */
+const GAP_PX = 22;
 /** The input bar sits flush-ish under the picture; a little breathing room reads better than none. */
 const INPUT_GAP_PX = 4;
 const INPUT_BAR_HEIGHT = 36;

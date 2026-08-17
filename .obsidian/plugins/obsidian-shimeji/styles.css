@@ -460,12 +460,33 @@
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
-	padding: 8px 10px;
+	/* More headroom above the first line than the sides/bottom get — flush against the rounded top
+	   corner otherwise reads as cramped in a way the other three edges don't. */
+	padding: 18px 10px 8px;
 	overflow-y: auto;
 	text-align: left;
 	/* The fade-in reads fine for a one-line remark; on a panel this size it would look like the
 	   whole chat window sliding in every time a resident is reopened. */
 	animation: none;
+}
+
+/* The ordinary tail (see .shimeji-bubble::after above) sits notched into the bubble's own border,
+   which reads fine pointing at a sprite's head. Pushed further down into the gap above the room
+   picture instead — GAP_PX in ChatBubble.ts gives it the room — the same shape floats clear of
+   both and reads as its own "scroll to the newest message" affordance. Purely decorative for now;
+   nothing is wired to actually respond to a click on it yet. */
+.shimeji-bubble-chat::after {
+	bottom: -18px;
+	width: 14px;
+	height: 14px;
+	margin-left: -7px;
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic::after {
+	bottom: -20px;
+	width: 16px;
+	height: 16px;
+	margin-left: -8px;
 }
 
 /* Free-flowing markdown text (MarkdownRenderer.renderMarkdown, not a plain textContent line), not
@@ -490,6 +511,19 @@
 .shimeji-bubble-chat-msg-assistant {
 	text-align: left;
 	color: var(--text-normal);
+}
+
+/* Comic mode's bubble background is fixed white regardless of theme (see .shimeji-bubble-comic
+   above) — the theme-relative colours the two rules above use are made for --background-primary,
+   which in a dark theme is a colour close to this fixed white's opposite, so both roles washed out
+   to a similar low-contrast light grey against it. Comic mode gets its own fixed pair instead, the
+   same "ignores the active theme on purpose" reasoning the bubble background itself already uses. */
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-msg-assistant {
+	color: #111111;
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-msg-user {
+	color: #555555;
 }
 
 .shimeji-bubble-chat-thinking {
