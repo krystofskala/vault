@@ -10,7 +10,15 @@ describe("resolvePersona", () => {
 	it("returns the configured override for that pack, trimmed", () => {
 		const p = pack("pack-a", "Jacob");
 		const result = resolvePersona(p, new Map([["pack-a", "  You are a grumpy pirate.  "]]));
-		expect(result).toBe("You are a grumpy pirate.");
+		expect(result).toContain("You are a grumpy pirate.");
+	});
+
+	it("always appends the speak-only rule, override or default alike", () => {
+		const p = pack("pack-a", "Jacob");
+		const withOverride = resolvePersona(p, new Map([["pack-a", "You are a grumpy pirate."]]));
+		const withDefault = resolvePersona(p, new Map());
+		expect(withOverride).toContain("no asterisk actions");
+		expect(withDefault).toContain("no asterisk actions");
 	});
 
 	it("falls back to a generic default when the pack has no override at all", () => {

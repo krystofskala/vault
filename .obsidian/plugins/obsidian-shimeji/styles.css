@@ -448,57 +448,37 @@
 }
 
 /* Same element as .shimeji-bubble (ChatBubble builds into SpeechBubbles' own layer and keeps the
-   theme/comic modifier), just lifted out of "one line above the sprite's head" and into a
-   scrollable panel roughly as tall as it is wide. Width/height/position are all set inline, per
-   frame, by ChatBubble.update() — this only needs to stop the ordinary bubble's line-width cap
-   from clamping that down, and lay out header/messages/input as a column that fills whichever
-   size it was given. */
+   theme/comic modifier) — the transcript, docked directly above the room picture rather than
+   floating over the sprite's head. Width/height/position are all set inline, per frame, by
+   ChatBubble.update() to exactly match the room picture's own width and whatever room is left
+   above it; this only needs to stop the ordinary bubble's line-width cap from clamping that down,
+   and turn the bubble itself into the scrollable message list (no separate header — the room
+   pane's own .shimeji-room-chat-toggle button is the only open/close control). */
 .shimeji-bubble-chat {
 	max-width: none;
 	width: 320px;
 	display: flex;
 	flex-direction: column;
-	padding: 0;
-	overflow: hidden;
+	gap: 6px;
+	padding: 8px 10px;
+	overflow-y: auto;
 	text-align: left;
+	/* Flush against the room picture's own top edge, not floating free like an ordinary remark —
+	   only the corners with open air on both sides still round. */
+	border-radius: 10px 10px 0 0;
 	/* The fade-in reads fine for a one-line remark; on a panel this size it would look like the
 	   whole chat window sliding in every time a resident is reopened. */
 	animation: none;
 }
 
-.shimeji-bubble-chat-header {
-	flex: 0 0 auto;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 6px 8px 6px 12px;
-	border-bottom: 1px solid var(--background-modifier-border);
-	font-weight: var(--font-semibold);
+.shimeji-bubble-chat.shimeji-bubble-comic {
+	border-radius: 16px 18px 0 0 / 12px 16px 0 0;
 }
 
-.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-header {
-	border-bottom-color: #111111;
-}
-
-.shimeji-bubble-chat-close {
-	background: transparent;
-	border: none;
-	box-shadow: none;
-	font-size: 16px;
-	line-height: 1;
-	padding: 2px 6px;
-	cursor: pointer;
-	color: inherit;
-}
-
-.shimeji-bubble-chat-messages {
-	flex: 1 1 auto;
-	overflow-y: auto;
-	padding: 8px 10px;
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
+/* .shimeji-bubble's own tail points down at a sprite's head — meaningless once the bubble is
+   docked flush against the top of the room picture instead of floating above the mascot. */
+.shimeji-bubble-chat::after {
+	display: none;
 }
 
 .shimeji-bubble-chat-msg {
@@ -548,31 +528,45 @@
 	padding: 4px 2px 0 2px;
 }
 
-.shimeji-bubble-chat-input-row {
-	flex: 0 0 auto;
+/* The thin bar docked directly below the room picture — "and under that a thin input field".
+   Independent element from .shimeji-bubble-chat (the room picture sits between them on screen),
+   so it gets its own compact version of the same theme/comic look rather than sharing that class's
+   scrolling-panel layout. Height is set inline by ChatBubble.update(), clamped short. */
+.shimeji-room-chat-inputbar {
+	position: fixed;
 	display: flex;
-	align-items: flex-end;
+	align-items: stretch;
 	gap: 6px;
-	padding: 6px 8px;
-	border-top: 1px solid var(--background-modifier-border);
+	padding: 3px 6px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	box-shadow: var(--shadow-s, 0 1px 3px rgba(0, 0, 0, 0.15));
+	box-sizing: border-box;
 }
 
-.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-input-row {
-	border-top-color: #111111;
+.shimeji-room-chat-inputbar.shimeji-bubble-comic {
+	background: #ffffff;
+	border: 2px solid #111111;
+	border-radius: 8px;
+	box-shadow: 2px 2px 0 rgba(17, 17, 17, 0.9);
 }
 
-.shimeji-bubble-chat-input {
+.shimeji-room-chat-inputbar-field {
 	flex: 1 1 auto;
-	resize: none;
+	min-width: 0;
 	font-size: 12px;
 	font-family: inherit;
-	line-height: 1.3;
-	padding: 4px 6px;
-	max-height: 90px;
 }
 
-.shimeji-bubble-chat-send {
+.shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-field {
+	font-family: "Comic Sans MS", "Comic Neue", "Segoe Print", cursive, sans-serif;
+}
+
+.shimeji-room-chat-inputbar-send {
 	flex: 0 0 auto;
+	font-size: 12px;
+	padding: 0 10px;
 }
 
 /* ---------- settings sections ---------- */

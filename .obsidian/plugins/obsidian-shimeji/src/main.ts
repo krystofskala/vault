@@ -103,10 +103,10 @@ export default class ShimejiPlugin extends Plugin {
 	 * the view because it is not inside the pane at all: it has to stack above the stage's own
 	 * full-window overlay, which nothing within the workspace can do. */
 	private readonly roomForeground = new RoomForeground();
-	/** The resident's own speech bubble, expanded into a chat — owned here rather than by RoomView
-	 * for the same reason residency and roomForeground are: it belongs to whichever mascot is
-	 * resident, not to the pane, and needs to keep tracking that mascot's own on-screen position
-	 * across room/pane changes RoomView has no reason to know about. */
+	/** The resident's own speech bubble, expanded into a chat docked around the room's own picture
+	 * — owned here rather than by RoomView for the same reason residency and roomForeground are: it
+	 * belongs to whichever mascot is resident, not to the pane, and needs to keep tracking who that
+	 * is (closing itself on a resident change) independent of anything RoomView itself tracks. */
 	private readonly chatBubble = new ChatBubble(this.speech.getLayer(), {
 		apiKey: () => this.settings.aiApiKey,
 		model: () => this.settings.aiModel,
@@ -1093,7 +1093,7 @@ export default class ShimejiPlugin extends Plugin {
 				this.roomHourOverride,
 			);
 			this.speech.tick(this.stage?.getMascots() ?? [], this.stage?.getWorldTop() ?? 0);
-			this.chatBubble.update(this.residency.residentMascot, view?.layout()?.rect);
+			this.chatBubble.update(this.residency.residentMascot, view?.paneRect(), view?.layout()?.rect);
 			// Keeps the room's own toggle button in sync when the bubble closes on its own — the
 			// resident leaving, or its own × — rather than only ever updating on a click of the
 			// button itself.

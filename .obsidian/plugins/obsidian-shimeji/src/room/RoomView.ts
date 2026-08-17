@@ -95,9 +95,9 @@ export class RoomView extends ItemView {
 		this.missing = content.createDiv({ cls: "shimeji-room-missing" });
 		this.missing.hide();
 
-		// "Under the office": a fixed, always-there entry point into the chat, whatever the resident
-		// is doing — the expanded bubble it opens is drawn separately, against the resident's own
-		// sprite (see ChatBubble), so this button's only job is the toggle itself.
+		// A fixed, always-there entry point into the chat, whatever the resident is doing — the
+		// transcript and input bar it opens are drawn separately, docked to this room's own rect
+		// (see ChatBubble), so this button's only job is the toggle itself.
 		this.chatBtn = content.createEl("button", { cls: "shimeji-room-chat-toggle", text: "Chat" });
 		this.chatBtn.setAttr("aria-label", "Chat with the resident");
 		this.chatBtn.onclick = () => {
@@ -177,7 +177,7 @@ export class RoomView extends ItemView {
 
 	/** Syncs the button's own pressed-look to whether the chat is actually open — called after every
 	 * click, and available for main.ts to call too if the chat closes on its own (the resident
-	 * leaving, ChatBubble's own close button). */
+	 * leaving the room). */
 	refreshChatButton(): void {
 		this.chatBtn?.toggleClass("is-active", this.opts.isChatOpen());
 	}
@@ -201,6 +201,14 @@ export class RoomView extends ItemView {
 		const rect = this.contentRect();
 		if (!rect) return undefined;
 		return layoutRoom(this.def, rect, window.innerWidth);
+	}
+
+	/** The pane's own outer bounds, in viewport coordinates — everything around the room picture
+	 * itself (layout().rect), not just the picture. ChatBubble docks its transcript and input bar
+	 * into whatever room this leaves above/below the room picture, so it needs both rects: this one
+	 * for the outer limit, layout().rect for the box it has to stay clear of. */
+	paneRect(): Rect | undefined {
+		return this.contentRect();
 	}
 
 	/** What shimejiDebug.room() reports about the artwork. */

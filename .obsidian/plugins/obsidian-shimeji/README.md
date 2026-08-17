@@ -833,18 +833,24 @@ which isn't subject to it. This is why every Obsidian AI plugin uses it instead 
 
 ### Chatting with a resident
 
-The office room has a small **Chat** button in its top-right corner. Click it and whichever mascot
-currently lives there expands its own speech bubble into a scrollable conversation — same bubble
-style (theme or comic, whatever **Settings → Speech bubble style** has set), just much bigger and
-roughly square instead of one line wide. Type underneath it and press **Enter** (or click **Send**)
-to talk; **Shift+Enter** for a newline, the **×** in the header or the toggle button again to close.
+The office room has a small **Chat** button in its top-right corner. Click it and the room picture
+gets a transcript docked directly above it and a thin input bar docked directly below it — same
+bubble style (theme or comic, whatever **Settings → Speech bubble style** has set), sized to match
+the office picture's own width. The office itself never changes size or position to make room for
+either one; they only ever use whatever space the pane already has above and below it, which is
+why the layout suits a tall sidebar particularly well. Type in the bar and press **Enter** (or
+click **Send**) to talk; the toggle button closes it again.
 
-It is still the mascot's own speech bubble, not a separate window: it's drawn pinned above whatever
+It is still the mascot's own speech bubble, not a separate window: it's drawn against whichever
 resident is currently home, follows the room if the pane moves or resizes, and disappears if the
 resident leaves. Closing it keeps the conversation — reopening the same resident's chat picks back
 up where it left off — but a different resident, or the same one moving out, clears it. Nothing is
 saved to disk; a restart starts fresh. With no API key set, sending a message reports that in the
 transcript instead of failing silently.
+
+The assistant is always told to reply with only the words actually spoken — no asterisk actions,
+no stage directions — regardless of persona; this is a format rule, not character voice, so a
+custom persona file doesn't need to ask for it itself.
 
 Vault search and confirmed note edits (having the assistant find notes or propose Dataview/CSS
 changes it can write with your approval) are planned but not built yet — right now it's a
