@@ -361,6 +361,9 @@ const monitorBack: RoomFixture = {
  * The cost is the same one `atmosphere` already accepted: a resident standing directly in front of
  * the glow now sits in front of it, rather than the glow bleeding over it. A monitor's edge-glow
  * losing a sliver of realism is a smaller price than a seam across the mascot.
+ *
+ * Still repainted once for the foreground pass, same as `atmosphere` — see OFFICE.foregroundWash —
+ * so the case it sits on reads as the same monitor whether or not anyone is sitting in front of it.
  */
 const monitorGlow: RoomFixture = {
 	id: "monitor-glow",
@@ -453,7 +456,13 @@ export const OFFICE: RoomDef = {
 	residentBehavior: "SitDown",
 	door: { x1: SEAT_X1, x2: SEAT_X1 + 6, y: SEAT_Y },
 	fixtures: [shell, brokenWindow, vines, deskLamp, chair, tower, desk, monitorBack, monitorGlow, deskThings, atmosphere],
-	// Same paint function as the `atmosphere` fixture above, called once more so the foreground
-	// canvas's own repaint of the desk and monitor ends up the same shade as the rest of the room.
-	foregroundWash: (p, mood) => atmosphere.paint(p, mood),
+	// Both translucent fixtures that sit on top of foreground-layer furniture — the room-wide gloom
+	// over the desk, the screen-glow over the monitor's own case — repainted once more so the
+	// foreground canvas's repaint of that furniture ends up the same shade as the rest of the room.
+	// Missing either one the same bug with a different fixture: the case drawn once with its glow
+	// and once more without it is two visibly different monitors, split along the clip's own edge.
+	foregroundWash: (p, mood) => {
+		atmosphere.paint(p, mood);
+		monitorGlow.paint(p, mood);
+	},
 };
