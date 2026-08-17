@@ -834,19 +834,23 @@ which isn't subject to it. This is why every Obsidian AI plugin uses it instead 
 ### Chatting with a resident
 
 The office room has a small **Chat** button in its top-right corner. Click it and the room picture
-gets a transcript docked directly above it and a thin input bar docked directly below it — same
-bubble style (theme or comic, whatever **Settings → Speech bubble style** has set), sized to match
-the office picture's own width. The office itself never changes size or position to make room for
-either one; they only ever use whatever space the pane already has above and below it, which is
-why the layout suits a tall sidebar particularly well. Type in the bar and press **Enter** (or
-click **Send**) to talk; the toggle button closes it again.
+gets a transcript docked directly above it — same bubble look (theme or comic, whatever
+**Settings → Speech bubble style** has set, tail and all) as an ordinary remark, sized to match the
+office picture's own width and height rather than filling whatever space happens to be free above
+it — and a thin input bar, always in Obsidian's own native look regardless of that style, docked
+directly below the picture. The office itself never changes size or position to make room for
+either one; they only ever use whatever space the pane already has above and below it, shrinking
+rather than growing past it, which is why the layout suits a tall sidebar particularly well. Type
+in the bar and press **Enter** (or click **Send**) to talk; the toggle button closes it again.
 
-It is still the mascot's own speech bubble, not a separate window: it's drawn against whichever
-resident is currently home, follows the room if the pane moves or resizes, and disappears if the
-resident leaves. Closing it keeps the conversation — reopening the same resident's chat picks back
-up where it left off — but a different resident, or the same one moving out, clears it. Nothing is
-saved to disk; a restart starts fresh. With no API key set, sending a message reports that in the
-transcript instead of failing silently.
+Messages render as plain markdown text rather than boxed bubbles — your own turns align right in a
+muted colour, the assistant's align left in the ordinary text colour. It is still the mascot's own
+speech bubble, not a separate window: it's drawn against whichever resident is currently home,
+follows the room if the pane moves or resizes, and disappears if the resident leaves. Closing it
+keeps the conversation — reopening the same resident's chat picks back up where it left off — but a
+different resident, or the same one moving out, clears it. Nothing is saved to disk; a restart
+starts fresh. With no API key set, sending a message reports that in the transcript instead of
+failing silently.
 
 The assistant is always told to reply with only the words actually spoken — no asterisk actions,
 no stage directions — regardless of persona; this is a format rule, not character voice, so a
