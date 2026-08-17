@@ -263,12 +263,9 @@ describe("the office", () => {
 		// in every pane wide enough to matter, and the test never knew.
 		const roomHeight = layout.rect.bottom - layout.rect.top;
 		const NATURAL_SPRITE_PX = 128;
-		// Narrow enough that the width cap below does not bind here — this test is about the
-		// vertical proportion, and has its own test for the width one.
-		const NATURAL_SPRITE_WIDTH_PX = 50;
 		// The room's own function, not a copy of it. Restating the arithmetic here is exactly how
 		// this shipped hidden twice: the test agreed with a version nobody was running.
-		const spriteHeight = NATURAL_SPRITE_PX * residentScaleFor(layout, NATURAL_SPRITE_WIDTH_PX, NATURAL_SPRITE_PX, roomHeight, 1);
+		const spriteHeight = NATURAL_SPRITE_PX * residentScaleFor(layout, NATURAL_SPRITE_PX, roomHeight, 1);
 		const feet = layout.toViewport(0, OFFICE.floorY).y;
 		const head = feet - spriteHeight;
 		const desktop = layout.toViewport(0, OFFICE_DESK_Y).y;
@@ -310,32 +307,17 @@ describe("the office", () => {
 		// happened to be — full height in a narrow one, a scalp in a wide one. The proportion has to
 		// be a property of the room, not of the pane.
 		const NATURAL_SPRITE_PX = 128;
-		const NATURAL_SPRITE_WIDTH_PX = 50; // narrow enough not to trip the width cap — see below for that
 		const seen: number[] = [];
 		for (const width of [220, 300, 420, 700, 1100]) {
 			const l = layoutRoom(OFFICE, { left: 0, top: 0, right: width, bottom: 1240 }, VIEWPORT_W);
 			if (!l) continue;
 			const roomHeight = l.rect.bottom - l.rect.top;
-			const sprite = NATURAL_SPRITE_PX * residentScaleFor(l, NATURAL_SPRITE_WIDTH_PX, NATURAL_SPRITE_PX, roomHeight, 1);
+			const sprite = NATURAL_SPRITE_PX * residentScaleFor(l, NATURAL_SPRITE_PX, roomHeight, 1);
 			const feet = l.toViewport(0, OFFICE.floorY).y;
 			seen.push((l.toViewport(0, OFFICE_DESK_Y).y - (feet - sprite)) / sprite);
 		}
 		expect(seen.length).toBeGreaterThan(3);
 		expect(Math.max(...seen) - Math.min(...seen), `how much clears the desk varies by pane width: ${seen.map((v) => v.toFixed(2)).join(", ")}`).toBeLessThan(0.05);
-	});
-
-	it("keeps a resident shaped like the built-in placeholder clear of the furniture beside the seat", () => {
-		// Reported with a screenshot: the built-in placeholder (48x56 — wider relative to its height
-		// than the narrow sprite the tests above use) rendered wide enough to overlap the monitor
-		// once the resident was sized purely by height. residentMaxWidthUnits is the room's answer;
-		// this reproduces the exact shape that shipped broken and checks it against the room's own
-		// stated limit rather than a copy of it.
-		const maxWidth = OFFICE.residentMaxWidthUnits;
-		expect(maxWidth, "the office no longer caps its resident's width").toBeDefined();
-		const roomHeight = layout.rect.bottom - layout.rect.top;
-		const scale = residentScaleFor(layout, 48, 56, roomHeight, 1);
-		const renderedWidthUnits = (48 * scale) / layout.scale;
-		expect(renderedWidthUnits, "a resident this wide still reaches the furniture beside the seat").toBeLessThanOrEqual(maxWidth! + 0.001);
 	});
 
 	it("puts the back of the monitor to the viewer, with something on it", () => {

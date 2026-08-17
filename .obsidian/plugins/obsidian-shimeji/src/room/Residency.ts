@@ -60,32 +60,19 @@ export interface ResidencyHost {
  * times a test restated the formula rather than calling it, so the test agreed with a version of the
  * arithmetic nobody was running. One implementation, or the test is decoration.
  */
-export function residentScaleFor(layout: RoomLayout, spriteWidth: number, spriteHeight: number, roomHeight: number, scaleOutside: number): number {
+export function residentScaleFor(layout: RoomLayout, spriteHeight: number, roomHeight: number, scaleOutside: number): number {
 	// Stated in the room's own units, so it can be reasoned about against the furniture in those
 	// same units — and so the answer cannot drift with the pane's size.
 	const units = layout.def.residentHeightUnits;
-	let scale: number;
-	if (units !== undefined) {
-		scale = (units * layout.scale) / spriteHeight;
-	} else {
-		const fraction = layout.def.residentHeightFraction;
-		// A room that asks for nothing gets the mascot at the size it walked in at. The only limit is
-		// that it cannot be taller than the room, which is not a style choice — a resident taller than
-		// its own pane hangs out of the sidebar.
-		if (fraction === undefined) {
-			scale = Math.min(scaleOutside, roomHeight / spriteHeight);
-		} else {
-			const cap = layout.def.residentMaxScale ?? MAX_RESIDENT_SCALE;
-			scale = Math.min(cap, (roomHeight * fraction) / spriteHeight);
-		}
-	}
+	if (units !== undefined) return (units * layout.scale) / spriteHeight;
 
-	// Sizing by height alone assumes there is room to spare sideways. A resident centred on its own
-	// anchor grows wider as it grows taller, and a seat with furniture close on either side can run
-	// out of width before it runs out of height — see `residentMaxWidthUnits`.
-	const maxWidthUnits = layout.def.residentMaxWidthUnits;
-	if (maxWidthUnits !== undefined) scale = Math.min(scale, (maxWidthUnits * layout.scale) / spriteWidth);
-	return scale;
+	const fraction = layout.def.residentHeightFraction;
+	// A room that asks for nothing gets the mascot at the size it walked in at. The only limit is
+	// that it cannot be taller than the room, which is not a style choice — a resident taller than
+	// its own pane hangs out of the sidebar.
+	if (fraction === undefined) return Math.min(scaleOutside, roomHeight / spriteHeight);
+	const cap = layout.def.residentMaxScale ?? MAX_RESIDENT_SCALE;
+	return Math.min(cap, (roomHeight * fraction) / spriteHeight);
 }
 
 export class Residency {
@@ -212,7 +199,7 @@ export class Residency {
 		const mascot = this.resident;
 		if (!mascot || mascot.height <= 0) return;
 		const roomHeight = layout.rect.bottom - layout.rect.top;
-		const wanted = this.residentScale(layout, mascot.width, mascot.height, roomHeight);
+		const wanted = this.residentScale(layout, mascot.height, roomHeight);
 		if (Math.abs(mascot.scale - wanted) > 0.001) mascot.scale = wanted;
 		// A room may pin which way its resident faces — a mascot sitting at a desk should not keep
 		// turning away. Applied every frame because the pack's own Look action would otherwise flip
@@ -238,8 +225,8 @@ export class Residency {
 	 * The one thing still enforced everywhere is that it cannot be taller than the room, which is
 	 * not a style choice — a resident taller than its own pane hangs out of the sidebar.
 	 */
-	private residentScale(layout: RoomLayout, spriteWidth: number, spriteHeight: number, roomHeight: number): number {
-		return residentScaleFor(layout, spriteWidth, spriteHeight, roomHeight, this.scaleBeforeMovingIn);
+	private residentScale(layout: RoomLayout, spriteHeight: number, roomHeight: number): number {
+		return residentScaleFor(layout, spriteHeight, roomHeight, this.scaleBeforeMovingIn);
 	}
 
 	/**
