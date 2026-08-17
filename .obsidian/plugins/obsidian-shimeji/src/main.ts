@@ -723,6 +723,7 @@ export default class ShimejiPlugin extends Plugin {
 	 * effect on the very next message with nothing here to invalidate. */
 	aiDispatchSettings(): AiDispatchSettings {
 		return {
+			enabled: this.settings.aiEnabled,
 			provider: this.settings.aiProvider,
 			anthropic: { apiKey: this.settings.aiApiKey, model: this.settings.aiModel || "claude-sonnet-5" },
 			local: { baseUrl: this.settings.aiLocalBaseUrl, apiKey: this.settings.aiLocalApiKey, model: this.settings.aiLocalModel },

@@ -3,6 +3,7 @@ import { providerConfigError, type AiDispatchSettings } from "../src/ai/provider
 
 function settings(overrides: Partial<AiDispatchSettings> = {}): AiDispatchSettings {
 	return {
+		enabled: true,
 		provider: "anthropic",
 		anthropic: { apiKey: "sk-ant-test", model: "claude-sonnet-5" },
 		local: { baseUrl: "http://localhost:11434/v1", apiKey: "", model: "llama3.2" },
@@ -41,5 +42,10 @@ describe("providerConfigError", () => {
 				settings({ provider: "local", anthropic: { apiKey: "", model: "" }, local: { baseUrl: "http://localhost:11434/v1", apiKey: "", model: "llama3.2" } }),
 			),
 		).toBeUndefined();
+	});
+
+	it("reports an error when disabled, even with a valid key configured", () => {
+		const error = providerConfigError(settings({ enabled: false, provider: "anthropic" }));
+		expect(error).toMatch(/turned off/);
 	});
 });

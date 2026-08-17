@@ -11,6 +11,7 @@ export type AiProvider = "anthropic" | "local";
  * rather than sharing fields, so switching back and forth never loses what was typed into the
  * other one. */
 export interface AiDispatchSettings {
+	enabled: boolean;
 	provider: AiProvider;
 	anthropic: { apiKey: string; model: string };
 	local: { baseUrl: string; apiKey: string; model: string };
@@ -24,6 +25,7 @@ export interface AiDispatchSettings {
  * gates on has real branches worth getting right.
  */
 export function providerConfigError(settings: AiDispatchSettings): string | undefined {
+	if (!settings.enabled) return "AI assistant is turned off — enable it in Settings → AI Assistant.";
 	if (settings.provider === "local") {
 		if (!settings.local.baseUrl.trim()) return "No local model server URL configured — set one in Settings → AI Assistant.";
 		return undefined;
