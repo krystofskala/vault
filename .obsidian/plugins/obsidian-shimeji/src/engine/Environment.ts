@@ -45,20 +45,19 @@ export class ObsidianDomEnvironment implements Environment {
 	 * legitimately be 0 depending on the user's exact Obsidian layout/OS):
 	 *
 	 * 1. `app.workspace.containerEl`'s own top — correct whenever the title bar is a genuinely
-	 *    separate sibling above `.workspace`. Confirmed 2026-08-13 that this is *not* universal,
-	 *    though: with tabs merged into the title bar (a real, common layout — visible in a user's
-	 *    own screenshot as one continuous row holding both the tab strip and the window's minimize
-	 *    /maximize/close buttons), `.workspace` itself starts at literal y=0, same as if there
-	 *    were no chrome at all — this signal alone silently returns 0 in exactly the layout it
-	 *    most needs to handle.
+	 *    separate sibling above `.workspace`. Not universal, though: with tabs merged into the
+	 *    title bar (a real, common layout — one continuous row holding both the tab strip and the
+	 *    window's minimize/maximize/close buttons), `.workspace` itself starts at literal y=0,
+	 *    same as if there were no chrome at all — this signal alone silently returns 0 in exactly
+	 *    the layout it most needs to handle.
 	 * 2. The bottom edge of the top-most `.workspace-tab-header-container` row(s) —
-	 *    `.workspace-tab-header-spacer` (a real, confirmed element: a user's own console showed it
-	 *    with computed `-webkit-app-region: drag`) lives inside one of these. This is what
-	 *    actually catches the merged-title-bar case: even though `.workspace` starts at y=0, the
-	 *    tab-header row itself still reports its own real height (e.g. 40px), which is the actual
-	 *    boundary that matters. Takes the *topmost* row(s) only (within a couple of pixels of the
-	 *    smallest `top` found) so a vertically-split layout's other, lower pane groups — which have
-	 *    their own tab-header-container too, irrelevant to the title bar — don't get pulled in.
+	 *    `.workspace-tab-header-spacer` (computed `-webkit-app-region: drag`) lives inside one of
+	 *    these. This is what actually catches the merged-title-bar case: even though `.workspace`
+	 *    starts at y=0, the tab-header row itself still reports its own real height (e.g. 40px),
+	 *    which is the actual boundary that matters. Takes the *topmost* row(s) only (within a
+	 *    couple of pixels of the smallest `top` found) so a vertically-split layout's other, lower
+	 *    pane groups — which have their own tab-header-container too, irrelevant to the title bar
+	 *    — don't get pulled in.
 	 */
 	getWorldTop(): number {
 		const containerEl = this.workspace?.containerEl ?? document.querySelector<HTMLElement>(".workspace");

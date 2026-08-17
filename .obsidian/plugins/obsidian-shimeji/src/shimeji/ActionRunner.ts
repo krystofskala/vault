@@ -496,13 +496,10 @@ export class ActionRunner {
 				// this it fell through to applyNativeEmbedded's "unrecognized" fallback, which
 				// applies gravity — actively wrong for an action that's supposed to hold in place.
 				if (frame.action.embeddedName === "Regist") return this.tickHold(frame, env, dt, ledges);
-				// ThrowIE: real ThrowIE.java extends Animate, not Fall — its own tick() never
-				// touches the mascot's position at all (BorderType="Floor", every real-pack Pose
-				// under it is Velocity="0,0"); the mascot just holds its throwing pose exactly as
-				// tickHold already gives us (previously mapped to plain "Fall", which wrongly ran
-				// real falling physics on the mascot itself and cut the held pose short the
-				// instant gravity's own landing check re-detected the floor already underfoot).
-				// tickThrowIE adds the actual window-throwing side effect on top, when available.
+				// ThrowIE: real ThrowIE.java extends Animate, not Fall — it never touches the
+				// mascot's own position (BorderType="Floor", every Pose Velocity="0,0"). Previously
+				// mapped to Fall, which wrongly ran real falling physics and cut the held pose
+				// short. tickThrowIE adds the actual window-throwing side effect on top, when available.
 				if (frame.action.embeddedName === "ThrowIE") return this.tickThrowIE(frame, env, dt, ledges);
 				return this.tickEmbedded(frame, env, dt, ledges);
 			case "Stay":

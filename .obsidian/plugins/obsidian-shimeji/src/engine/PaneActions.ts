@@ -30,16 +30,15 @@ export type SidebarMode = "collapse" | "expand" | "toggle";
 export interface PaneActions {
 	/** Real WalkWithIE/RunWithIE (the "carry it along while walking" phase before a throw):
 	 * change this pane's size by deltaPx, growing in the direction the mascot is currently
-	 * walking. Which axis that actually resizes (width vs height) is decided by the pane's own
-	 * real split orientation, not by which action fired — a pane living in a side-by-side split
-	 * resizes left/right, one in a stacked split resizes up/down. Uses Obsidian's own
+	 * walking. Which axis that actually resizes is decided by the pane's own split orientation,
+	 * not by which action fired — see ResizeAxis. Uses Obsidian's own
 	 * WorkspaceItem.setDimension()-equivalent internals, which aren't part of the public plugin
 	 * API — see the implementation's own comment for the real precedent this is based on.
 	 *
 	 * `axis`, when given, makes the call a no-op unless the pane's own split actually resizes along
-	 * that dimension — see ResizeAxis. Omitted (the WalkWithIE case) means "whichever axis this
-	 * pane resizes along", the original behaviour. Returns whether anything actually changed, so a
-	 * caller can tell "not applicable here" from "done". */
+	 * that dimension. Omitted (the WalkWithIE case) means "whichever axis this pane resizes
+	 * along", the original behaviour. Returns whether anything actually changed, so a caller can
+	 * tell "not applicable here" from "done". */
 	resizeBy?(pane: PaneRef, deltaPx: number, axis?: ResizeAxis): boolean;
 
 	/** Invented, with no counterpart in shimeji-ee at all: collapse/expand the sidebar `pane` lives
@@ -73,14 +72,11 @@ export interface PaneActions {
 	 * on the divider.
 	 */
 	/**
-	 * Where the "new pane" buttons are, so a mascot can walk to one.
+	 * Where the "new pane" buttons are, so a mascot can walk to one — see this interface's own doc
+	 * above for why that walk happens at all rather than a pane just appearing.
 	 *
-	 * The point of routing a mascot to a button before the layout changes is that it stops the change
-	 * being magic. A pane appearing out of nowhere because the mascot needed a floor reads as the
-	 * mascot having powers; walking to the + button and pressing it reads as the mascot solving a
-	 * problem with the tools on screen. The geometry lives here rather than on Environment because
-	 * this is the interface already threaded through to the behaviour layer, and because pressing one
-	 * is a mutation regardless.
+	 * The geometry lives here rather than on Environment because this is the interface already
+	 * threaded through to the behaviour layer, and because pressing one is a mutation regardless.
 	 */
 	listNewPaneControls?(): Array<{ point: Vec2; paneRef?: PaneRef }>;
 

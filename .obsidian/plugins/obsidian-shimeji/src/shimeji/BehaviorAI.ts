@@ -780,9 +780,6 @@ export class BehaviorAI {
 		}
 
 		// Sticky follow (invented — see setFollowingMouse) gets first refusal on the reselection.
-		// The pursuit ends on arrival and nowhere else: it is not on a timer and does not expire
-		// after some number of legs, so the mascot keeps coming as long as the pointer stays out of
-		// reach — however long that takes, and however the pointer moves in the meantime.
 		// Two separate lifetimes here, and conflating them is a bug I shipped once in this function:
 		//  - a *pursuit* ends only by arriving. It is not on a timer, never gives up partway, and no
 		//    number of legs exhausts it.
@@ -790,15 +787,15 @@ export class BehaviorAI {
 		// Arrival must therefore not disarm the mode, or "keep following" would be a single trip:
 		// the mascot would catch up once, stand down, and then ignore the pointer for the rest of
 		// the session. While arrived it simply stops issuing legs and lets the pack's own chain run
-		// (SitAndFaceMouse — it sits and watches), staying armed so that a pointer moving back out of
-		// reach picks the pursuit straight up again.
+		// (SitAndFaceMouse — it sits and watches).
 		// Arrival is decided by the router, not by distance to the pointer, and that distinction is
 		// what keeps the mode terminating. A pointer hovering in the middle of the editor is not
 		// somewhere a mascot can stand: it gets as close as the surfaces allow and then has nothing
 		// further to do. Measuring against the raw pointer would leave it re-planning forever, never
-		// settling into the pack's own sit-and-watch chain. startPursuitLeg returns false for exactly
-		// that "nowhere nearer to go" case, and the mode stays armed so a pointer that moves back into
-		// reach picks the pursuit straight up again.
+		// settling into the pack's own sit-and-watch chain — startPursuitLeg returns false for
+		// exactly that "nowhere nearer to go" case.
+		// Either way the mode stays armed, so a pointer that moves back into reach picks the
+		// pursuit straight up again.
 		if (this.followingMouse && this.startPursuitLeg(env, ambientPointer, ledges)) return;
 
 		if (this.orderedSpot && this.driveSpotOrder(env, ledges)) return;
