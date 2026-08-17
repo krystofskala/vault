@@ -28,6 +28,19 @@ import type { Rect } from "../engine/types";
  * And it does **not** resize the canvas. `paintRoom` sizes it to the room's own scale; overriding
  * that with the pane's rect stretched the desk out of register with the one behind it, which is
  * what put the desk's edge across the resident's face instead of its chest.
+ *
+ * It is positioned from the room canvas's **own measured rect**, not from a second, independent
+ * computation of where that canvas ought to be. The room canvas is centred in its pane by CSS
+ * flexbox, in fractional pixels the browser is free to round however it likes; `RoomGeometry`
+ * centres the same box with its own `Math.round` arithmetic, in JS, for the physics ledges that
+ * have to line up with the picture. The two calculations agree on the room's *size* exactly — both
+ * start from the same integer scale — but nothing forces them to agree on its *position* to better
+ * than a fraction of a pixel, and pixel art has no antialiasing to hide a fraction of a pixel in.
+ * Reported as the foreground sitting a few pixels out of register with the room behind it, on a
+ * pane whose width made the two roundings disagree. Reading the canvas's own
+ * `getBoundingClientRect()` instead means this can only ever land exactly where the room actually
+ * is, because it *is* where the room actually is — there is no second prediction left to disagree
+ * with it.
  */
 
 /** One above the stage overlay's own z-index (see styles.css). */
@@ -56,11 +69,15 @@ export class RoomForeground {
 	/**
 	 * Redraws and repositions to match `layout`, or hides when there is nothing to draw — the room
 	 * is off screen, or it simply has no foreground.
+	 *
+	 * `canvasRect` is the room's own canvas's measured `getBoundingClientRect()`, not `layout.rect`
+	 * — see the class doc for why those two are not interchangeable here even though they describe
+	 * the same box.
 	 */
-	update(def: RoomDef | undefined, layout: RoomLayout | undefined, residentRect: Rect | undefined, hourOverride?: number): void {
+	update(def: RoomDef | undefined, layout: RoomLayout | undefined, canvasRect: Rect | undefined, residentRect: Rect | undefined, hourOverride?: number): void {
 		// Nobody home means nothing to draw in front of: the room's own canvas already has the whole
 		// picture. This is also what stops a passing mascot being clipped by furniture it is not at.
-		if (!def || !layout || !residentRect || !hasForeground(def)) {
+		if (!def || !layout || !canvasRect || !residentRect || !hasForeground(def)) {
 			this.hide();
 			return;
 		}
@@ -77,11 +94,11 @@ export class RoomForeground {
 		// Positioned every call rather than only on redraw: the pane moves whenever a sidebar is
 		// dragged or a split changes, and a foreground a few pixels out of register with the room
 		// behind it is worse than none at all.
-		canvas.style.left = `${layout.rect.left}px`;
-		canvas.style.top = `${layout.rect.top}px`;
+		canvas.style.left = `${canvasRect.left}px`;
+		canvas.style.top = `${canvasRect.top}px`;
 		// Width and height deliberately untouched — paintRoom has already sized this to the room's
 		// own scale, and setting them from the pane's rect stretches it out of register.
-		canvas.style.clipPath = insetTo(residentRect, layout.rect);
+		canvas.style.clipPath = insetTo(residentRect, canvasRect);
 		canvas.style.display = "";
 	}
 

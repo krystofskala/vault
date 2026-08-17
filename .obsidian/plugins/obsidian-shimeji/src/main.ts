@@ -1103,6 +1103,7 @@ export default class ShimejiPlugin extends Plugin {
 			this.roomForeground.update(
 				view?.def,
 				view?.layout(),
+				view?.canvasRect(),
 				resident && resident.width > 0 ? { left: resident.left, top: resident.top, right: resident.right, bottom: resident.bottom } : undefined,
 				this.roomHourOverride,
 			);

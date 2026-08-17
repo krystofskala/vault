@@ -359,6 +359,35 @@ describe("the office", () => {
 		}
 		expect(translucent, `translucent pixels on the foreground layer: ${translucent.join(", ")}`).toHaveLength(0);
 	});
+
+	it("tints its foreground repaint the same way the background pass tints the room", () => {
+		// The bug sitting on top of the one just fixed above: keeping the gloom wash off the
+		// foreground layer (so it cannot double-composite into a seam) also means the foreground
+		// canvas's own repaint never receives it at all, unless something puts it back — so the desk
+		// drawn once (dimmed by the wash) and the same desk redrawn a second time over the resident
+		// (undimmed) end up two different shades of desk, split along the clip's own edge. Reported
+		// as "the colour of the table only looks different in the overlay", and confirmed by
+		// actually rendering both canvases — a screenshot showed a visibly two-toned desk.
+		//
+		// OFFICE.foregroundWash is what puts the tint back for the foreground pass; this checks it
+		// paints exactly what the room's own atmosphere fixture paints, at the same hour, rather than
+		// a stale copy that could quietly drift from it.
+		const atmosphere = OFFICE.fixtures.find((f) => f.id === "atmosphere");
+		expect(atmosphere, "the office lost its atmosphere fixture").toBeDefined();
+		expect(OFFICE.foregroundWash, "the foreground repaint is never tinted to match the rest of the room").toBeDefined();
+
+		const calls: unknown[] = [];
+		const painter = {
+			px: (...args: unknown[]) => calls.push(["px", ...args]),
+			polygon: (...args: unknown[]) => calls.push(["polygon", ...args]),
+		};
+		const mood = moodForHour(21, 0);
+		OFFICE.foregroundWash!(painter, mood);
+		const fromWash = [...calls];
+		calls.length = 0;
+		atmosphere!.paint(painter, mood);
+		expect(fromWash).toEqual(calls);
+	});
 });
 
 describe("the room's daylight", () => {

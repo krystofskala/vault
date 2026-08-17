@@ -221,6 +221,23 @@ export interface RoomDef {
 	 */
 	door: { x1: number; x2: number; y: number };
 	fixtures: RoomFixture[];
+	/**
+	 * An ambient tint re-applied after the foreground layer's own fixtures, so the sliver of them
+	 * redrawn over the resident ends up the same shade as the rest of the room.
+	 *
+	 * Exists because of a conflict `RoomFixture.layer`'s own doc does not mention: a *background*
+	 * wash that darkens the whole room (see office's `atmosphere`) cannot be a foreground fixture
+	 * itself — that already shipped broken once, as a visible rectangle where the wash's alpha
+	 * compounded inside the clip — but leaving it background-only means the foreground repaint never
+	 * receives it at all. The desk drawn once, dimmed by the wash, and the same desk redrawn a
+	 * second time over the resident, at raw undimmed colour, split it into two visibly different
+	 * shades along the clip's own edge — reported as "the colour of the table only looks different
+	 * in the overlay", and it was this.
+	 *
+	 * Called once, after every foreground fixture, exactly the way the background pass calls the
+	 * wash once, after every fixture — so each canvas ends up tinted exactly once, never twice.
+	 */
+	foregroundWash?(p: Painter, mood: RoomMood): void;
 }
 
 const W = 72;

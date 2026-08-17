@@ -412,9 +412,17 @@ const atmosphere: RoomFixture = {
 	 * clip's outline appears as a darker rectangle around the mascot. Reported as "it draws another
 	 * overlay around character", and it was this.
 	 *
-	 * The cost is that the gloom no longer tints the resident, so it reads a little brighter than
-	 * the room around it. In a room where the mascot is lit by a monitor at point-blank range, that
-	 * is a defensible look; a rectangle around its head is not.
+	 * Fixed by keeping this off the foreground layer, not by dropping the wash from the foreground
+	 * canvas entirely — see OFFICE.foregroundWash below, which calls this same paint function once
+	 * more, on its own, so the foreground repaint is tinted exactly once rather than not at all. The
+	 * first fix without that second half is its own bug: the desk drawn once (dimmed) and the same
+	 * desk redrawn a second time over the resident (undimmed) is two different shades of desk,
+	 * split along the clip's own edge — reported as "the colour of the table only looks different
+	 * in the overlay".
+	 *
+	 * The resident itself still is not tinted — it lives on a different canvas entirely, outside
+	 * either paint pass. In a room where the mascot is lit by a monitor at point-blank range, that
+	 * is a defensible look.
 	 */
 	paint(p, mood) {
 		const L = light(mood);
@@ -445,4 +453,7 @@ export const OFFICE: RoomDef = {
 	residentBehavior: "SitDown",
 	door: { x1: SEAT_X1, x2: SEAT_X1 + 6, y: SEAT_Y },
 	fixtures: [shell, brokenWindow, vines, deskLamp, chair, tower, desk, monitorBack, monitorGlow, deskThings, atmosphere],
+	// Same paint function as the `atmosphere` fixture above, called once more so the foreground
+	// canvas's own repaint of the desk and monitor ends up the same shade as the rest of the room.
+	foregroundWash: (p, mood) => atmosphere.paint(p, mood),
 };

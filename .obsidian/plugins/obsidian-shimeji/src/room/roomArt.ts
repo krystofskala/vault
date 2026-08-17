@@ -111,6 +111,9 @@ export function paintRoom(
 	for (const fixture of def.fixtures) {
 		if (layer === "all" || (fixture.layer ?? "background") === layer) fixture.paint(painter, mood);
 	}
+	// The foreground redraw's own pass needs the same ambient tint the background pass gets from
+	// its own fixtures — see RoomDef.foregroundWash for why this cannot simply be a fixture.
+	if (layer === "foreground") def.foregroundWash?.(painter, mood);
 
 	// The CSS size is the layout's scale; the backing store is multiplied again by the display's
 	// own ratio so the art stays crisp on a HiDPI screen instead of being upscaled by the compositor.
