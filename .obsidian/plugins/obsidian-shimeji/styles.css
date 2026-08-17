@@ -51,13 +51,6 @@
 	pointer-events: none;
 }
 
-.shimeji-settings-pack-list {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	margin: 8px 0;
-}
-
 .shimeji-cc-box {
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 6px;
