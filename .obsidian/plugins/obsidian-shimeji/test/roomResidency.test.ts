@@ -20,6 +20,8 @@ interface FakeMascot {
 	scale: number;
 	/** The standard pack's sprite height — what the resident's scale is derived from. */
 	height: number;
+	/** Same, for a room that also caps the resident's width — see office.ts. */
+	width: number;
 	confinement?: unknown;
 	isBeingDragged: boolean;
 	hasSpotOrder: boolean;
@@ -36,6 +38,7 @@ function fakeMascot(x: number, y: number): FakeMascot {
 		physics: { x, y, vx: 0, vy: 0, grounded: true },
 		scale: 1,
 		height: 128,
+		width: 128,
 		isBeingDragged: false,
 		hasSpotOrder: false,
 		orders: [],

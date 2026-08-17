@@ -64,6 +64,25 @@ const DESK_Y = OFFICE_DESK_Y;
  */
 const RESIDENT_HEIGHT = 40;
 
+/**
+ * How wide the resident is allowed to render, in the same units — the seat's other constraint, and
+ * the one the doubling above missed.
+ *
+ * The resident is centred on its own anchor, so doubling its height also doubled its width, and
+ * this seat does not have forty units to spare sideways the way it has vertically. It comes to rest
+ * at the door's own centre, x=27 (SEAT_X1 + 3), and the tower's case is right there at x=17 — ten
+ * units away. The monitor, on the far side at x=48, is twice that, so the tower is the side that
+ * actually binds. Eighteen leaves a unit of clearance on the tight side rather than exactly
+ * touching it.
+ *
+ * Reported as the resident overlapping the monitor, from a screenshot where it plainly was — a
+ * sprite sized purely to clear the desk has nothing stopping it from also being wider than the gap
+ * it is sitting in. A wide sprite now renders shorter than RESIDENT_HEIGHT to stay inside that gap;
+ * a narrow one is unaffected, because this only ever pulls the scale *down* from what height alone
+ * would pick.
+ */
+const RESIDENT_MAX_WIDTH = 18;
+
 /** A short run behind the desk, left of the monitor so head and shoulders are clear of it. */
 const SEAT_X1 = 24;
 const SEAT_X2 = 44;
@@ -436,6 +455,7 @@ export const OFFICE: RoomDef = {
 	// The lamp flickers, the screen breathes, and dust drifts through the window. See `light()`.
 	animated: true,
 	residentHeightUnits: RESIDENT_HEIGHT,
+	residentMaxWidthUnits: RESIDENT_MAX_WIDTH,
 	// Facing one way and staying there. Shimeji artwork is side-on and the real engine has no
 	// front-facing pose at all, so this settles which side rather than turning it to camera.
 	residentFacing: 1,

@@ -169,6 +169,22 @@ export interface RoomDef {
 	 */
 	residentHeightUnits?: number;
 	/**
+	 * How wide the resident is allowed to render, in the room's *own* coordinate units — the other
+	 * half of `residentHeightUnits`.
+	 *
+	 * Sizing by height alone assumes there is always room to spare sideways, which is only true of a
+	 * room with nothing standing next to the seat. The office does not have that: the resident is
+	 * centred on its own anchor, so it grows both wider and taller as it is scaled up, and a seat
+	 * boxed in by a tower on one side and a monitor on the other runs out of *width* well before it
+	 * runs out of height. A sprite sized purely to clear the desk can still be wide enough to reach
+	 * the furniture beside it — reported as the resident overlapping the monitor, with a screenshot
+	 * to prove it.
+	 *
+	 * Whichever of the two caps binds wins; a room that only cares about height simply leaves this
+	 * unset.
+	 */
+	residentMaxWidthUnits?: number;
+	/**
 	 * How tall the resident stands here, as a fraction of the room's drawn height. Per-room because
 	 * the right answer depends on what the room is: a whole flat wants a small figure, while a scene
 	 * built around the mascot itself wants it large enough to read. Defaults to Residency's own.
