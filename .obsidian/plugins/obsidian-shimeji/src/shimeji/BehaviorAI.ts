@@ -178,6 +178,17 @@ export class BehaviorAI {
 	/** An explicit "get to this spot" order, and how many times the layout has been reshaped trying
 	 * to satisfy it — see goToSpot. */
 	private orderedSpot?: Vec2;
+	/** Set for exactly one tick by orderToSpot(), so a freshly-issued order can preempt whatever the
+	 * mascot happens to be mid-way through (a long Sit, a HoldOntoCeiling, ...) instead of patiently
+	 * waiting for it to end on its own — see tick()'s own use of it, right where orderedSpot is first
+	 * consulted. Never left set beyond that one tick: startRouteAction always restarts the
+	 * ActionRunner from scratch, and a restarted action's own physics only advance on a *later*
+	 * tick()'s runner.tick() call — never the same tick it was started on — so re-triggering this
+	 * every tick while a leg is already correctly under way would restart it every single tick
+	 * before it ever got to actually move, freezing the mascot in place despite "going somewhere"
+	 * every frame. One forced interrupt is enough: once the first leg is running, the ordinary
+	 * !isRunning / end-of-action reselection below keeps driving it leg by leg exactly as before. */
+	private spotOrderJustIssued = false;
 	private spotSurgeries = 0;
 	/**
 	 * What the mascot is currently *doing* about an outstanding order, when that is more than simply
@@ -228,6 +239,7 @@ export class BehaviorAI {
 	 */
 	orderToSpot(point: Vec2): void {
 		this.orderedSpot = { x: point.x, y: point.y };
+		this.spotOrderJustIssued = true;
 		this.spotSurgeries = 0;
 		this.spotSpentDrops = [];
 		this.spotPhase = undefined;
@@ -782,7 +794,13 @@ export class BehaviorAI {
 		// point of the mode. With it, the mascot re-plans continuously against wherever the pointer is
 		// now, and stops only when you tell it to — by clicking it, or with the stop command.
 		// An explicit order outranks everything: it was given deliberately, at one specific place.
-		if (this.orderedSpot && !this.runner.isRunning && this.driveSpotOrder(env, ledges)) return;
+		// That includes whatever the mascot happens to be mid-way through already — a long Sit, a
+		// HoldOntoCeiling — which is why a freshly-issued order also forces its way in here even while
+		// the runner is busy, not only while it's idle. See spotOrderJustIssued's own comment for why
+		// this is a one-shot force rather than an unconditional every-tick check.
+		const forcedBySpotOrder = this.spotOrderJustIssued;
+		this.spotOrderJustIssued = false;
+		if (this.orderedSpot && (forcedBySpotOrder || !this.runner.isRunning) && this.driveSpotOrder(env, ledges)) return;
 
 		if (this.followingMouse) {
 			// Arm the comparison the first time round. Turning the mode on kicks off the pack's own

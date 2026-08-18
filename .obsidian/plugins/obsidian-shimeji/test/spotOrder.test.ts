@@ -127,6 +127,26 @@ describe("spot order", () => {
 		expect(s.ai.hasSpotOrder).toBe(false);
 	});
 
+	// Real user report: the order "does nothing" until whatever the mascot happened to already be
+	// doing finishes on its own — Sit's own Duration defaults to effectively infinite (no self-cap,
+	// unlike Animate), so a mascot ordered mid-Sit used to sit there literally forever, since nothing
+	// ever revisited driveSpotOrder while the runner was still busy. An order has to preempt that, the
+	// same way sticky mouse-follow's own re-aim already preempts whatever is running.
+	it("preempts an already-running action instead of waiting for it to finish on its own", () => {
+		const s = scene(200);
+		s.ai.forceBehavior("Sit", s.mascot, { x: 0, y: 0, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG);
+		s.run(5);
+		expect(s.physics.x, "Sit should hold still before any order is given").toBe(200);
+
+		s.ai.orderToSpot({ x: 900, y: 800 });
+		s.run(10);
+
+		// Left to finish Sit on its own (no Duration override -> holds indefinitely) this would still
+		// read exactly 200 forever; a handful of ticks is nowhere near enough to walk 700px on its own
+		// merit, so any real movement this soon can only mean the order interrupted it immediately.
+		expect(s.physics.x).not.toBe(200);
+	});
+
 	/** Two stacked editor panes, and a spot in mid-air inside the lower one. Nothing can be stood on
 	 * there, and nothing can be *dropped* through it either — the pane's own top edge is a floor that
 	 * catches every fall from above — so the only way is to build a surface. */
