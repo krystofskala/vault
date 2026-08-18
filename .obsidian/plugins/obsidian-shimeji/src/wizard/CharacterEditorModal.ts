@@ -982,6 +982,31 @@ export class CharacterEditorModal extends Modal {
 						.setValue(String(pose.durationTicks))
 						.onChange((v) => (pose.durationTicks = parseFloat(v) || 0)),
 				)
+				// Reordering, not a separate "insert at position" control: to add a pose at the start
+				// or in the middle, "+ Add pose"/"Slice from a sheet…" below still only ever append —
+				// walk it up (or down) to wherever it belongs with these instead. Fewer new concepts for
+				// the same result, and it's exactly how the existing "Remove pose" already works: one
+				// pose, one obvious place to act on it.
+				.addButton((b) =>
+					b
+						.setButtonText("↑")
+						.setTooltip("Move up")
+						.setDisabled(pi === 0)
+						.onClick(() => {
+							[variant.poses[pi - 1], variant.poses[pi]] = [variant.poses[pi], variant.poses[pi - 1]];
+							this.render();
+						}),
+				)
+				.addButton((b) =>
+					b
+						.setButtonText("↓")
+						.setTooltip("Move down")
+						.setDisabled(pi === variant.poses.length - 1)
+						.onClick(() => {
+							[variant.poses[pi], variant.poses[pi + 1]] = [variant.poses[pi + 1], variant.poses[pi]];
+							this.render();
+						}),
+				)
 				.addButton((b) =>
 					b.setButtonText("Remove pose").onClick(() => {
 						variant.poses.splice(pi, 1);
