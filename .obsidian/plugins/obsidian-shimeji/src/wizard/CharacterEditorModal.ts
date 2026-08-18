@@ -25,6 +25,7 @@ import { AnimationOptionsModal } from "./AnimationOptionsModal";
 import { describeActionHint } from "./actionHints";
 import { deriveAnimatedActions, findReferenceVelocity, randomVariantConditions, type AnimatedActionChecklist } from "./animationOptions";
 import { deriveRequiredPoses, type PoseChecklist, type PoseChecklistEntry } from "./deriveRequiredPoses";
+import { imagesUsedByActions, imagesWorthSlicing } from "./imageCandidates";
 import { PoseFitCanvas } from "./PoseFitCanvas";
 import { PoseFitModal } from "./PoseFitModal";
 import { PoseSequenceFitModal } from "./PoseSequenceFitModal";
@@ -566,6 +567,19 @@ export class CharacterEditorModal extends Modal {
 		void this.commit();
 	}
 
+	/** Pack images actually worth offering as a sheet to slice — everything except images already
+	 * spent as a finished pose, standard or custom. `posesUsing`'s own custom-actions check plus the
+	 * standard checklist's own filenames (fitted required/optional poses, which never appear in
+	 * `this.content.actions` at all — a scaffolded character's own shimeN.png-style poses are just
+	 * files matching the checklist, not custom action specs) together cover both ways a finished
+	 * pose ends up in this pack's image folder. `keep` is always let through — see
+	 * imagesWorthSlicing's own doc comment. */
+	private slicerCandidates(keep?: string): string[] {
+		const used = imagesUsedByActions(this.content.actions);
+		if (this.checklist) for (const entry of [...this.checklist.required, ...this.checklist.optional]) used.add(entry.image);
+		return imagesWorthSlicing(this.packImages, used, keep);
+	}
+
 	// ---------------------------------------------------------------- fit editor
 
 	private async openFitEditor(entry: PoseChecklistEntry): Promise<void> {
@@ -712,7 +726,7 @@ export class CharacterEditorModal extends Modal {
 		if (!this.imgDir) return;
 		new SpriteSheetModal(this.app, {
 			imgDir: this.imgDir,
-			images: this.packImages,
+			images: this.slicerCandidates(initialImage),
 			initialImage,
 			actionName: entry.image.replace(/^\/|\.png$/g, ""),
 			onPoses: (poses) => {
@@ -1009,10 +1023,11 @@ export class CharacterEditorModal extends Modal {
 		const imgDir = this.imgDir;
 		const standardDef = this.plugin.availablePacks.find((p) => p.id === this.packId)?.actions.get(this.draftAction?.name ?? "");
 		const currentPoseGroups = this.draftAction ? this.draftAction.animations.map((a) => a.poses) : [variant.poses];
+		const initialImage = variant.poses.find((p) => p.image)?.image ?? this.packImages[0];
 		new SpriteSheetModal(this.app, {
 			imgDir,
-			images: this.packImages,
-			initialImage: variant.poses.find((p) => p.image)?.image ?? this.packImages[0],
+			images: this.slicerCandidates(initialImage),
+			initialImage,
 			actionName: this.draftAction?.name ?? "pose",
 			onPoses: (poses) => {
 				// Same finetune stop as the simple "Set frames…" flow — resize to match the rest of
@@ -1021,6 +1036,7 @@ export class CharacterEditorModal extends Modal {
 				new PoseSequenceFitModal(this.app, {
 					imgDir,
 					packImages: this.packImages,
+					sliceableImages: this.slicerCandidates(),
 					poses,
 					referenceVelocity: findReferenceVelocity(standardDef, ...currentPoseGroups),
 					onDone: async (finetuned) => {

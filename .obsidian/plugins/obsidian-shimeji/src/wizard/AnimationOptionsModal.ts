@@ -4,6 +4,7 @@ import { listPackImages } from "../shimeji/PackLoader";
 import type { CustomActionSpec, CustomPoseSpec } from "../shimeji/customContent";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
 import { buildReplacementActionSpec, findReferenceVelocity, poseDefToCustomPoseSpec, randomVariantConditions } from "./animationOptions";
+import { imagesUsedByActions, imagesUsedByPoseLists, imagesWorthSlicing } from "./imageCandidates";
 import { PoseSequenceFitModal } from "./PoseSequenceFitModal";
 
 /** True only if every condition in `spec` matches what randomVariantConditions would itself have
@@ -145,14 +146,28 @@ export class AnimationOptionsModal extends Modal {
 		else img.style.display = "none";
 	}
 
+	/** Pack images actually worth offering as a sheet to slice — everything except images already
+	 * spent as a finished pose, whether by some other saved custom action or by one of this
+	 * action's own other (not yet saved) options. Doesn't also cross-check the standard schema's
+	 * own shimeN.png-style poses the way CharacterEditorModal's own slicerCandidates does — this
+	 * modal only ever edits one already-existing action's alternatives, not the whole pack, so it
+	 * has no checklist of its own to consult. `keep` is always let through — see
+	 * imagesWorthSlicing's own doc comment. */
+	private slicerCandidates(keep?: string): string[] {
+		const used = imagesUsedByActions(this.plugin.settings.customContent[this.packId]?.actions ?? []);
+		for (const img of imagesUsedByPoseLists(this.options)) used.add(img);
+		return imagesWorthSlicing(this.packImages, used, keep);
+	}
+
 	private openSlicerForOption(index: number): void {
 		if (!this.imgDir) return;
 		const imgDir = this.imgDir;
 		const standardDef = this.plugin.availablePacks.find((p) => p.id === this.packId)?.actions.get(this.actionName);
+		const initialImage = this.options[index]?.[0]?.image || this.packImages[0] || "";
 		new SpriteSheetModal(this.app, {
 			imgDir,
-			images: this.packImages,
-			initialImage: this.options[index]?.[0]?.image || this.packImages[0] || "",
+			images: this.slicerCandidates(initialImage),
+			initialImage,
 			actionName: this.actionName,
 			onPoses: (poses) => {
 				if (poses.length === 0) return;
@@ -165,6 +180,7 @@ export class AnimationOptionsModal extends Modal {
 				new PoseSequenceFitModal(this.app, {
 					imgDir,
 					packImages: this.packImages,
+					sliceableImages: this.slicerCandidates(),
 					poses,
 					// A fresh slice's own poses are always velocity 0,0 (posesFromPlan's neutral
 					// default); this is what keeps replacing Walk's art from also silently turning

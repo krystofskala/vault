@@ -27,8 +27,16 @@ const REFERENCE_POSE_SIZE = 128;
 export interface PoseSequenceFitModalOptions {
 	imgDir: string;
 	/** For the "add a layer on top" picker's "pick an existing image" option — the pack's own
-	 * images, same list every other picker in this wizard already offers from. */
+	 * images, same list every other picker in this wizard already offers from. Deliberately
+	 * unfiltered, unlike `sliceableImages` below: reusing an already-finished pose image directly
+	 * as a layer's source is a perfectly ordinary thing to want. */
 	packImages: string[];
+	/** For the "slice from a sheet" button's own dropdown — `packImages` minus whatever is already
+	 * spent as a finished pose elsewhere in the pack, so an image with nothing left to cut out of
+	 * it doesn't show up as a candidate sheet. See CharacterEditorModal/AnimationOptionsModal's own
+	 * `slicerCandidates`, and imageCandidates.ts's own doc comment on why this needs to differ from
+	 * `packImages` above. */
+	sliceableImages: string[];
 	/** Already written to disk at their own path (by `SpriteSheetModal`, just before this opens),
 	 * in slice order. The same objects are mutated in place (anchor, velocity — orientation/resize/
 	 * layer edits replace `pixels`, not this spec) and handed back unchanged in shape, so a caller
@@ -536,8 +544,8 @@ export class PoseSequenceFitModal extends Modal {
 		}
 		new SpriteSheetModal(this.app, {
 			imgDir: this.opts.imgDir,
-			images: this.opts.packImages,
-			initialImage: this.opts.packImages[0],
+			images: this.opts.sliceableImages,
+			initialImage: this.opts.sliceableImages[0] ?? this.opts.packImages[0],
 			actionName: "layer",
 			onPoses: (poses) => {
 				if (poses.length === 0) return;
