@@ -208,11 +208,30 @@ describe("withoutLedgesTooCloseToTop", () => {
 		expect(filtered.some((l) => l.kind === "floor" && l.y === 600)).toBe(true);
 	});
 
-	it("trims a wall's climbable span to end standingHeight short of worldTop, keeping it below that", () => {
+	it("trims a wall's climbable span, but only down to the pack's own 64px ceiling-approach distance, not the mascot's full height", () => {
+		// A 120px-tall mascot, worldTop=40: the floor-style buffer would put this at y1=160, but
+		// ClimbAlongWall's own TargetY="workArea.top+64" needs the wall climbable down to 40+64=104,
+		// so the wall cap stops there instead — see withoutLedgesTooCloseToTop's own comment.
 		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, []);
-		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120); // a 120px-tall mascot, worldTop=40
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 120);
 		const left = filtered.find((l) => l.kind === "wall" && l.side === "left");
-		expect(left).toMatchObject({ y1: 160, y2: 600 }); // was y1: 40 before trimming
+		expect(left).toMatchObject({ y1: 104, y2: 600 }); // was y1: 40 before trimming
+	});
+
+	it("a mascot shorter than the 64px cap still only gets its own (smaller) buffer", () => {
+		// standingHeight=50 < CEILING_APPROACH_PX=64, so the cap must not *widen* the trim back out
+		// to 64 for a mascot that never needed that much room in the first place.
+		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, []);
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 50);
+		const left = filtered.find((l) => l.kind === "wall" && l.side === "left");
+		expect(left).toMatchObject({ y1: 90, y2: 600 }); // 40+50, not 40+64
+	});
+
+	it("a much taller mascot still only trims to 64px, not its own full height", () => {
+		const ledges = computeLedgesFromRects({ width: 800, height: 600, top: 40 }, []);
+		const filtered = withoutLedgesTooCloseToTop(ledges, 40, 200); // a 200px-tall mascot
+		const left = filtered.find((l) => l.kind === "wall" && l.side === "left");
+		expect(left).toMatchObject({ y1: 104, y2: 600 }); // 40+64, not 40+200
 	});
 
 	it("leaves a wall untouched when its climbable span already starts well below the buffer", () => {

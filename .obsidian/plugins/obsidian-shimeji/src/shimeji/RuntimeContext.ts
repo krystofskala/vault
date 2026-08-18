@@ -76,7 +76,11 @@ export function createRuntimeContext(
 	const wall = physics.currentWall?.kind === "wall" ? physics.currentWall : undefined;
 	const ceiling = physics.currentCeiling?.kind === "ceiling" ? physics.currentCeiling : undefined;
 	const onPaneFloor = physics.grounded && floor?.source === "pane";
-	const onWindowFloor = physics.grounded && !!floor && floor.source !== "pane";
+	// Was `floor.source !== "pane"` — a negative exclusion written before "room" existed as a
+	// LedgeSource. It silently absorbed room floors too, so a room-confined mascot (whose floor
+	// is source: "room") wrongly qualified as "on the window floor" and tried to run outside-only
+	// walk/wall-grab behaviors while physically trapped in the room.
+	const onWindowFloor = physics.grounded && floor?.source === "window";
 	const onPaneWall = wall?.source === "pane";
 	const onPaneCeiling = ceiling?.source === "pane";
 	const EPS = 4;

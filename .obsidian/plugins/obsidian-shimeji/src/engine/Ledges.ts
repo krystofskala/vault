@@ -130,15 +130,29 @@ function bridgeNarrowGaps(ledges: Ledge[]): Ledge[] {
  *
  * Ceiling-hanging needs neither: that anchor sits near the *top* of the sprite and extends
  * downward, away from worldTop, so it never pokes into the chrome above.
+ *
+ * The wall's own cap is deliberately smaller than the floor's, not just the same buffer reused —
+ * capped at CEILING_APPROACH_PX rather than the mascot's full standingHeight. The vendored pack's
+ * own ClimbAlongWall/ClimbIEWall/GrabIEBottomLeftWall/RightWall actions climb a wall to exactly
+ * `workArea.top+64` / `activeIE.top+64` and then bridge the last 64px onto the ceiling with a
+ * discrete Offset (no ledge check involved) — a mechanism that assumes the wall stays climbable
+ * that close to the top. Trimming it all the way up to a full sprite-height buffer (as floors
+ * correctly do) leaves the wall's climbable top *below* that authored target, so a climb toward
+ * the ceiling always loses its grip and falls before ever reaching it — the pack's own wall-to-
+ * ceiling handoff becomes unreachable. Capping at the pack's own 64 restores it, while a mascot
+ * shorter than that (a small pack, or scaled down) still gets exactly its own smaller buffer.
  */
+const CEILING_APPROACH_PX = 64;
+
 export function withoutLedgesTooCloseToTop(ledges: Ledge[], worldTop: number, standingHeight: number): Ledge[] {
 	const minStandableY = worldTop + standingHeight;
+	const minClimbableY = worldTop + Math.min(standingHeight, CEILING_APPROACH_PX);
 	const out: Ledge[] = [];
 	for (const ledge of ledges) {
 		if (ledge.kind === "floor") {
 			if (ledge.y >= minStandableY) out.push(ledge);
-		} else if (ledge.kind === "wall" && ledge.y1 < minStandableY) {
-			if (ledge.y2 > minStandableY) out.push({ ...ledge, y1: minStandableY });
+		} else if (ledge.kind === "wall" && ledge.y1 < minClimbableY) {
+			if (ledge.y2 > minClimbableY) out.push({ ...ledge, y1: minClimbableY });
 		} else {
 			out.push(ledge);
 		}

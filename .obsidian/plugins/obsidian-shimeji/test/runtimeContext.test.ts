@@ -2,13 +2,43 @@ import { describe, expect, it } from "vitest";
 import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
 import { evaluate, parseExpression } from "../src/shimeji/Expression";
 import { Random } from "../src/engine/Random";
-import type { MascotPhysics } from "../src/engine/types";
+import type { LedgeSource, MascotPhysics } from "../src/engine/types";
 
 function makePhysics(): MascotPhysics {
 	return { x: 0, y: 0, vx: 0, vy: 0, facing: 1, grounded: false };
 }
 
 const ENV = { viewportWidth: 1000, viewportHeight: 800, pointer: { x: 0, y: 0, dx: 0, dy: 0 }, totalMascotCount: 1 };
+
+// Regression coverage for a real bug: onWindowFloor used to be `floor.source !== "pane"`, a
+// negative exclusion written before "room" existed as a LedgeSource — it silently absorbed room
+// (and statusbar) floors too, so a room-confined mascot wrongly read as "on the window floor" and
+// tried to run outside-only behaviors while trapped. mascot.environment.floor.isOn(...) resolves
+// straight to this predicate (RuntimeContext.ts:113-114).
+describe("floor.isOn", () => {
+	function physicsOnFloor(source: LedgeSource): MascotPhysics {
+		const floor = { kind: "floor" as const, y: 0, x1: 0, x2: 100, source };
+		return { x: 0, y: 0, vx: 0, vy: 0, facing: 1, grounded: true, currentFloor: floor };
+	}
+
+	it("is true for a window floor", () => {
+		const ctx = createRuntimeContext(physicsOnFloor("window"), ENV, 0, new Random(1));
+		expect(evaluate(parseExpression("mascot.environment.floor.isOn(mascot.anchor)"), ctx)).toBe(true);
+	});
+
+	for (const source of ["pane", "statusbar", "room"] as const) {
+		it(`is false for a ${source} floor (the regression case for "room")`, () => {
+			const ctx = createRuntimeContext(physicsOnFloor(source), ENV, 0, new Random(1));
+			expect(evaluate(parseExpression("mascot.environment.floor.isOn(mascot.anchor)"), ctx)).toBe(false);
+		});
+	}
+
+	it("is false when not grounded, even on a window floor", () => {
+		const physics = { ...physicsOnFloor("window"), grounded: false };
+		const ctx = createRuntimeContext(physics, ENV, 0, new Random(1));
+		expect(evaluate(parseExpression("mascot.environment.floor.isOn(mascot.anchor)"), ctx)).toBe(false);
+	});
+});
 
 describe("createRuntimeContext — Math.random", () => {
 	it("Math.random() called normally resolves through call(), in [0, 1)", () => {

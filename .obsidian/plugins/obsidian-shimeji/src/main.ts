@@ -19,7 +19,7 @@ import { sounds } from "./shimeji/SoundPlayer";
 import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
 import { ChatBubble } from "./room/ChatBubble";
-import { Residency } from "./room/Residency";
+import { orderEveryoneToSpot, Residency } from "./room/Residency";
 import { RoomOcclusion } from "./room/RoomOcclusion";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 import { moodForHour } from "./room/roomArt";
@@ -684,7 +684,9 @@ export default class ShimejiPlugin extends Plugin {
 			new Notice("Chase the mouse is disabled (see Settings), or unavailable on mobile.");
 			return;
 		}
-		const mascots = this.stage?.getMascots() ?? [];
+		// A room-confined mascot's world is entirely room furniture — chasing a cursor outside it
+		// would just recreate the "walks into the wall trying to get out" bug from the other side.
+		const mascots = (this.stage?.getMascots() ?? []).filter((m) => m.confinement === undefined);
 		for (const mascot of onlyMatching ? mascots.filter(onlyMatching) : mascots) mascot.startNamedBehavior("ChaseMouse");
 	}
 
@@ -699,7 +701,8 @@ export default class ShimejiPlugin extends Plugin {
 			new Notice("Chase the mouse is disabled (see Settings), or unavailable on mobile.");
 			return;
 		}
-		const mascots = this.stage?.getMascots() ?? [];
+		// See followMouseAllMascots — a confined mascot has nowhere reachable to chase a cursor to.
+		const mascots = (this.stage?.getMascots() ?? []).filter((m) => m.confinement === undefined);
 		const targets = onlyMatching ? mascots.filter(onlyMatching) : mascots;
 		for (const mascot of targets) mascot.setFollowingMouse(following);
 		new Notice(following ? `Now following the mouse (${targets.length})` : `Stopped following the mouse (${targets.length})`);
@@ -874,29 +877,17 @@ export default class ShimejiPlugin extends Plugin {
 		};
 		if (this.spotClicks.count < SPOT_ORDER_CLICKS) return;
 		this.spotClicks.count = 0;
-		this.orderNearestMascotToSpot({ x: ev.clientX, y: ev.clientY });
+		this.orderAllMascotsToSpot({ x: ev.clientX, y: ev.clientY });
 	}
 
-	/** Sends whichever mascot is closest — "that one, go there" is the natural reading of pointing at
-	 * a spot, and having every mascot pile onto it would be chaos with more than one on screen. */
-	orderNearestMascotToSpot(point: { x: number; y: number }): void {
+	/** Sends every mascot to the spot at once — a room resident (if any) gets the door-routing
+	 * treatment orderEveryoneToSpot already gives it; everyone else is ordered directly. */
+	orderAllMascotsToSpot(point: { x: number; y: number }): void {
 		const mascots = this.stage?.getMascots() ?? [];
-		if (mascots.length === 0) return;
-		let nearest = mascots[0];
-		let bestD = Infinity;
-		for (const mascot of mascots) {
-			const d = Math.hypot(mascot.physics.x - point.x, mascot.physics.y - point.y);
-			if (d < bestD) {
-				bestD = d;
-				nearest = mascot;
-			}
+		const ordered = orderEveryoneToSpot(mascots, point, this.residency);
+		if (ordered.length > 0) {
+			new Notice(`On my way to (${Math.round(point.x)}, ${Math.round(point.y)}) (${ordered.length} mascot${ordered.length === 1 ? "" : "s"})`);
 		}
-		// The room gets first refusal, because an order that crosses its threshold in either
-		// direction is not an ordinary order — it is a move, and has to route to the door rather
-		// than to the point. Everything else falls through unchanged.
-		if (this.residency.handleOrder(point, this.residency.residentMascot ?? nearest)) return;
-		nearest.orderToSpot(point);
-		new Notice(`On my way to (${Math.round(point.x)}, ${Math.round(point.y)})`);
 	}
 
 	// ---- the room ---------------------------------------------------------

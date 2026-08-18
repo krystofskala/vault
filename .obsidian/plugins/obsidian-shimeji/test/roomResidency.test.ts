@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Residency, type ResidencyHost } from "../src/room/Residency";
+import { orderEveryoneToSpot, Residency, type ResidencyHost } from "../src/room/Residency";
 import { layoutRoom, type RoomLayout } from "../src/room/RoomGeometry";
 import { LIVING_ROOM, type RoomDef } from "../src/room/roomDef";
 import type { Mascot } from "../src/engine/Mascot";
@@ -260,6 +260,70 @@ describe("leaving the plant room", () => {
 		expect(s.residency.hasResident).toBe(false);
 		expect(m.scale).toBe(1);
 		expect(m.confinement).toBeUndefined();
+	});
+});
+
+/**
+ * "Go to spot" ordering every mascot at once, rather than only the nearest one — see
+ * orderEveryoneToSpot's own comment for why the resident always goes through handleOrder instead
+ * of a plain order, and main.ts's orderAllMascotsToSpot for the thin wrapper that calls this.
+ */
+describe("ordering everyone to a spot", () => {
+	it("orders every mascot when there is no resident", () => {
+		const s = scene();
+		const a = s.add(fakeMascot(100, 900));
+		const b = s.add(fakeMascot(200, 900));
+		const target = { x: 900, y: 900 };
+		const ordered = orderEveryoneToSpot(s.mascots as unknown as Mascot[], target, s.residency);
+
+		expect(ordered).toHaveLength(2);
+		expect(a.orders).toEqual([target]);
+		expect(b.orders).toEqual([target]);
+	});
+
+	it("still orders a single mascot (count of 1, not skipped)", () => {
+		const s = scene();
+		const a = s.add(fakeMascot(100, 900));
+		const target = { x: 900, y: 900 };
+		const ordered = orderEveryoneToSpot(s.mascots as unknown as Mascot[], target, s.residency);
+
+		expect(ordered).toEqual([a]);
+		expect(a.orders).toEqual([target]);
+	});
+
+	it("routes the resident through handleOrder and still orders everyone else directly, when the spot is inside the room", () => {
+		const s = scene();
+		const resident = s.add(fakeMascot(400, 900), "umbreon");
+		s.residency.placeDirectly(resident as unknown as Mascot);
+		resident.orders.length = 0;
+		const bystander = s.add(fakeMascot(100, 900));
+		const target = { x: s.layout().rect.left + 60, y: s.layout().rect.top + 80 }; // inside the room
+
+		const ordered = orderEveryoneToSpot(s.mascots as unknown as Mascot[], target, s.residency);
+
+		// The resident got the room's own ordinary-order-inside-the-room treatment (handleOrder,
+		// not a second, redundant plain order), and was not double-ordered.
+		expect(resident.orders).toEqual([target]);
+		expect(ordered).not.toContain(resident);
+		// Everyone else still gets a plain order to the literal point.
+		expect(bystander.orders).toEqual([target]);
+		expect(ordered).toEqual([bystander]);
+	});
+
+	it("redirects the resident to the door and orders everyone else to the literal point, when the spot is outside", () => {
+		const s = scene();
+		const resident = s.add(fakeMascot(400, 900), "umbreon");
+		s.residency.placeDirectly(resident as unknown as Mascot);
+		resident.orders.length = 0;
+		const bystander = s.add(fakeMascot(100, 900));
+		const target = { x: 300, y: 900 }; // outside the room
+
+		const ordered = orderEveryoneToSpot(s.mascots as unknown as Mascot[], target, s.residency);
+
+		expect(resident.orders).toEqual([s.layout().doorInside()]);
+		expect(ordered).not.toContain(resident);
+		expect(bystander.orders).toEqual([target]);
+		expect(ordered).toEqual([bystander]);
 	});
 });
 

@@ -393,6 +393,38 @@ export class Residency {
 	}
 }
 
+/**
+ * Orders every mascot to a spot at once — exported so the fan-out is unit-testable against a real
+ * Residency, the same way residentScaleFor lets the room's own tests measure the real formula
+ * rather than a restated one. `main.ts`'s caller is a thin wrapper around this.
+ *
+ * The resident (if any) always gets handleOrder's own routing rather than a plain order: handleOrder
+ * returns true for every case where a resident exists (home already, or called out through the
+ * door), so there is no case where the resident needs a fallback plain order too.
+ */
+export function orderEveryoneToSpot(mascots: readonly Mascot[], point: Vec2, residency: Residency): Mascot[] {
+	if (mascots.length === 0) return [];
+	let nearest = mascots[0];
+	let bestD = Infinity;
+	for (const mascot of mascots) {
+		const d = Math.hypot(mascot.physics.x - point.x, mascot.physics.y - point.y);
+		if (d < bestD) {
+			bestD = d;
+			nearest = mascot;
+		}
+	}
+	const candidate = residency.residentMascot ?? nearest;
+	const claimedByRoom = residency.handleOrder(point, candidate);
+	const ordered: Mascot[] = [];
+	for (const mascot of mascots) {
+		if (claimedByRoom && mascot === candidate) continue; // handleOrder already routed this one
+		if (mascot.confinement !== undefined) continue; // defensive; matches mascotsOnActivePane's excludeConfined convention
+		mascot.orderToSpot(point);
+		ordered.push(mascot);
+	}
+	return ordered;
+}
+
 function distance(a: Vec2, b: Vec2): number {
 	return Math.hypot(a.x - b.x, a.y - b.y);
 }
