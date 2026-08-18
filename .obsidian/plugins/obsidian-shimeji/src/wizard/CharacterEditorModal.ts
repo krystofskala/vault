@@ -614,8 +614,12 @@ export class CharacterEditorModal extends Modal {
 
 		const uploadRow = new Setting(contentEl)
 			.setName("Working image")
-			.setDesc("Not saved anywhere on its own — only the fitted result is, and only once you click Save.");
-		const label = uploadRow.controlEl.createEl("label", { cls: "shimeji-upload-label mod-cta", text: "Upload a photo…" });
+			.setDesc(
+				"Any image file from your computer — a raw photo to crop, or a pose you've already made at the " +
+					"right size (it loads in ready to save as-is). Not saved anywhere on its own — only the " +
+					"fitted result is, and only once you click Save.",
+			);
+		const label = uploadRow.controlEl.createEl("label", { cls: "shimeji-upload-label mod-cta", text: "Upload an image…" });
 		const input = label.createEl("input", { cls: "shimeji-upload-input" });
 		input.type = "file";
 		input.accept = "image/png,image/jpeg,image/gif,image/webp";
@@ -691,7 +695,7 @@ export class CharacterEditorModal extends Modal {
 	 * result through `onPoses`, which is exactly the "give me one cropped image" hook this needs
 	 * — just consumed differently than that modal's usual "append to an action's pose list".
 	 *
-	 * The sheet itself is imported into the pack folder (unlike a plain "Upload a photo", which
+	 * The sheet itself is imported into the pack folder (unlike a plain "Upload an image", which
 	 * never touches disk) because a sheet is worth keeping to re-slice later, the same reason
 	 * `SpriteSheetModal` leaves the original sheet in place after cutting from it.
 	 */

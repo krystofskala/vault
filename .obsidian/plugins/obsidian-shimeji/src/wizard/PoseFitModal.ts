@@ -55,8 +55,12 @@ export class PoseFitModal extends Modal {
 
 		const uploadRow = new Setting(contentEl)
 			.setName("Working image")
-			.setDesc("Not saved anywhere on its own — only the fitted result is, and only once you click Save.");
-		const label = uploadRow.controlEl.createEl("label", { cls: "shimeji-upload-label mod-cta", text: "Upload a photo…" });
+			.setDesc(
+				"Any image file from your computer — a raw photo to crop, or a pose you've already made at the " +
+					"right size (it loads in ready to save as-is). Not saved anywhere on its own — only the " +
+					"fitted result is, and only once you click Save.",
+			);
+		const label = uploadRow.controlEl.createEl("label", { cls: "shimeji-upload-label mod-cta", text: "Upload an image…" });
 		const input = label.createEl("input", { cls: "shimeji-upload-input" });
 		input.type = "file";
 		input.accept = "image/png,image/jpeg,image/gif,image/webp";
