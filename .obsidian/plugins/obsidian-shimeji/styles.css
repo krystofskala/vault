@@ -581,27 +581,75 @@
 }
 
 /* The thin bar docked directly below the room picture — "and under that a thin input field".
-   Always Obsidian's own ordinary input/button look, whatever the transcript's theme/comic style
-   is set to above it — this is a control, not a line of speech, so it never picks up the comic
-   ink-outline treatment. */
+   Carries the same .shimeji-bubble/.shimeji-bubble-comic classes as the transcript above it (see
+   ChatBubble.build()), so the whole chat surface reads as one object instead of a themed bubble
+   with a plain Obsidian form control dropped underneath it. The overrides below undo the parts
+   of that base class tuned for a small, one-line speech bubble rather than a full-width bar. */
 .shimeji-room-chat-inputbar {
 	position: fixed;
 	display: flex;
 	align-items: stretch;
 	gap: 6px;
 	box-sizing: border-box;
+	max-width: none;
+	padding: 4px 6px;
+	/* The transcript disables this for the same reason (see .shimeji-bubble-chat) — both appear
+	   together on open, and only one of the two fading in would look inconsistent. */
+	animation: none;
 }
 
+/* The bubble's own ::after is its speech-pointing tail — wanted on the transcript above (where
+   .shimeji-bubble-chat-tail is a separate child instead, see that rule's own comment) but not
+   here: the input bar is the last element in the stack, with nothing below it to point at. Needs
+   to match (or exceed) the comic variant's own specificity below to actually win over it. */
+.shimeji-room-chat-inputbar::after,
+.shimeji-room-chat-inputbar.shimeji-bubble-comic::after {
+	content: none;
+}
+
+/* Transparent rather than Obsidian's own field background, so the bar reads as one bubble-
+   coloured control instead of a separate grey box floating inside a coloured frame. */
 .shimeji-room-chat-inputbar-field {
 	flex: 1 1 auto;
 	min-width: 0;
 	font-size: 12px;
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: inherit;
+}
+
+.shimeji-room-chat-inputbar-field:focus {
+	outline: none;
+	box-shadow: none;
 }
 
 .shimeji-room-chat-inputbar-send {
 	flex: 0 0 auto;
 	font-size: 12px;
 	padding: 0 10px;
+}
+
+/* Comic mode ignores the active theme the same way the bubble itself does (see
+   .shimeji-bubble-comic above) — an ordinary Obsidian-styled field/button sitting right under a
+   white, ink-outlined, Comic-Sans transcript would clash rather than read as the same object. */
+.shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-field {
+	font-family: "Comic Sans MS", "Comic Neue", "Segoe Print", cursive, sans-serif;
+	color: #111111;
+}
+
+.shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-field::placeholder {
+	color: #111111;
+	opacity: 0.55;
+}
+
+.shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-send {
+	font-family: "Comic Sans MS", "Comic Neue", "Segoe Print", cursive, sans-serif;
+	font-weight: 700;
+	background: transparent;
+	color: #111111;
+	border: 2px solid #111111;
+	border-radius: 10px;
 }
 
 /* ---------- settings sections ---------- */

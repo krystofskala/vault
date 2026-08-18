@@ -35,8 +35,8 @@ export interface ChatBubbleDeps {
 	sendMessage(messages: ChatMessage[], systemPrompt: string): Promise<string>;
 	personas(): ReadonlyMap<string, string>;
 	/** Matches whichever style ordinary remark bubbles are currently drawn in — see
-	 * SpeechBubbles.getStyle(). Only the transcript follows it; the input bar is a UI control, not
-	 * speech, and always keeps Obsidian's own look regardless. */
+	 * SpeechBubbles.getStyle(). The transcript and the input bar both follow it, so the whole chat
+	 * surface reads as one object. */
 	style(): BubbleStyle;
 	packFor(mascot: Mascot): MascotPack | undefined;
 }
@@ -179,9 +179,11 @@ export class ChatBubble extends Component {
 		const tail = transcript.createDiv({ cls: "shimeji-bubble-chat-tail" });
 		tail.toggleClass("shimeji-bubble-comic", comic);
 
-		// Always Obsidian's own look, whatever the transcript's bubble style is set to — a text
-		// field is a control, not a line of speech.
-		const inputBar = this.layer.createDiv({ cls: "shimeji-room-chat-inputbar" });
+		// Same base bubble class as the transcript above it, and the same comic toggle — see
+		// styles.css's own comment on .shimeji-room-chat-inputbar for the overrides that keep it a
+		// full-width bar rather than a small speech bubble.
+		const inputBar = this.layer.createDiv({ cls: "shimeji-room-chat-inputbar shimeji-bubble" });
+		inputBar.toggleClass("shimeji-bubble-comic", comic);
 		inputBar.style.pointerEvents = "auto";
 		const input = inputBar.createEl("input", { cls: "shimeji-room-chat-inputbar-field", attr: { type: "text" } });
 		input.placeholder = "Say something…";
