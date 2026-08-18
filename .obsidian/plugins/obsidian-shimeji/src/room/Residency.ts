@@ -5,7 +5,7 @@ import type { Ledge, Vec2 } from "../engine/types";
 import type { RoomLayout } from "./RoomGeometry";
 
 /**
- * Who lives in the plant room, and how they get in and out.
+ * Who lives in the room, and how they get in and out.
  *
  * **Invented**, with no shimeji-ee counterpart — see roomDef.ts.
  *
@@ -46,6 +46,9 @@ export interface ResidencyHost {
 	stage(): Stage | undefined;
 	/** The room's current placement, or undefined when its pane is closed or collapsed. */
 	layout(): RoomLayout | undefined;
+	/** The active room's own name, lowercased for mid-sentence use in a notice — read live so it
+	 * always matches whichever room is actually registered. */
+	roomLabel(): string;
 	notify(message: string): void;
 	/** Persist who lives here, so the room still has its resident after a restart. */
 	rememberResident(resident: { packId: string | null } | null): void;
@@ -206,6 +209,18 @@ export class Residency {
 		// it back within seconds.
 		if (layout.def.residentFacing !== undefined) mascot.physics.facing = layout.def.residentFacing;
 
+		// A room with nowhere else to be pins position directly rather than relying on collision to
+		// hold it — skipped mid-drag so nothing here fights the cursor; releasing inside the room
+		// lets the very next tick snap it straight back.
+		const spot = layout.def.residentSpot;
+		if (spot && !mascot.isBeingDragged) {
+			const p = layout.toViewport(spot.x, spot.y);
+			mascot.physics.x = p.x;
+			mascot.physics.y = p.y;
+			mascot.physics.vx = 0;
+			mascot.physics.vy = 0;
+		}
+
 		// Held in one behaviour, re-applied the moment the pack's chain moves off it. Without this the
 		// pack keeps selecting from its whole repertoire, and in a room the size of a seat the result
 		// reads as jittering rather than as idling — reported as "shaking like crazy".
@@ -293,10 +308,15 @@ export class Residency {
 
 		// Placed just inside the threshold and dropped, rather than pinned to the floor: landing is
 		// the engine's job, and letting it happen means the mascot arrives with a proper Fall
-		// instead of appearing already standing.
-		const inside = layout.doorInside();
+		// instead of appearing already standing. A room with a residentSpot has no floor to land
+		// on at all, so it lands directly on the spot instead — fitResidentToRoom above would pin
+		// it there next tick regardless, this just skips the one-frame flash at the threshold first.
+		const spot = layout.def.residentSpot;
+		const inside = spot ? layout.toViewport(spot.x, spot.y) : layout.doorInside();
 		mascot.physics.x = inside.x;
-		mascot.physics.y = inside.y - 1;
+		// The -1/fall-the-last-pixel treatment only makes sense above a real floor; a spot lands
+		// exactly where it's pinned, since there's nothing beneath it to fall onto anyway.
+		mascot.physics.y = spot ? inside.y : inside.y - 1;
 		mascot.physics.vx = 0;
 		mascot.physics.vy = 0;
 		mascot.physics.grounded = false;
@@ -306,7 +326,8 @@ export class Residency {
 
 		this.host.rememberResident({ packId: this.host.packIdOf(mascot) });
 		debugLog("room: moved in", { at: inside, evicted: evicted.length });
-		this.host.notify(evicted.length > 0 ? `Shimeji: moved into the plant room. ${evicted.length} other${evicted.length === 1 ? "" : "s"} vanished.` : "Shimeji: moved into the plant room.");
+		const room = this.host.roomLabel();
+		this.host.notify(evicted.length > 0 ? `Shimeji: moved into the ${room}. ${evicted.length} other${evicted.length === 1 ? "" : "s"} vanished.` : `Shimeji: moved into the ${room}.`);
 	}
 
 	/** Back out through the door, full size, and on to wherever it was actually sent. */

@@ -4,7 +4,7 @@ import type { PaneActions } from "./engine/PaneActions";
 import { findRoute, fallDurationTicks, planDropThrough, routeDurationTicks } from "./engine/Routing";
 import type { Stage } from "./engine/Stage";
 
-/** What debugApi needs to explain the plant room, without importing the room itself. */
+/** What debugApi needs to explain the room, without importing the room itself. */
 export interface RoomDiagnostics {
 	report(): { chain: Array<Record<string, string | number | boolean>>; note?: string };
 	/** Forces the room's clock, or returns it to real time when given nothing. */
@@ -217,7 +217,7 @@ export function installDebugApi(
 		/** Where every mascot is right now, and what it is standing on / clinging to. The first thing
 		 * to reach for when movement looks wrong: it names the surface, not just the coordinates. */
 		/**
-		 * Why the plant room is or is not on screen, one line per link in the chain.
+		 * Why the room is or is not on screen, one line per link in the chain.
 		 *
 		 * The room is invisible when it fails — there is no half-drawn version to notice — so
 		 * "I don't see it" is the same symptom whether the view type never registered, the leaf
@@ -227,7 +227,7 @@ export function installDebugApi(
 		room() {
 			const room = getRoom();
 			if (!room) {
-				console.info("[obsidian-shimeji] the plugin is not loaded, or is an older build with no plant room");
+				console.info("[obsidian-shimeji] the plugin is not loaded, or is an older build with no room");
 				return;
 			}
 			const report = room.report();
@@ -270,7 +270,7 @@ export function installDebugApi(
 		roomHour(hour) {
 			const room = getRoom();
 			if (!room) {
-				console.info("[obsidian-shimeji] no plant room");
+				console.info("[obsidian-shimeji] no room");
 				return;
 			}
 			if (hour === undefined) {

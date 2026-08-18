@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Residency, type ResidencyHost } from "../src/room/Residency";
 import { layoutRoom, type RoomLayout } from "../src/room/RoomGeometry";
-import { LIVING_ROOM } from "../src/room/roomDef";
+import { LIVING_ROOM, type RoomDef } from "../src/room/roomDef";
 import type { Mascot } from "../src/engine/Mascot";
 import type { Stage } from "../src/engine/Stage";
 import type { Rect, Vec2 } from "../src/engine/types";
@@ -55,14 +55,15 @@ function fakeMascot(x: number, y: number): FakeMascot {
 	return m;
 }
 
-function scene(opts: { paneVisible?: boolean } = {}) {
+function scene(opts: { paneVisible?: boolean; def?: RoomDef } = {}) {
 	let mascots: FakeMascot[] = [];
 	const notices: string[] = [];
 	let remembered: { packId: string | null } | null = null;
 	let paneVisible = opts.paneVisible ?? true;
+	const def = opts.def ?? LIVING_ROOM;
 	const packIds = new Map<FakeMascot, string | null>();
 
-	const layout = (): RoomLayout | undefined => (paneVisible ? layoutRoom(LIVING_ROOM, PANE, VIEWPORT_W) : undefined);
+	const layout = (): RoomLayout | undefined => (paneVisible ? layoutRoom(def, PANE, VIEWPORT_W) : undefined);
 
 	const host: ResidencyHost = {
 		stage: () =>
@@ -73,6 +74,7 @@ function scene(opts: { paneVisible?: boolean } = {}) {
 				},
 			}) as unknown as Stage,
 		layout,
+		roomLabel: () => "the room",
 		notify: (message) => notices.push(message),
 		rememberResident: (r) => {
 			remembered = r;
@@ -386,5 +388,71 @@ describe("how big the resident is", () => {
 
 		const roomHeight = s.layout().rect.bottom - s.layout().rect.top;
 		expect(m.height * m.scale).toBeLessThanOrEqual(roomHeight + 0.001);
+	});
+});
+
+describe("a room with a fixed resident spot", () => {
+	const SPOT_ROOM: RoomDef = {
+		width: 100,
+		height: 100,
+		ceilingY: 0,
+		floorY: 100,
+		door: { x1: 40, x2: 60, y: 90 },
+		fixtures: [],
+		residentSpot: { x: 60, y: 70 },
+	};
+
+	function housed() {
+		const s = scene({ def: SPOT_ROOM });
+		const m = s.add(fakeMascot(400, 900), "umbreon");
+		s.residency.placeDirectly(m as unknown as Mascot);
+		return { s, m };
+	}
+
+	it("lands exactly on the spot on move-in, not at the door", () => {
+		const { s, m } = housed();
+		const spot = s.layout().toViewport(60, 70);
+		expect(m.physics.x).toBe(spot.x);
+		expect(m.physics.y).toBeCloseTo(spot.y, 5);
+	});
+
+	it("snaps straight back with zero velocity if something else moves it", () => {
+		const { s, m } = housed();
+		m.physics.x += 50;
+		m.physics.y += 50;
+		m.physics.vx = 30;
+		m.physics.vy = -10;
+		s.residency.tick();
+
+		const spot = s.layout().toViewport(60, 70);
+		expect(m.physics.x).toBe(spot.x);
+		expect(m.physics.y).toBe(spot.y);
+		expect(m.physics.vx).toBe(0);
+		expect(m.physics.vy).toBe(0);
+	});
+
+	it("does not fight the cursor while being dragged", () => {
+		const { s, m } = housed();
+		m.isBeingDragged = true;
+		m.physics.x = 200;
+		m.physics.y = 300;
+		s.residency.tick();
+
+		expect(m.physics.x).toBe(200);
+		expect(m.physics.y).toBe(300);
+	});
+
+	it("snaps back to the spot the tick after being released inside the room", () => {
+		const { s, m } = housed();
+		const spot = s.layout().toViewport(60, 70);
+		m.isBeingDragged = true;
+		m.physics.x = spot.x + 10;
+		m.physics.y = spot.y + 10;
+		s.residency.tick();
+		m.isBeingDragged = false;
+		s.residency.tick();
+
+		expect(m.physics.x).toBe(spot.x);
+		expect(m.physics.y).toBe(spot.y);
 	});
 });

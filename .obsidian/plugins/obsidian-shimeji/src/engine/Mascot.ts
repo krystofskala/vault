@@ -199,7 +199,7 @@ export class Mascot {
 	scale = 1;
 	/**
 	 * When set, the only world this mascot has. Stage hands it these surfaces instead of the
-	 * workspace's, which is what confines a mascot to the plant room (see room/Residency.ts).
+	 * workspace's, which is what confines a mascot to the room (see room/Residency.ts).
 	 *
 	 * Deliberately a substitution rather than a rule that gets enforced. There is no "may I leave"
 	 * check anywhere, because a route out cannot be planned over a graph that has no edge leading

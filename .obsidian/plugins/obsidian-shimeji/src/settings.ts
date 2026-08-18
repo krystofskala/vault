@@ -5,6 +5,7 @@ import { resolvePersona } from "./ai/persona";
 import { sendAiMessage } from "./ai/providers";
 import type ShimejiPlugin from "./main";
 import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
+import type { RoomRainMode } from "./room/weather";
 import { CharacterEditorModal } from "./wizard/CharacterEditorModal";
 import type { CustomPackContent } from "./shimeji/customContent";
 import { VaultReactionTrigger } from "./speech/vaultReactions";
@@ -89,7 +90,7 @@ export interface ShimejiSettings {
 	 * actions.xml/behaviors.xml — see CustomContentBuilder. */
 	customContent: Record<string, CustomPackContent>;
 	/**
-	 * Who lives in the plant room, or null when nobody does. Persisted so the room still has its
+	 * Who lives in the room, or null when nobody does. Persisted so the room still has its
 	 * resident after a restart rather than respawning it into the workspace — a room you have to
 	 * re-populate every launch is a widget, not a home.
 	 *
@@ -100,6 +101,9 @@ export interface ShimejiSettings {
 	roomResident: { packId: string | null } | null;
 	/** Which room the plant-room pane shows — see room/rooms.ts. */
 	roomStyle: string;
+	/** The user's manual override for a room that declares `weather: "rain"` — "auto" leaves it to
+	 * RoomWeather's own drift. Ignored by rooms with no weather at all. */
+	roomRainMode: RoomRainMode;
 	/** Whether the room's pane has ever been shown. Opened once on the first run that has the
 	 * feature, because an unopened view type appears nowhere but the command palette — after that
 	 * it is Obsidian's own saved layout that decides, so closing it sticks. */
@@ -223,6 +227,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	customContent: {},
 	roomResident: null,
 	roomStyle: "plant-room",
+	roomRainMode: "auto",
 	roomIntroduced: false,
 	speechEnabled: true,
 	speechFilePath: "",
@@ -760,13 +765,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			});
 		});
 
-		this.section(containerEl, "The plant room", false, (containerEl) => {
+		this.section(containerEl, "Room", false, (containerEl) => {
 			new Setting(containerEl)
-				.setName("Plant room")
-				.setDesc(
-					"Which room the shimeji lives in — currently just the plant room, drawn by the " +
-						"plugin itself, so there's no picture file to provide.",
-				)
+				.setName("Room style")
+				.setDesc("Which room the shimeji lives in — see the description below for this one.")
 				.addDropdown((dropdown) => {
 					for (const id of ROOM_STYLE_IDS) dropdown.addOption(id, ROOM_STYLES[id].label);
 					dropdown.setValue(roomStyle(this.plugin.settings.roomStyle).id).onChange(async (value) => {
@@ -779,6 +781,25 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				text: roomStyle(this.plugin.settings.roomStyle).description,
 				cls: "setting-item-description",
 			});
+
+			if (roomStyle(this.plugin.settings.roomStyle).def.weather === "rain") {
+				new Setting(containerEl)
+					.setName("Rain")
+					.setDesc(
+						"Left on Auto, it drifts between drizzle, rain and a downpour on its own — a proper " +
+							"pour is the rare one. Pin one, or turn it off, to override the drift.",
+					)
+					.addDropdown((dropdown) => {
+						dropdown.addOption("auto", "Auto");
+						dropdown.addOption("off", "Off");
+						dropdown.addOption("drizzle", "Drizzle");
+						dropdown.addOption("rain", "Rain");
+						dropdown.addOption("pour", "Pour");
+						dropdown.setValue(this.plugin.settings.roomRainMode).onChange(async (value) => {
+							await this.plugin.setRoomRainMode(value as RoomRainMode);
+						});
+					});
+			}
 
 			// Which rooms actually have their picture, so a missing file is visible here rather than only
 			// as the room quietly showing something else. Nothing currently listed needs one (the plant

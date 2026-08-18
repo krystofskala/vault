@@ -10,7 +10,7 @@ export interface Rect {
 	bottom: number;
 }
 
-/** Where a surface came from. `room` is the hand-authored furniture of the plant room (see
+/** Where a surface came from. `room` is the hand-authored furniture of the room (see
  * room/roomDef.ts) rather than anything measured from the DOM — kept distinct from `pane` because
  * the pack's own `activeIE` predicates key off that one, and a sofa is not a window. */
 export type LedgeSource = "window" | "pane" | "statusbar" | "room";

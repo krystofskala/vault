@@ -71,6 +71,18 @@ export function mixHex(from: string, to: string, k: number): string {
 	return `rgb(${ch(r1, r2)}, ${ch(g1, g2)}, ${ch(b1, b2)})`;
 }
 
+/** How much of a day/night wash to lay over supplied artwork, and what colour — the same idea as
+ * a painted room's own dusk/night washes, but computed once for the whole picture instead of per
+ * fixture, since there's nothing here to consult a mood per-fixture. Undefined at full daylight,
+ * so the common case draws nothing extra at all. */
+export function computeMoodTint(mood: RoomMood): { color: string; alpha: number } | undefined {
+	const night = 1 - mood.daylight;
+	if (night <= 0.02) return undefined;
+	const warm = Math.max(0, mood.warmth);
+	const color = mixHex("#151030", "#ff9248", warm * mood.daylight);
+	return { color, alpha: night * 0.5 };
+}
+
 function painterFor(ctx: CanvasRenderingContext2D): Painter {
 	return {
 		px(x, y, w, h, color) {
@@ -144,7 +156,7 @@ export const ROOM_BACKDROP_DUSK = "#b9b0a0";
  * are never touched. A square source in a square room square fills it exactly; anything else is
  * letterboxed, and the surround is the pane's own background colour — the one thing that gives.
  */
-export function drawRoomImage(canvas: HTMLCanvasElement, image: HTMLImageElement, def: RoomDef, opts: { scale: number; devicePixelRatio?: number }): void {
+export function drawRoomImage(canvas: HTMLCanvasElement, image: HTMLImageElement, def: RoomDef, mood: RoomMood, opts: { scale: number; devicePixelRatio?: number }): void {
 	const dpr = Math.max(1, Math.round(opts.devicePixelRatio ?? window.devicePixelRatio ?? 1));
 	const cssW = def.width * opts.scale;
 	const cssH = def.height * opts.scale;
@@ -170,6 +182,15 @@ export function drawRoomImage(canvas: HTMLCanvasElement, image: HTMLImageElement
 	const w = image.naturalWidth * fit;
 	const h = image.naturalHeight * fit;
 	ctx.drawImage(image, Math.round((canvas.width - w) / 2), Math.round((canvas.height - h) / 2), Math.round(w), Math.round(h));
+
+	const tint = computeMoodTint(mood);
+	if (tint) {
+		ctx.save();
+		ctx.globalAlpha = tint.alpha;
+		ctx.fillStyle = tint.color;
+		ctx.fillRect(0, 0, canvas.width, canvas.height);
+		ctx.restore();
+	}
 }
 
 /**

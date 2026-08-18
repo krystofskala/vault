@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { layoutRoom, shouldMirror } from "../src/room/RoomGeometry";
 import { LIVING_ROOM, roomSurfaces, roomWalls } from "../src/room/roomDef";
-import { moodForHour } from "../src/room/roomArt";
-import { ROOM_STYLES, ROOM_STYLE_IDS, roomStyle } from "../src/room/rooms";
+import { computeMoodTint, moodForHour } from "../src/room/roomArt";
+import { ROOM_STYLES, ROOM_STYLE_IDS, roomStyle, roomStyleImageMismatch } from "../src/room/rooms";
 import { findRoute } from "../src/engine/Routing";
 import { findFloorBelow } from "../src/engine/Ledges";
 import type { Ledge, Rect } from "../src/engine/types";
@@ -201,6 +201,14 @@ describe("the rooms on offer", () => {
 		expect(roomStyle("office").id).toBe("plant-room");
 		expect(roomStyle(undefined).id).toBe("plant-room");
 	});
+
+	it("never registers a room whose background and imageBase disagree", () => {
+		// A mismatch here fails silently at runtime — a blank canvas with no notice at all — so it
+		// is caught here instead, for every style that exists now and any added later.
+		for (const id of ROOM_STYLE_IDS) {
+			expect(roomStyleImageMismatch(ROOM_STYLES[id]), id).toBeUndefined();
+		}
+	});
 });
 
 describe("where the room sits in its pane", () => {
@@ -266,5 +274,33 @@ describe("the room's daylight", () => {
 		expect(moodForHour(2).dusk).toBe(true);
 		expect(moodForHour(13).dusk).toBe(false);
 		expect(moodForHour(21).dusk).toBe(true);
+	});
+});
+
+describe("the day/night tint over supplied artwork", () => {
+	it("draws nothing at full daylight", () => {
+		expect(computeMoodTint(moodForHour(12))).toBeUndefined();
+	});
+
+	it("gets more opaque the deeper into the night it gets", () => {
+		const dusk = computeMoodTint(moodForHour(19.5));
+		const midnight = computeMoodTint(moodForHour(0));
+		expect(dusk).toBeDefined();
+		expect(midnight).toBeDefined();
+		expect(midnight!.alpha).toBeGreaterThan(dusk!.alpha);
+	});
+
+	it("never exceeds its own cap", () => {
+		for (let h = 0; h < 24; h += 0.5) {
+			const tint = computeMoodTint(moodForHour(h));
+			if (tint) expect(tint.alpha).toBeLessThanOrEqual(0.5);
+		}
+	});
+
+	it("leans warm at dusk and cold in the small hours", () => {
+		const parse = (rgb: string) => rgb.match(/\d+/g)!.map(Number);
+		const [rDusk] = parse(computeMoodTint(moodForHour(19))!.color);
+		const [rNight] = parse(computeMoodTint(moodForHour(3))!.color);
+		expect(rDusk).toBeGreaterThan(rNight);
 	});
 });

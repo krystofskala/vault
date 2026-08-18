@@ -205,6 +205,14 @@ export interface RoomDef {
 	 */
 	residentMaxScale?: number;
 	/**
+	 * Pins the resident to one exact point, in the room's own coordinate units — enforced every
+	 * tick regardless of which pack/behavior it's wearing, the same way `residentFacing` pins
+	 * facing. For a room with no furniture and nowhere else to be: no `surfaces`/`walls` are
+	 * needed to hold a resident here, since its position is reasserted directly rather than
+	 * relying on collision. Skipped while the resident is being dragged.
+	 */
+	residentSpot?: { x: number; y: number };
+	/**
 	 * Whether this room's picture changes on its own, and so has to be repainted continuously rather
 	 * than only when the pane moves.
 	 *
@@ -213,6 +221,13 @@ export interface RoomDef {
 	 * once a minute.
 	 */
 	animated?: boolean;
+	/**
+	 * Which weather system draws over this room, checked independently of `background` so a room
+	 * of any shape could opt in without this needing to change. Only "rain" exists today (see
+	 * room/weather.ts). A room that sets this should also set `animated: true` — the streaks need
+	 * the same continuous repaint an animated room already gets, and this does not imply it.
+	 */
+	weather?: "rain";
 	/**
 	 * The threshold. Both directions pass through it: a mascot moving in appears here, and one
 	 * called away walks here before the workspace becomes its world again.

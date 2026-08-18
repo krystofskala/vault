@@ -23,6 +23,7 @@ import { Residency } from "./room/Residency";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 import { moodForHour } from "./room/roomArt";
 import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
+import type { RoomRainMode } from "./room/weather";
 import { SpeechBubbles } from "./speech/SpeechBubbles";
 import { DEFAULT_SPEECH_OPTIONS } from "./speech/SpeechScheduler";
 import { linesFor, parseSpeechLines, speechLinesTemplate, unmatchedTags, withRefreshedCheatSheet, type SpeechPool } from "./speech/speechLines";
@@ -86,11 +87,12 @@ export default class ShimejiPlugin extends Plugin {
 	 * missing file and an empty one resolve to the same generic-default outcome, they only explain
 	 * differently on the settings screen (packSpeechStats.fileExists is the speech-file precedent). */
 	personaFileExists: Map<string, boolean> = new Map();
-	/** Who lives in the plant room. Created unconditionally — it is inert until the room's pane
+	/** Who lives in the room. Created unconditionally — it is inert until the room's pane
 	 * is actually open, and having it always present keeps every call site free of a null check. */
 	readonly residency = new Residency({
 		stage: () => this.stage,
 		layout: () => this.roomView()?.layout(),
+		roomLabel: () => roomStyle(this.settings.roomStyle).label.toLowerCase(),
 		notify: (message) => new Notice(message),
 		rememberResident: (resident) => {
 			const before = JSON.stringify(this.settings.roomResident ?? null);
@@ -258,6 +260,7 @@ export default class ShimejiPlugin extends Plugin {
 					onLayoutChanged: () => this.residency.tick(),
 					showSurfaces: () => this.showRoomSurfaces,
 					hourOverride: () => this.roomHourOverride,
+					rainMode: () => this.settings.roomRainMode,
 					onToggleChat: () => this.chatBubble.toggle(this.residency.residentMascot),
 					isChatOpen: () => this.chatBubble.isOpen,
 				}),
@@ -290,14 +293,18 @@ export default class ShimejiPlugin extends Plugin {
 		});
 
 		this.addRibbonIcon("cat", "Toggle Shimeji mascots", () => this.toggleMascot());
-		this.addRibbonIcon("sprout", "Open the Shimeji plant room", () => void this.revealRoom());
-		this.addCommand({ id: "shimeji-open-room", name: "Open the plant room", callback: () => void this.revealRoom() });
-		this.addCommand({ id: "shimeji-send-home", name: "Send a shimeji home to the plant room", callback: () => void this.sendHome() });
-		this.addCommand({ id: "shimeji-call-out", name: "Call the shimeji out of the plant room", callback: () => this.callOutOfRoom() });
-		this.addCommand({ id: "shimeji-room-surfaces", name: "Show/hide what the shimeji can stand on in the plant room", callback: () => this.toggleRoomSurfaces() });
-		this.addCommand({ id: "shimeji-room-reload-art", name: "Reload the plant room artwork", callback: () => this.reloadRoomArt() });
-		this.addCommand({ id: "shimeji-room-next", name: "Switch to the next plant room", callback: () => void this.cycleRoomStyle() });
-		this.addCommand({ id: "shimeji-room-clock", name: "Step the plant room's clock through the day", callback: () => this.stepRoomClock() });
+		// Resolved once here rather than per-command: every one of these command names/the ribbon
+		// tooltip is fixed at registration time regardless, the same way Obsidian's own command
+		// names are, so there is no live-updating case to handle even once a second room exists.
+		const initialRoom = roomStyle(this.settings.roomStyle).label.toLowerCase();
+		this.addRibbonIcon(roomStyle(this.settings.roomStyle).icon, `Open the Shimeji ${initialRoom}`, () => void this.revealRoom());
+		this.addCommand({ id: "shimeji-open-room", name: `Open the ${initialRoom}`, callback: () => void this.revealRoom() });
+		this.addCommand({ id: "shimeji-send-home", name: `Send a shimeji home to the ${initialRoom}`, callback: () => void this.sendHome() });
+		this.addCommand({ id: "shimeji-call-out", name: `Call the shimeji out of the ${initialRoom}`, callback: () => this.callOutOfRoom() });
+		this.addCommand({ id: "shimeji-room-surfaces", name: `Show/hide what the shimeji can stand on in the ${initialRoom}`, callback: () => this.toggleRoomSurfaces() });
+		this.addCommand({ id: "shimeji-room-reload-art", name: `Reload the ${initialRoom} artwork`, callback: () => this.reloadRoomArt() });
+		this.addCommand({ id: "shimeji-room-next", name: `Switch to the next ${initialRoom}`, callback: () => void this.cycleRoomStyle() });
+		this.addCommand({ id: "shimeji-room-clock", name: `Step the ${initialRoom}'s clock through the day`, callback: () => this.stepRoomClock() });
 		this.addCommand({ id: "shimeji-cycle-next", name: "Show the next animation", callback: () => this.cycleAction(1) });
 		this.addCommand({ id: "shimeji-cycle-prev", name: "Show the previous animation", callback: () => this.cycleAction(-1) });
 		this.addCommand({ id: "shimeji-spawn", name: "Spawn mascot", callback: () => this.spawnMascot() });
@@ -873,7 +880,7 @@ export default class ShimejiPlugin extends Plugin {
 				nearest = mascot;
 			}
 		}
-		// The plant room gets first refusal, because an order that crosses its threshold in either
+		// The room gets first refusal, because an order that crosses its threshold in either
 		// direction is not an ordinary order — it is a move, and has to route to the door rather
 		// than to the point. Everything else falls through unchanged.
 		if (this.residency.handleOrder(point, this.residency.residentMascot ?? nearest)) return;
@@ -881,7 +888,7 @@ export default class ShimejiPlugin extends Plugin {
 		new Notice(`On my way to (${Math.round(point.x)}, ${Math.round(point.y)})`);
 	}
 
-	// ---- the plant room -------------------------------------------------
+	// ---- the room ---------------------------------------------------------
 
 	/**
 	 * Every link between "the plugin loaded" and "the room is on screen", separately.
@@ -904,7 +911,10 @@ export default class ShimejiPlugin extends Plugin {
 			{ step: "resident", ok: this.residency.hasResident, detail: this.settings.roomResident ? `remembered: ${this.settings.roomResident.packId ?? "placeholder"}` : "nobody" },
 		];
 		let note: string | undefined;
-		if (leaves.length === 0) note = 'No pane is open. Run "Open the plant room" from the command palette, or click the sprout in the ribbon.';
+		if (leaves.length === 0) {
+			const room = roomStyle(this.settings.roomStyle).label.toLowerCase();
+			note = `No pane is open. Run "Open the ${room}" from the command palette, or click its icon in the ribbon.`;
+		}
 		else if (!view) note = "A leaf exists but carries no RoomView — the plugin was probably reloaded while the pane was open. Close and reopen the pane.";
 		else if (!layout) note = "The pane exists but is not on screen — the sidebar is collapsed, or another tab is showing in that slot.";
 		return { chain, note };
@@ -963,6 +973,14 @@ export default class ShimejiPlugin extends Plugin {
 		new Notice(`Shimeji room: ${style.label}`);
 	}
 
+	async setRoomRainMode(mode: RoomRainMode): Promise<void> {
+		this.settings.roomRainMode = mode;
+		await this.saveSettings();
+		const view = this.roomView();
+		view?.invalidate();
+		view?.refresh();
+	}
+
 	/** Draws the room's collision surfaces over the artwork. The one part of the room that cannot be
 	 * checked by reasoning — an image knows nothing about the lines authored on top of it — so it is
 	 * made visible instead. */
@@ -1005,7 +1023,7 @@ export default class ShimejiPlugin extends Plugin {
 	private reloadRoomArt(): void {
 		const view = this.roomView();
 		if (!view) {
-			new Notice("Shimeji: the plant room is not open.");
+			new Notice(`Shimeji: the ${roomStyle(this.settings.roomStyle).label.toLowerCase()} is not open.`);
 			return;
 		}
 		void view.loadImage();
@@ -1029,14 +1047,15 @@ export default class ShimejiPlugin extends Plugin {
 	async revealRoom(): Promise<RoomView | undefined> {
 		const existing = this.app.workspace.getLeavesOfType(ROOM_VIEW_TYPE)[0];
 		const leaf = existing ?? this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf("tab");
+		const room = roomStyle(this.settings.roomStyle).label.toLowerCase();
 		if (!leaf) {
-			new Notice("Shimeji: could not open the plant room — no pane was available for it.");
+			new Notice(`Shimeji: could not open the ${room} — no pane was available for it.`);
 			return undefined;
 		}
 		if (!existing) await leaf.setViewState({ type: ROOM_VIEW_TYPE, active: true });
 		this.app.workspace.revealLeaf(leaf);
 		const view = this.roomView();
-		if (!view) new Notice("Shimeji: the plant room pane did not open. Check the console for an error.");
+		if (!view) new Notice(`Shimeji: the ${room} pane did not open. Check the console for an error.`);
 		return view;
 	}
 
@@ -1047,7 +1066,7 @@ export default class ShimejiPlugin extends Plugin {
 		const view = (await this.revealRoom()) ?? this.roomView();
 		const layout = view?.layout();
 		if (!layout) {
-			new Notice("Shimeji: the plant room could not be opened.");
+			new Notice(`Shimeji: the ${roomStyle(this.settings.roomStyle).label.toLowerCase()} could not be opened.`);
 			return;
 		}
 		if (this.residency.hasResident) {
@@ -1510,7 +1529,7 @@ export default class ShimejiPlugin extends Plugin {
 	 * allowNoteMischief, vaultReactionsEnabled): both are Obsidian-layer-only, each checked on its
 	 * own timer or event rather than every simulation tick.
 	 *
-	 * `excludeConfined` leaves out a mascot currently living in the plant room (`confinement` is
+	 * `excludeConfined` leaves out a mascot currently living in the room (`confinement` is
 	 * set only by Residency.moveIn/moveOut) — a room resident is never "on the pane you're actively
 	 * working in" as far as vault reactions are concerned, even though its position is already
 	 * clamped inside the room's own separate rect regardless of this filter.

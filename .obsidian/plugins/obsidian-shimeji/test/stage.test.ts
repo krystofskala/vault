@@ -129,6 +129,25 @@ describe("Stage.spawnMascot", () => {
 	});
 });
 
+describe("Stage's breeding gate", () => {
+	it("does not spawn a sibling for a confined mascot, even with breeding allowed", () => {
+		const stage = makeStage({ allowBreeding: true });
+		const parent = stage.spawnMascot(100, 100)!;
+		parent.confinement = { getLedges: () => [], isVisible: () => true };
+		parent.requestSibling(10, 0);
+		expect(stage.getMascots()).toHaveLength(1);
+		stage.destroy();
+	});
+
+	it("still breeds an ordinary, unconfined mascot under the same settings", () => {
+		const stage = makeStage({ allowBreeding: true });
+		const parent = stage.spawnMascot(100, 100)!;
+		parent.requestSibling(10, 0);
+		expect(stage.getMascots()).toHaveLength(2);
+		stage.destroy();
+	});
+});
+
 describe("Stage.removeAllButOne", () => {
 	// Real Manager.remainOne(): disposes every mascot except the *first* (oldest) one — a
 	// distinct primitive from removeAllMascots (real "Bye Everyone!", zero left), previously

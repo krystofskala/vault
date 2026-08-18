@@ -21,6 +21,9 @@ export interface RoomStyle {
 	id: RoomStyleId;
 	label: string;
 	description: string;
+	/** An Obsidian icon name — used for the room pane's own tab icon and the ribbon button that
+	 * opens it, so both actually reflect whichever room is currently registered. */
+	icon: string;
 	def: RoomDef;
 	/**
 	 * Where this room's picture goes, relative to the plugin's own folder, without an extension —
@@ -35,6 +38,7 @@ export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
 		id: "plant-room",
 		label: "Plant room",
 		description: "A small room drawn by the plugin: a window, a bookshelf, a sofa, a couple of plants. The shimeji comes and goes as it does outdoors — nothing about this room resizes or repositions it.",
+		icon: "sprout",
 		def: LIVING_ROOM,
 	},
 };
@@ -51,5 +55,22 @@ export function roomImageCandidates(style: RoomStyle): string[] {
 }
 
 export function roomStyle(id: string | undefined): RoomStyle {
-	return ROOM_STYLES[(id ?? "plant-room") as RoomStyleId] ?? ROOM_STYLES["plant-room"];
+	const fallback = ROOM_STYLE_IDS[0];
+	return ROOM_STYLES[(id ?? fallback) as RoomStyleId] ?? ROOM_STYLES[fallback];
+}
+
+/**
+ * A room whose def paints via supplied artwork must name a file for it, or RoomView renders a
+ * blank canvas with no notice at all: `background: "image"` with no `imageBase` means
+ * `loadImage()` never runs, and `renderMissingNotice()`'s own notice is keyed off `imageBase`, not
+ * `background`. The reverse mismatch is just as silent — a file nobody ever loads. Meant to be
+ * asserted against every registered style in a test, not shown to the user: this is only reachable
+ * by mis-defining a room, never by anything a user does.
+ */
+export function roomStyleImageMismatch(style: RoomStyle): string | undefined {
+	const wantsImage = style.def.background === "image";
+	const hasImageBase = style.imageBase !== undefined;
+	if (wantsImage && !hasImageBase) return `"${style.id}" has background:"image" but no imageBase`;
+	if (!wantsImage && hasImageBase) return `"${style.id}" sets imageBase but background is not "image"`;
+	return undefined;
 }

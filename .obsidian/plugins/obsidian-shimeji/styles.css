@@ -100,7 +100,7 @@
 	color: var(--text-success);
 }
 
-/* ---- the plant room -------------------------------------------------- */
+/* ---- the room ---------------------------------------------------------- */
 
 /* The room is centred in its pane on both axes — it is a finished picture with its own surround,
    not a room whose walls continue up out of frame. The surround colour is sampled from the artwork

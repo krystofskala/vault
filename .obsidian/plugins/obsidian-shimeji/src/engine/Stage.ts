@@ -277,6 +277,12 @@ export class Stage {
 			// on `breeding` otherwise, and BornCount clones are created in a plain loop, each one
 			// an ordinary independent mascot.
 			spawnSibling: (sx, sy, bornBehaviorName, parent, options) => {
+				// A confined mascot's world has been substituted (Mascot.confinement) — whichever
+				// room that is, breeding into it makes no sense: residency evicts everyone else the
+				// moment one moves in, and a room like this is built around exactly one resident.
+				// Generic, not room-specific, and independent of the allowBreeding/allowTransients
+				// settings below.
+				if (parent.confinement) return;
 				const gate = options?.transient ? this.opts.allowTransients !== false : this.opts.allowBreeding;
 				if (!gate) return;
 				const count = Math.max(1, Math.floor(options?.count ?? 1));

@@ -4,6 +4,7 @@ import { layoutRoom, shouldMirror, type RoomLayout } from "./RoomGeometry";
 import { drawRoomImage, drawSurfaceOverlay, moodNow, paintRoom, ROOM_ANIMATION_FPS, ROOM_BACKDROP, ROOM_BACKDROP_DUSK, sampleBackdrop } from "./roomArt";
 import { LIVING_ROOM, type RoomDef } from "./roomDef";
 import { roomImageCandidates, type RoomStyle } from "./rooms";
+import { drawRain, effectiveRain, RoomWeather, type RoomRainMode } from "./weather";
 
 export const ROOM_VIEW_TYPE = "shimeji-plant-room";
 
@@ -23,6 +24,9 @@ export interface RoomViewOptions {
 	showSurfaces(): boolean;
 	/** A forced clock hour, for looking at the room's lighting without waiting for the day. */
 	hourOverride(): number | undefined;
+	/** The user's manual rain override, or "auto" to leave it to RoomWeather's own drift. Ignored
+	 * by rooms that don't declare `weather: "rain"`. */
+	rainMode(): RoomRainMode;
 	/** Opens or closes the chat bubble for whoever is currently resident — a no-op with nobody
 	 * home. RoomView only ever asks for the toggle; ChatBubble (owned at the plugin level, same as
 	 * Residency) decides what "nobody home" or "already open" actually means —
@@ -54,6 +58,7 @@ export class RoomView extends ItemView {
 	private imageState: "none" | "loading" | "ready" | "failed" = "none";
 	private backdrop?: string;
 	private loadedStyleId?: string;
+	private weather = new RoomWeather();
 
 	constructor(leaf: WorkspaceLeaf, private opts: RoomViewOptions) {
 		super(leaf);
@@ -64,11 +69,11 @@ export class RoomView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return "Plant room";
+		return this.opts.style().label;
 	}
 
 	getIcon(): string {
-		return "sprout";
+		return this.opts.style().icon;
 	}
 
 	/** The chosen room when its artwork is available, the painted one when it is not. Falling back
@@ -250,7 +255,7 @@ export class RoomView extends ItemView {
 		if (key !== this.lastKey) {
 			this.lastKey = key;
 			if (def.background === "image" && this.image) {
-				drawRoomImage(this.canvas, this.image, def, { scale: layout.scale });
+				drawRoomImage(this.canvas, this.image, def, mood, { scale: layout.scale });
 				// Sampled from the artwork's own corner, so the pane and the picture are the same
 				// shade by construction and the surround has no visible seam.
 				this.contentEl.style.backgroundColor = this.backdrop ?? "#121a1a";
@@ -264,6 +269,14 @@ export class RoomView extends ItemView {
 				// theme changes underneath.
 				if (def.paneBackdrop) this.contentEl.style.removeProperty("background-color");
 				else this.contentEl.style.backgroundColor = mood.dusk ? ROOM_BACKDROP_DUSK : ROOM_BACKDROP;
+			}
+			// Rain, if this room has weather: after the image/paint branch and its own tint, before
+			// the surface overlay — so streaks read bright and legible against a darkened night
+			// scene instead of being muted by a tint drawn on top of them.
+			if (def.weather === "rain") {
+				const auto = this.weather.current(mood.t);
+				const intensity = effectiveRain(this.opts.rainMode(), auto);
+				if (intensity !== "off") drawRain(this.canvas, intensity, mood.t);
 			}
 			if (surfaces) drawSurfaceOverlay(this.canvas, def, { scale: layout.scale, mirrored: layout.mirrored });
 		}
@@ -294,13 +307,13 @@ export class RoomView extends ItemView {
 		}
 		if (this.imageState === "failed") {
 			this.missing.createDiv({ cls: "shimeji-room-missing-title", text: `The ${style.label} picture could not be read.` });
-			this.missing.createDiv({ text: "It may not be a valid image file. Replace it and run \u201cReload the plant room artwork\u201d." });
+			this.missing.createDiv({ text: `It may not be a valid image file. Replace it and run \u201cReload the ${style.label.toLowerCase()} artwork\u201d.` });
 			return;
 		}
 		this.missing.createDiv({ cls: "shimeji-room-missing-title", text: `No picture yet for the ${style.label}.` });
 		this.missing.createDiv({ text: "Save it in the plugin\u2019s folder as:" });
 		this.missing.createEl("code", { text: `${style.imageBase}.png` });
-		this.missing.createDiv({ cls: "shimeji-room-missing-note", text: ".webp, .jpg and .gif work too. Then run \u201cReload the plant room artwork\u201d." });
+		this.missing.createDiv({ cls: "shimeji-room-missing-note", text: `.webp, .jpg and .gif work too. Then run \u201cReload the ${style.label.toLowerCase()} artwork\u201d.` });
 	}
 
 	/** Which way the room faces right now, for the settings screen and tests. */
