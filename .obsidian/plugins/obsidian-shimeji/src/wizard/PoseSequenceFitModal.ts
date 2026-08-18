@@ -3,6 +3,7 @@ import type { CustomPoseSpec } from "../shimeji/customContent";
 import { decodeImageBlob, decodeVaultImage, overwriteVaultImageAsPng, packImagePath, pixelsToCanvas } from "../sprites/imageIo";
 import {
 	compositeOverlay,
+	cropPixels,
 	flipAnchorHorizontal,
 	flipAnchorVertical,
 	flipHorizontal,
@@ -13,6 +14,7 @@ import {
 	rotateAnchorClockwise,
 	rotateAnchorCounterClockwise,
 	scaleAnchor,
+	translateAnchor,
 	type Pixels,
 } from "../sprites/pixels";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
@@ -55,6 +57,14 @@ interface PendingOverlay {
 	canvasEl: HTMLCanvasElement;
 	offsetX: number;
 	offsetY: number;
+	/** Applied to `pixels` only at placement time (`placeOverlay`) — until then this only changes
+	 * how big the live preview draws (`redraw`), the same relationship the batch resize step has
+	 * to `this.frames` before "Continue" is clicked. */
+	scale: number;
+	/** What `scale` started at, for the "Use suggested" button to return to after the user has
+	 * typed something else — same two-field split `suggestedResizeFactor`/`resizeFactor` already
+	 * use for the base frame, just scoped to this one overlay instead of the whole batch. */
+	suggestedScale: number;
 }
 
 interface FrameState {
@@ -289,7 +299,45 @@ export class PoseSequenceFitModal extends Modal {
 			.addButton((b) => b.setButtonText("Rotate ↺").setTooltip("Rotate counter-clockwise").onClick(() => this.applyRotate("ccw")))
 			.addButton((b) => b.setButtonText("Rotate ↻").setTooltip("Rotate clockwise").onClick(() => this.applyRotate("cw")));
 
+		new Setting(contentEl)
+			.setName("Expand space")
+			.setDesc("Grows the frame itself, so there's room to place a layer beside the character instead of only on top of it.")
+			.addButton((b) => b.setButtonText("← Left").onClick(() => this.expandSpace("left")))
+			.addButton((b) => b.setButtonText("Right →").onClick(() => this.expandSpace("right")))
+			.addButton((b) => b.setButtonText("↑ Top").onClick(() => this.expandSpace("top")))
+			.addButton((b) => b.setButtonText("Bottom ↓").onClick(() => this.expandSpace("bottom")));
+
 		if (frame.pendingOverlay) {
+			const overlay = frame.pendingOverlay;
+			// Rescales around the overlay's own current centre rather than its top-left corner, so
+			// typing a new number resizes it in place instead of visibly sliding it as it grows —
+			// the same "zoom toward a fixed point" idea PoseFitCanvas.zoomBy already uses.
+			const applyOverlayScale = (next: number): void => {
+				const cx = overlay.offsetX + (overlay.pixels.width * overlay.scale) / 2;
+				const cy = overlay.offsetY + (overlay.pixels.height * overlay.scale) / 2;
+				overlay.scale = next;
+				overlay.offsetX = cx - (overlay.pixels.width * next) / 2;
+				overlay.offsetY = cy - (overlay.pixels.height * next) / 2;
+				this.redraw();
+			};
+			let scaleInput: HTMLInputElement;
+			new Setting(contentEl)
+				.setName("Scale")
+				.setDesc(`Suggested: ${overlay.suggestedScale}x.`)
+				.addText((t) => {
+					scaleInput = t.inputEl;
+					t.setValue(String(overlay.scale)).onChange((v) => {
+						const n = parseFloat(v);
+						if (Number.isFinite(n) && n > 0) applyOverlayScale(n);
+					});
+				})
+				.addButton((b) =>
+					b.setButtonText("Use suggested").onClick(() => {
+						applyOverlayScale(overlay.suggestedScale);
+						scaleInput.value = String(overlay.scale);
+					}),
+				);
+
 			new Setting(contentEl)
 				.addButton((b) => b.setButtonText("Cancel this layer").onClick(() => this.cancelOverlay()))
 				.addButton((b) =>
@@ -399,6 +447,50 @@ export class PoseSequenceFitModal extends Modal {
 		this.refreshAnchorLabel();
 	}
 
+	/**
+	 * Grows the frame's own canvas on one side, so a layer can be dragged out beside the character
+	 * instead of only over it — `dragOverlayTo` already lets an overlay go anywhere, but the frame
+	 * itself was always exactly the character's own size, so there was nowhere to put it.
+	 *
+	 * `cropPixels` already leaves anything outside the source transparent (its own out-of-bounds
+	 * tests cover a negative offset) — asking for a box bigger than the frame, rather than a new
+	 * padding function, is all "expand" is.
+	 */
+	private expandSpace(direction: "left" | "right" | "top" | "bottom"): void {
+		const frame = this.frames[this.index];
+		const { width, height } = frame.pixels;
+		// Proportional and repeatable, rather than a fixed pixel count: doubles as "however much
+		// room you want" if you click it more than once.
+		const amount = Math.max(1, Math.round((direction === "left" || direction === "right" ? width : height) / 2));
+		const horizontal = direction === "left" || direction === "right";
+		const grow = direction === "left" || direction === "top";
+		const rect = {
+			x: horizontal ? (grow ? -amount : 0) : 0,
+			y: !horizontal ? (grow ? -amount : 0) : 0,
+			w: horizontal ? width + amount : width,
+			h: !horizontal ? height + amount : height,
+		};
+		frame.pixels = cropPixels(frame.pixels, rect);
+		if (grow) {
+			// Only left/top move the frame's own origin — right/bottom grow the far edge, so
+			// nothing measured from the top-left corner needs to shift.
+			const dx = horizontal ? amount : 0;
+			const dy = horizontal ? 0 : amount;
+			const anchor = translateAnchor({ x: frame.pose.anchorX, y: frame.pose.anchorY }, dx, dy);
+			frame.pose.anchorX = anchor.x;
+			frame.pose.anchorY = anchor.y;
+			if (frame.pendingOverlay) {
+				frame.pendingOverlay.offsetX += dx;
+				frame.pendingOverlay.offsetY += dy;
+			}
+		}
+		frame.canvasEl = pixelsToCanvas(frame.pixels);
+		frame.dirty = true;
+		this.resizeCanvas();
+		this.redraw();
+		this.refreshAnchorLabel();
+	}
+
 	// ---------------------------------------------------------------- layers
 
 	private renderAddLayerRow(containerEl: HTMLElement): void {
@@ -451,24 +543,36 @@ export class PoseSequenceFitModal extends Modal {
 				if (poses.length === 0) return;
 				if (poses.length > 1) new Notice(`Sliced ${poses.length} — used the first for this layer.`);
 				if (!this.opts.packImages.includes(poses[0].image)) this.opts.packImages = [...this.opts.packImages, poses[0].image];
-				void this.loadOverlayFromPackImage(poses[0].image);
+				// Fresh off a sheet, at that sheet's own native resolution — the same situation the
+				// base frames were in before the resize step, so reuse the exact factor already
+				// applied there rather than guessing 1x.
+				void this.loadOverlayFromPackImage(poses[0].image, this.resizeFactor);
 			},
 		}).open();
 	}
 
-	private async loadOverlayFromPackImage(image: string): Promise<void> {
+	private async loadOverlayFromPackImage(image: string, suggestedScale = 1): Promise<void> {
 		const decoded = await decodeVaultImage(this.app, packImagePath(this.opts.imgDir, image));
-		if (decoded) this.beginOverlay(decoded.pixels);
+		if (decoded) this.beginOverlay(decoded.pixels, suggestedScale);
 		else new Notice(`Couldn't read "${image.replace(/^\//, "")}".`);
 	}
 
-	private beginOverlay(pixels: Pixels): void {
+	/** `suggestedScale` defaults to 1 — right for "Pick existing…" (already a pack image,
+	 * presumably already at pack scale) and "Upload…" (unknown provenance, no signal to guess
+	 * from). "Slice from a sheet…" passes something better — see `openOverlaySlicer`. */
+	private beginOverlay(pixels: Pixels, suggestedScale = 1): void {
 		const frame = this.frames[this.index];
+		const scale = Math.max(0.05, suggestedScale);
 		frame.pendingOverlay = {
 			pixels,
 			canvasEl: pixelsToCanvas(pixels),
-			offsetX: (frame.pixels.width - pixels.width) / 2,
-			offsetY: (frame.pixels.height - pixels.height) / 2,
+			// Centered against the size it will actually display at, not its native size — a
+			// non-1 suggestion (an effect sliced at a small sheet's own resolution, say) would
+			// otherwise start off-center the moment `redraw()` draws it at its real, scaled size.
+			offsetX: (frame.pixels.width - pixels.width * scale) / 2,
+			offsetY: (frame.pixels.height - pixels.height * scale) / 2,
+			scale,
+			suggestedScale: scale,
 		};
 		this.render();
 	}
@@ -477,7 +581,8 @@ export class PoseSequenceFitModal extends Modal {
 		const frame = this.frames[this.index];
 		const overlay = frame.pendingOverlay;
 		if (!overlay) return;
-		frame.pixels = compositeOverlay(frame.pixels, overlay.pixels, overlay.offsetX, overlay.offsetY);
+		const pixels = overlay.scale !== 1 ? resizePixels(overlay.pixels, overlay.scale) : overlay.pixels;
+		frame.pixels = compositeOverlay(frame.pixels, pixels, overlay.offsetX, overlay.offsetY);
 		frame.canvasEl = pixelsToCanvas(frame.pixels);
 		frame.dirty = true;
 		frame.pendingOverlay = undefined;
@@ -508,7 +613,7 @@ export class PoseSequenceFitModal extends Modal {
 		this.ctx.drawImage(frame.canvasEl, 0, 0, width, height, 0, 0, width * s, height * s);
 		if (frame.pendingOverlay) {
 			const o = frame.pendingOverlay;
-			this.ctx.drawImage(o.canvasEl, 0, 0, o.pixels.width, o.pixels.height, o.offsetX * s, o.offsetY * s, o.pixels.width * s, o.pixels.height * s);
+			this.ctx.drawImage(o.canvasEl, 0, 0, o.pixels.width, o.pixels.height, o.offsetX * s, o.offsetY * s, o.pixels.width * o.scale * s, o.pixels.height * o.scale * s);
 		}
 		this.drawAnchor();
 	}

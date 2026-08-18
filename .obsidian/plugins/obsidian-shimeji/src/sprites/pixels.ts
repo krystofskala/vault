@@ -487,6 +487,13 @@ export function scaleAnchor(anchor: AnchorPoint, factor: number): AnchorPoint {
 	return { x: anchor.x * factor, y: anchor.y * factor };
 }
 
+/** Keeps an anchor point in sync with growing a canvas on its left/top edge (see `cropPixels`,
+ * given a rect that starts before the source's own origin) — the frame's own top-left has moved
+ * by `(dx, dy)`, and everything measured from it, the anchor included, has to move with it. */
+export function translateAnchor(anchor: AnchorPoint, dx: number, dy: number): AnchorPoint {
+	return { x: anchor.x + dx, y: anchor.y + dy };
+}
+
 /**
  * Alpha-composites `overlay` onto `base` at an integer pixel offset — e.g. a particle effect
  * layered on top of a couple of frames in a jump animation, built up one placed layer at a time

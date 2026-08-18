@@ -23,6 +23,7 @@ import {
 	samplePixel,
 	scaleAnchor,
 	stripFrames,
+	translateAnchor,
 	type Pixels,
 } from "../src/sprites/pixels";
 import { planPoseSlices, poseFileBaseName, posesFromPlan } from "../src/sprites/poseSlicing";
@@ -539,6 +540,11 @@ describe("resizePixels / scaleAnchor", () => {
 	it("scaleAnchor applies the same uniform factor to a point", () => {
 		expect(scaleAnchor({ x: 10, y: 20 }, 2)).toEqual({ x: 20, y: 40 });
 		expect(scaleAnchor({ x: 10, y: 20 }, 0.5)).toEqual({ x: 5, y: 10 });
+	});
+
+	it("translateAnchor shifts a point by a fixed offset", () => {
+		expect(translateAnchor({ x: 10, y: 20 }, 5, -3)).toEqual({ x: 15, y: 17 });
+		expect(translateAnchor({ x: 10, y: 20 }, 0, 0)).toEqual({ x: 10, y: 20 });
 	});
 });
 

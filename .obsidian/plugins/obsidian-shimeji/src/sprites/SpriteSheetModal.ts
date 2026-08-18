@@ -2,6 +2,7 @@ import { Modal, Notice, Setting, type App, type DropdownComponent } from "obsidi
 import type { CustomPoseSpec } from "../shimeji/customContent";
 import { AtlasSlicer } from "./AtlasSlicer";
 import {
+	applyColorKey,
 	cropPixels,
 	detectFrames,
 	hexToRgb,
@@ -12,7 +13,7 @@ import {
 	type Pixels,
 	type Rgb,
 } from "./pixels";
-import { decodeVaultImage, packImagePath, pixelsToPngBytes, writePackImage } from "./imageIo";
+import { decodeVaultImage, overwriteVaultImageAsPng, packImagePath, pixelsToPngBytes, writePackImage } from "./imageIo";
 import { planPoseSlices, poseFileBaseName, posesFromPlan } from "./poseSlicing";
 
 const DEFAULT_POSE_DURATION_TICKS = 10;
@@ -50,6 +51,12 @@ export class SpriteSheetModal extends Modal {
 	private detectColorListEl!: HTMLElement;
 	private countEl!: HTMLElement;
 	private addButtonEl?: HTMLButtonElement;
+	/** Separate from the boundary-detection tolerance inside `buildDetectControls` — a good "these
+	 * two blobs aren't touching" number and a good "erase every trace of this colour" number aren't
+	 * necessarily the same, and sharing one field would make one control quietly move the other's
+	 * saved value. Same default `RemoveBackgroundModal` uses, for a consistent starting point. */
+	private removeBgTolerance = 30;
+	private removeBgButtonEl?: HTMLButtonElement;
 	private slicerHostEl!: HTMLElement;
 	private durationTicks = DEFAULT_POSE_DURATION_TICKS;
 	private busy = false;
@@ -81,6 +88,15 @@ export class SpriteSheetModal extends Modal {
 		this.slicer.onSelectionChange((count) => {
 			this.selectionCount = count;
 			this.refreshCount();
+		});
+		// A plain, no-modifier "v" — Modal.scope is only active while this modal is the open one,
+		// so this can't leak out to (or collide with) any other hotkey elsewhere in Obsidian. Guards
+		// a focused text field regardless, since a bare letter key is otherwise indistinguishable
+		// from someone just typing.
+		this.scope.register([], "v", (evt) => {
+			if (evt.target instanceof HTMLInputElement || evt.target instanceof HTMLTextAreaElement) return;
+			evt.preventDefault();
+			this.slicer.togglePanMode();
 		});
 
 		if (this.opts.images.length === 0) {
@@ -204,6 +220,22 @@ export class SpriteSheetModal extends Modal {
 			this.slicer.setDetectedFrames(rects);
 			new Notice(`Detected ${rects.length} frame(s) — click them in the order you want.`);
 		});
+
+		side.createEl("p", {
+			cls: "setting-item-description",
+			text: "Or make the same colour(s) transparent in the sheet itself, for a sheet whose background isn't already transparent — a separate tolerance from detection above, since a good boundary and a good erase aren't always the same number.",
+		});
+		const eraseFields = side.createDiv({ cls: "shimeji-sheet-controls" });
+		const eraseToleranceField = eraseFields.createDiv({ cls: "shimeji-sheet-field" });
+		eraseToleranceField.createEl("label", { text: "Erase tolerance" });
+		const eraseTolerance = eraseToleranceField.createEl("input", { type: "number", attr: { min: "0" } });
+		eraseTolerance.value = String(this.removeBgTolerance);
+		const removeBgButton = eraseFields.createEl("button", { text: "Remove background" });
+		this.removeBgButtonEl = removeBgButton;
+		removeBgButton.addEventListener("click", () => {
+			this.removeBgTolerance = Math.max(0, Number(eraseTolerance.value) || 0);
+			void this.removeBackground();
+		});
 	}
 
 	private buildStripControl(side: HTMLElement): void {
@@ -259,6 +291,7 @@ export class SpriteSheetModal extends Modal {
 		if (!this.countEl) return;
 		this.countEl.setText(this.selectionCount > 0 ? `${this.selectionCount} pose(s) selected.` : "Nothing selected yet.");
 		if (this.addButtonEl) this.addButtonEl.disabled = this.selectionCount === 0 || this.busy;
+		if (this.removeBgButtonEl) this.removeBgButtonEl.disabled = this.busy;
 	}
 
 	/** Writes the selected frames out and hands the poses back. */
@@ -286,6 +319,55 @@ export class SpriteSheetModal extends Modal {
 		} catch (e) {
 			console.error("[obsidian-shimeji] slicing poses failed", e);
 			new Notice(`Couldn't save the frames: ${e instanceof Error ? e.message : String(e)}`);
+			this.busy = false;
+			this.refreshCount();
+		}
+	}
+
+	/**
+	 * Colour-keys the whole sheet in place, for a sheet whose background isn't already transparent
+	 * — the same `applyColorKey` + `overwriteVaultImageAsPng` sequence `RemoveBackgroundModal`
+	 * already proves out end-to-end, so this reuses it rather than re-deriving it.
+	 *
+	 * `AtlasSlicer.load()` (the only *other* way to show it a new image) unconditionally resets the
+	 * grid, any detected frames, and the selection — appropriate for switching to a genuinely
+	 * different sheet, wrong here: this is the same sheet, just with a colour keyed out of it, and
+	 * wiping hand-tuned grid lines or a finished auto-detect as a side effect of that would be a
+	 * real loss. `replaceImage` is the non-destructive sibling that exists for exactly this.
+	 */
+	private async removeBackground(): Promise<void> {
+		if (this.busy || !this.decoded || !this.image) return;
+		if (this.detectColors.length === 0) {
+			new Notice("Add at least one background colour first.");
+			return;
+		}
+		if (!this.image.toLowerCase().endsWith(".png")) {
+			// overwriteVaultImageAsPng would otherwise rename the file on disk (a jpg/gif/webp
+			// can't carry the transparency this produces) — this.image, and the "Sheet" dropdown's
+			// own list of names built from opts.images, would then be pointing at a file that no
+			// longer exists. Simpler to ask for a PNG up front than to propagate a rename through
+			// every caller that handed this modal its image list.
+			new Notice("Save this sheet as a PNG first — background removal needs transparency, which this format can't store.");
+			return;
+		}
+		this.busy = true;
+		this.refreshCount();
+		try {
+			const copy: Pixels = { data: new Uint8ClampedArray(this.decoded.pixels.data), width: this.decoded.pixels.width, height: this.decoded.pixels.height };
+			applyColorKey(copy, this.detectColors, this.removeBgTolerance);
+			await overwriteVaultImageAsPng(this.app, packImagePath(this.opts.imgDir, this.image), copy);
+			// Re-read from disk rather than hand-building a fresh object URL from `copy`: what's
+			// then displayed is guaranteed byte-identical to what just got written, and this reuses
+			// decodeVaultImage/releaseUrl exactly as loadImage() already does elsewhere in this
+			// class, instead of a second URL-lifecycle to keep correct.
+			this.releaseUrl();
+			this.decoded = await decodeVaultImage(this.app, packImagePath(this.opts.imgDir, this.image));
+			if (this.decoded) await this.slicer.replaceImage(this.decoded.url);
+			new Notice("Background removed.");
+		} catch (e) {
+			console.error("[obsidian-shimeji] background removal failed", e);
+			new Notice(`Couldn't remove the background: ${e instanceof Error ? e.message : String(e)}`);
+		} finally {
 			this.busy = false;
 			this.refreshCount();
 		}

@@ -21,6 +21,11 @@ const MAX_DISPLAY_WIDTH = 640;
  * 3x is a 48px canvas, which no one can pick individual cells out of. */
 const MIN_DISPLAY_WIDTH = 320;
 const MAX_UPSCALE = 24;
+/** Ctrl+wheel zoom bounds — the same floor `load()` already clamps its own initial fit to, and the
+ * same ceiling every other ceiling in this file already uses. Not new numbers. */
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = MAX_UPSCALE;
+const ZOOM_STEP = 1.15;
 
 const LINE_HOVER_TOLERANCE_PX = 8;
 /** How far the pointer must travel before a press near a line becomes a drag rather than a click. */
@@ -65,6 +70,11 @@ export class AtlasSlicer {
 	private draggingLine: LineRef | null = null;
 	private downCell: number | null = null;
 
+	/** Toggled from outside (see `togglePanMode`) — while on, a drag scrolls the sheet instead of
+	 * editing a line or a selection, for a sheet too large to see all at once at a usable zoom. */
+	private panMode = false;
+	private panDragStart: { x: number; y: number; scrollLeft: number; scrollTop: number } | null = null;
+
 	constructor(parentEl: HTMLElement) {
 		this.wrapperEl = parentEl.createDiv({ cls: "shimeji-slicer" });
 		this.canvas = this.wrapperEl.createEl("canvas");
@@ -79,6 +89,9 @@ export class AtlasSlicer {
 		this.canvas.addEventListener("pointercancel", () => this.onPointerCancel());
 		this.canvas.addEventListener("pointerleave", () => this.onPointerLeave());
 		this.canvas.addEventListener("dblclick", (e) => this.onDoubleClick(e));
+		// Not gated on ctrlKey at the listener itself — see onWheel — so a plain wheel still falls
+		// through to the browser's native scroll of `.shimeji-slicer`'s own overflow:auto.
+		this.canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
 
 		this.showPlaceholder("No sheet loaded.");
 	}
@@ -118,6 +131,24 @@ export class AtlasSlicer {
 
 	getNaturalSize(): { width: number; height: number } | null {
 		return this.image ? { width: this.naturalWidth, height: this.naturalHeight } : null;
+	}
+
+	/**
+	 * Swaps in a freshly re-encoded version of the same sheet — after an in-place pixel edit like
+	 * colour-keying, say — without `load()`'s reset of the grid, detected frames, or selection.
+	 * Dimensions are assumed unchanged (a colour-key operation only ever touches alpha), so unlike
+	 * `load()` this never recomputes `scale` or the canvas's own size.
+	 */
+	async replaceImage(url: string): Promise<void> {
+		if (!this.image) return;
+		const img = new Image();
+		await new Promise<void>((resolve, reject) => {
+			img.onload = () => resolve();
+			img.onerror = () => reject(new Error("failed to decode"));
+			img.src = url;
+		});
+		this.image = img;
+		this.redraw();
 	}
 
 	/** (Re)lays out an even grid, discarding any lines dragged out of place. */
@@ -175,6 +206,17 @@ export class AtlasSlicer {
 	destroy(): void {
 		this.image = null;
 		this.wrapperEl.remove();
+	}
+
+	/** Toggled by the modal's own hotkey (`SpriteSheetModal` registers "v" on its `Scope`, active
+	 * only while it's the open modal — no focus/tabIndex tricks needed for a plain canvas to see
+	 * it). Resets any in-flight line-drag/click the same way switching sheets already does, since
+	 * "what does dragging do" changing mid-drag would leave a gesture with nowhere sane to land. */
+	togglePanMode(): void {
+		this.panMode = !this.panMode;
+		this.resetGesture();
+		this.panDragStart = null;
+		this.canvas.style.cursor = this.panMode ? "grab" : "crosshair";
 	}
 
 	// ---------------------------------------------------------------- drawing
@@ -409,10 +451,16 @@ export class AtlasSlicer {
 	}
 
 	private onPointerDown(e: PointerEvent): void {
-		if (!this.image || !this.hasCells() || e.button !== 0) return;
+		if (!this.image || e.button !== 0) return;
 		e.preventDefault();
-		const p = this.canvasPoint(e);
 		this.canvas.setPointerCapture(e.pointerId);
+		if (this.panMode) {
+			this.panDragStart = { x: e.clientX, y: e.clientY, scrollLeft: this.wrapperEl.scrollLeft, scrollTop: this.wrapperEl.scrollTop };
+			this.canvas.style.cursor = "grabbing";
+			return;
+		}
+		if (!this.hasCells()) return;
+		const p = this.canvasPoint(e);
 		this.gestureStart = p;
 		this.candidateLine = this.findNearestLine(p);
 		const cell = this.cellAt(p);
@@ -420,6 +468,13 @@ export class AtlasSlicer {
 	}
 
 	private onPointerMove(e: PointerEvent): void {
+		if (this.panMode) {
+			if (this.panDragStart) {
+				this.wrapperEl.scrollLeft = this.panDragStart.scrollLeft - (e.clientX - this.panDragStart.x);
+				this.wrapperEl.scrollTop = this.panDragStart.scrollTop - (e.clientY - this.panDragStart.y);
+			}
+			return;
+		}
 		const p = this.canvasPoint(e);
 
 		if (this.gestureStart) {
@@ -439,6 +494,11 @@ export class AtlasSlicer {
 	}
 
 	private onPointerUp(e: PointerEvent): void {
+		if (this.panMode) {
+			this.panDragStart = null;
+			this.canvas.style.cursor = "grab";
+			return;
+		}
 		const p = this.canvasPoint(e);
 		if (this.draggingLine) {
 			this.draggingLine = null;
@@ -454,7 +514,7 @@ export class AtlasSlicer {
 	}
 
 	private onDoubleClick(e: MouseEvent): void {
-		if (!this.image || !this.hasCells()) return;
+		if (!this.image || !this.hasCells() || this.panMode) return;
 		const line = this.findNearestLine(this.canvasPoint(e));
 		if (!line) return;
 		this.deleteLine(line);
@@ -463,16 +523,34 @@ export class AtlasSlicer {
 	}
 
 	private onPointerCancel(): void {
+		if (this.panMode) {
+			this.panDragStart = null;
+			this.canvas.style.cursor = "grab";
+			return;
+		}
 		this.resetGesture();
 		this.redraw();
 	}
 
 	private onPointerLeave(): void {
-		if (this.gestureStart) return; // still mid-gesture; pointer capture keeps tracking it
+		if (this.gestureStart || this.panDragStart) return; // still mid-gesture; pointer capture keeps tracking it
+		if (this.panMode) return; // cursor stays "grab" regardless of hover position
 		if (this.hoveredLine) {
 			this.hoveredLine = null;
 			this.canvas.style.cursor = "crosshair";
 			this.redraw();
 		}
+	}
+
+	private onWheel(e: WheelEvent): void {
+		if (!this.image || !e.ctrlKey) return;
+		e.preventDefault();
+		const factor = e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+		const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.scale * factor));
+		if (next === this.scale) return;
+		this.scale = next;
+		this.canvas.width = Math.max(1, Math.round(this.naturalWidth * this.scale));
+		this.canvas.height = Math.max(1, Math.round(this.naturalHeight * this.scale));
+		this.redraw();
 	}
 }
