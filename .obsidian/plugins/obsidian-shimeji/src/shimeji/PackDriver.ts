@@ -26,8 +26,8 @@ export class PackDriver implements MascotDriver {
 		this.ai = new BehaviorAI(pack, rng);
 	}
 
-	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer): void {
-		this.ai.tick(mascot, dt, ledges, ambientPointer, this.config, this.paneActions);
+	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, nearbyMascotX?: number): void {
+		this.ai.tick(mascot, dt, ledges, ambientPointer, this.config, this.paneActions, nearbyMascotX);
 	}
 
 	renderState(mascot: Mascot, state: NativeStateName, elapsedMs: number, ambientPointer: AmbientPointer): boolean {

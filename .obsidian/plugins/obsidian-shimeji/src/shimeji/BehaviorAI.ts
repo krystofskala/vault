@@ -84,6 +84,15 @@ const ROAM_CHANCE = 0.06;
 /** Roaming is not a precision exercise — anywhere near the chosen spot is a destination reached. */
 const ROAM_ARRIVAL_PX = 48;
 
+/** How far past a crowding neighbour to aim when walking clear of one — see maybeAvoidCrowd.
+ * Comfortably more than crowding.ts's own CROWD_RADIUS_PX (48), so the walk actually clears the
+ * area convincingly instead of stopping just barely outside it and re-triggering next tick. */
+const AVOID_CROWD_TARGET_PX = 140;
+
+/** Kept off the floor's own edges when picking a clear-of-the-crowd spot, the same kind of margin
+ * ordinary pack formulas (workArea.left+64, etc.) leave for themselves. */
+const FLOOR_EDGE_MARGIN_PX = 20;
+
 /** Pack actions that carry out each kind of route step. `drop` is deliberately absent: falling is not
  * an action a pack performs, it is the absence of holding on — see startRouteAction. */
 const ROUTE_ACTIONS: Record<Exclude<RouteVia, "drop">, string[]> = {
@@ -447,6 +456,42 @@ export class BehaviorAI {
 	}
 
 	/**
+	 * **Invented**, with no shimeji-ee counterpart — the original engine has no notion of other
+	 * mascots' positions at all (see ActionRunner.ts's tickScanMove comment: "Nothing in the real
+	 * engine does box collision between mascots"). Added because this port's own behaviors converge
+	 * many mascots onto the same handful of spots (corners, wall bases) far more often than the
+	 * pack's own occasional random jitter elsewhere would suggest was ever intended — see the four
+	 * GrabWorkAreaBottomWall/WalkAndGrabBottomWall actions' own literal, unjittered targets.
+	 *
+	 * An earlier version of this fix nudged physics.x directly, every tick, whenever two mascots
+	 * were too close — which visibly looked like the mascots pushing each other around, not like
+	 * anything either of them was doing on its own. This instead uses the exact same "moment a
+	 * behaviour ends" seam maybeRoam already uses, and the exact same router-driven walk: a crowded
+	 * mascot picks a real point further down its own floor, away from its neighbour, and walks
+	 * there like any other Move, using the pack's own Walk/Run/Dash art. No position is ever set
+	 * directly, and nothing runs while a Move is already in progress — a mascot walking normally is
+	 * never interrupted mid-stride just because someone else came close.
+	 */
+	private maybeAvoidCrowd(env: PushEnv, ledges: Ledge[], nearbyMascotX: number | undefined): boolean {
+		if (nearbyMascotX === undefined) return false;
+		const { physics } = env.mascot;
+		const floor = physics.currentFloor;
+		if (!physics.grounded || !floor || floor.kind !== "floor") return false;
+
+		const direction = physics.x <= nearbyMascotX ? -1 : 1;
+		const wanted = physics.x + direction * AVOID_CROWD_TARGET_PX;
+		const targetX = Math.min(Math.max(wanted, floor.x1 + FLOOR_EDGE_MARGIN_PX), floor.x2 - FLOOR_EDGE_MARGIN_PX);
+		// Too little floor to put any real distance between them — nothing better to do here; the
+		// next behaviour-end will roll again, and by then the crowd may have moved on regardless.
+		if (Math.abs(targetX - physics.x) < ROAM_ARRIVAL_PX) return false;
+
+		const route = findRoute(ledges, { x: physics.x, y: physics.y }, { x: targetX, y: physics.y }, floor, { arriveWithin: ROAM_ARRIVAL_PX });
+		const next = route[0];
+		if (!next) return false;
+		return this.startRouteAction(env, ledges, next.via, next.x, next.y, route.length);
+	}
+
+	/**
 	 * **Invented.** Occasionally sets off across the window on its own, using the same router the
 	 * pointer pursuit uses.
 	 *
@@ -703,7 +748,7 @@ export class BehaviorAI {
 		}
 	}
 
-	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): void {
+	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions, nearbyMascotX?: number): void {
 		// Before building this tick's context: a mascot can be "against a wall" (or under a
 		// pane's underside) regardless of what action put it there, most commonly just having
 		// walked into one — see updateWallCeilingAdherence.
@@ -799,6 +844,11 @@ export class BehaviorAI {
 		if (this.followingMouse && this.startPursuitLeg(env, ambientPointer, ledges)) return;
 
 		if (this.orderedSpot && this.driveSpotOrder(env, ledges)) return;
+
+		// Checked before the flavor-roam below, and unconditionally rather than at its low chance:
+		// this isn't "maybe wander somewhere interesting", it's "don't settle right next to someone
+		// already there" — see maybeAvoidCrowd's own comment.
+		if (!this.followingMouse && !this.orderedSpot && this.maybeAvoidCrowd(env, ledges, nearbyMascotX)) return;
 
 		// Autonomous wandering, only ever considered when nothing more important is happening.
 		if (!this.followingMouse && !this.orderedSpot && this.maybeRoam(env, ledges)) return;

@@ -1,9 +1,9 @@
 import { ObsidianDomEnvironment, type Environment } from "./Environment";
+import { nearestCrowderX } from "./crowding";
 import { computeLedgesFromRects, withoutLedgesTooCloseToTop } from "./Ledges";
 import { Mascot, type MascotDeps } from "./Mascot";
 import { smoothCursorVelocity } from "./nativeBehaviors";
 import { Random } from "./Random";
-import { applyMascotSeparation } from "./separation";
 import { ENGINE_FIXED_TICK_MS, type AmbientPointer, type EngineConfig, type Ledge } from "./types";
 
 export interface StageOptions {
@@ -429,9 +429,8 @@ export class Stage {
 			this.recomputeLedges();
 		}
 		for (const m of this.mascots) {
-			if (this.isPresent(m)) m.simulate(dt, this.ledgesFor(m));
+			if (this.isPresent(m)) m.simulate(dt, this.ledgesFor(m), nearestCrowderX(this.mascots, m));
 		}
-		applyMascotSeparation(this.mascots, dt);
 	}
 
 	/** Fixed-timestep accumulator: physics always advances in ENGINE_FIXED_TICK_MS-sized steps

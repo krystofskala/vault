@@ -95,8 +95,11 @@ export interface Confinement {
 
 export interface MascotDriver {
 	/** Advances one frame. Implementations mutate `mascot.physics` and call
-	 * `mascot.setVisualState`/`setVisualImage` themselves. */
-	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer): void;
+	 * `mascot.setVisualState`/`setVisualImage` themselves. `nearbyMascotX` is the x of the nearest
+	 * other grounded, unconfined mascot within crowding distance (see engine/crowding.ts),
+	 * undefined when there isn't one — lets a driver choose to walk clear of a neighbour instead
+	 * of settling next to it. */
+	tick(mascot: Mascot, dt: number, ledges: Ledge[], ambientPointer: AmbientPointer, nearbyMascotX?: number): void;
 	/** Dragging is handled by Mascot itself (uniform physics regardless of pack); this lets
 	 * a pack-backed driver still supply its own Dragged/Thrown artwork during/after a drag. */
 	renderState?(mascot: Mascot, state: NativeStateName, elapsedMs: number, ambientPointer: AmbientPointer): boolean;
@@ -599,7 +602,7 @@ export class Mascot {
 	/** Advances physics/behavior by one fixed simulation step. Does not touch the DOM — call
 	 * `render()` separately (Stage does this once per real frame, possibly after several
 	 * simulate() calls if the display stalled). */
-	simulate(dtSeconds: number, ledges: Ledge[]): void {
+	simulate(dtSeconds: number, ledges: Ledge[], nearbyMascotX?: number): void {
 		this.stateElapsedMs += dtSeconds * 1000;
 		const ambient = this.deps.getAmbientPointer();
 
@@ -640,7 +643,7 @@ export class Mascot {
 			const cursorPointer = { x: this.dragTrack.x, y: this.dragTrack.y, dx: ambient.dx, dy: ambient.dy };
 			if (!this.driver?.renderState?.(this, "dragged", this.stateElapsedMs, cursorPointer)) this.setVisualState("dragged");
 		} else if (this.driver) {
-			this.driver.tick(this, dtSeconds, ledges, ambient);
+			this.driver.tick(this, dtSeconds, ledges, ambient, nearbyMascotX);
 		} else {
 			this.tickNativeFallback(dtSeconds, ledges, ambient);
 		}
