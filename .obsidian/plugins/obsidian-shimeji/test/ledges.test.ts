@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeLedgesFromRects, findCeilingAt, findFloorBelow, findNearestFloorAt, findWallAt, withoutLedgesTooCloseToTop } from "../src/engine/Ledges";
+import { computeLedgesFromRects, findCeilingAt, findFloorBelow, findNearestFloorAt, findWallAt, nearestPaneRect, withoutLedgesTooCloseToTop } from "../src/engine/Ledges";
 
 const PANE_RECT = { left: 100, top: 300, right: 400, bottom: 580 };
 
@@ -162,6 +162,41 @@ describe("findWallAt", () => {
 	it("finds a wall within reach", () => {
 		expect(findWallAt(ledges, 3, 300, "left", 8)).toBeDefined();
 		expect(findWallAt(ledges, 50, 300, "left", 8)).toBeUndefined();
+	});
+});
+
+// activeIE's fallback (RuntimeContext.ts) needs to find the nearest pane by plain distance when
+// the mascot isn't touching any pane — otherwise JumpOnIELeftWall/JumpOnIERightWall's own
+// conditions read activeIE.left/right/bottom against undefined and can never fire. See that
+// file's own comment on why this exists.
+describe("nearestPaneRect", () => {
+	it("returns undefined when there are no pane-sourced ledges", () => {
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, []);
+		expect(nearestPaneRect(ledges, { x: 400, y: 300 })).toBeUndefined();
+	});
+
+	it("picks the closer of two pane rects", () => {
+		const near = { left: 100, top: 300, right: 300, bottom: 500 };
+		const far = { left: 600, top: 300, right: 750, bottom: 500 };
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [
+			{ rect: near, source: "pane" as const },
+			{ rect: far, source: "pane" as const },
+		]);
+		// x=310 sits just outside `near`'s right edge (300) and far from `far`'s left edge (600).
+		expect(nearestPaneRect(ledges, { x: 310, y: 400 })).toEqual(near);
+	});
+
+	it("returns distance 0 (the rect itself) when the point is inside it", () => {
+		const rect = { left: 100, top: 300, right: 300, bottom: 500 };
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect, source: "pane" as const }]);
+		expect(nearestPaneRect(ledges, { x: 200, y: 400 })).toEqual(rect);
+	});
+
+	it("ignores non-pane ledges (window, statusbar)", () => {
+		const rect = { left: 100, top: 300, right: 300, bottom: 500 };
+		const ledges = computeLedgesFromRects({ width: 800, height: 600 }, [{ rect, source: "statusbar" as const }]);
+		// Only the window's own 4 outer ledges plus the statusbar's — none pane-sourced.
+		expect(nearestPaneRect(ledges, { x: 200, y: 400 })).toBeUndefined();
 	});
 });
 

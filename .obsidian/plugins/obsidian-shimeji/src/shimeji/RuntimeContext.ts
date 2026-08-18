@@ -1,6 +1,7 @@
 import type { ExprContext, ExprValue } from "./Expression";
 import type { Ledge, MascotPhysics } from "../engine/types";
 import type { Random } from "../engine/Random";
+import { nearestPaneRect } from "../engine/Ledges";
 
 /** Whichever single pane (if any) the mascot is currently against — floor takes precedence
  * since it's the most common, most stable case; a mascot is never against more than one of
@@ -42,6 +43,11 @@ export interface RuntimeEnv {
 	 * of anything". Optional (falls back to the total) so callers that can't tell characters apart
 	 * still behave sensibly. */
 	sameCharacterCount?: number;
+	/** The current ledge set, used only as a fallback source for `activeIE`'s raw geometry when
+	 * the mascot isn't touching any pane — see createRuntimeContext's own comment on `activeIE`.
+	 * Optional so every existing caller/test that omits it keeps today's exact behavior
+	 * (`activeIE` stays undefined until the mascot actually touches a pane). */
+	ledges?: Ledge[];
 }
 
 const warned = new Set<string>();
@@ -92,7 +98,16 @@ export function createRuntimeContext(
 	// its `workArea.top+64` climb targets aimed 40px into the chrome.
 	const worldTop = env.worldTop ?? 0;
 
-	const activePaneRect = resolveActivePaneLedge(physics)?.rect;
+	// Touch wins outright when it applies — a mascot actually gripping a pane must never have its
+	// activeIE geometry overridden by some other, merely-nearer pane. Only when nothing is touched
+	// does this fall back to the nearest pane by plain distance, so behaviors that approach a pane
+	// from ordinary floor-standing (JumpOnIELeftWall/JumpOnIERightWall/JumpFromBottomOfIE) have
+	// *something* to aim at — without this fallback their own conditions read activeIE.left/right/
+	// bottom/height/visible against `undefined` and can never fire, since resolveActivePaneLedge
+	// only ever resolves a pane once the mascot is already on it (see that function's own comment).
+	// This only affects the raw geometry below, never the touch predicates (onPaneWall/onPaneFloor/
+	// onPaneCeiling, further down) — those must keep meaning genuine contact, not proximity.
+	const activePaneRect = resolveActivePaneLedge(physics)?.rect ?? (env.ledges && nearestPaneRect(env.ledges, physics));
 
 	const activeIE = activePaneRect
 		? {

@@ -40,6 +40,44 @@ describe("floor.isOn", () => {
 	});
 });
 
+// Regression coverage for a real report: mascots almost never climbed a pane's own top,
+// because activeIE (RuntimeContext.ts's own approximation of the real engine's independently-
+// tracked "IE" window) only ever resolved via touch (resolveActivePaneLedge) — so
+// JumpOnIELeftWall/JumpOnIERightWall's conditions, which read activeIE's raw geometry to
+// *approach* a pane from ordinary floor-standing, could never be true. See createRuntimeContext's
+// own comment on the fallback this adds.
+describe("activeIE nearest-pane fallback", () => {
+	const notTouchingAnyPane: MascotPhysics = { x: 50, y: 400, vx: 0, vy: 0, facing: 1, grounded: true };
+	const paneRect = { left: 100, top: 300, right: 500, bottom: 700 };
+	const ledges = [{ kind: "wall" as const, side: "left" as const, x: 100, y1: 300, y2: 700, source: "pane" as const, rect: paneRect }];
+
+	it("falls back to the nearest pane's raw geometry when not touching any pane and ledges are supplied", () => {
+		const ctx = createRuntimeContext(notTouchingAnyPane, { ...ENV, ledges }, 0, new Random(1));
+		expect(evaluate(parseExpression("mascot.environment.activeIE.visible"), ctx)).toBe(true);
+		expect(evaluate(parseExpression("mascot.environment.activeIE.left"), ctx)).toBe(paneRect.left);
+		expect(evaluate(parseExpression("mascot.environment.activeIE.bottom"), ctx)).toBe(paneRect.bottom);
+	});
+
+	it("stays undefined/false when ledges are omitted, matching every existing caller's behavior", () => {
+		const ctx = createRuntimeContext(notTouchingAnyPane, ENV, 0, new Random(1));
+		expect(evaluate(parseExpression("mascot.environment.activeIE.visible"), ctx)).toBe(false);
+	});
+
+	it("never lets the fallback affect the touch predicates — merely nearby is not on it", () => {
+		const ctx = createRuntimeContext(notTouchingAnyPane, { ...ENV, ledges }, 0, new Random(1));
+		expect(evaluate(parseExpression("mascot.environment.activeIE.leftBorder.isOn(mascot.anchor)"), ctx)).toBe(false);
+		expect(evaluate(parseExpression("mascot.environment.activeIE.bottomBorder.isOn(mascot.anchor)"), ctx)).toBe(false);
+	});
+
+	it("prefers genuine touch over the nearest-pane fallback, even when a different pane is closer", () => {
+		const closerButUntouched = { left: 1000, top: 300, right: 1400, bottom: 700 };
+		const touchedWall = { kind: "wall" as const, side: "left" as const, x: 40, y1: 300, y2: 700, source: "pane" as const, rect: paneRect };
+		const physics: MascotPhysics = { x: 40, y: 400, vx: 0, vy: 0, facing: 1, grounded: false, currentWall: touchedWall };
+		const ctx = createRuntimeContext(physics, { ...ENV, ledges: [touchedWall, { ...touchedWall, x: 1000, rect: closerButUntouched }] }, 0, new Random(1));
+		expect(evaluate(parseExpression("mascot.environment.activeIE.left"), ctx)).toBe(paneRect.left);
+	});
+});
+
 describe("createRuntimeContext — Math.random", () => {
 	it("Math.random() called normally resolves through call(), in [0, 1)", () => {
 		const ctx = createRuntimeContext(makePhysics(), ENV, 0, new Random(1));

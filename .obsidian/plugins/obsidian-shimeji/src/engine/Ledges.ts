@@ -1,4 +1,4 @@
-import type { CeilingLedge, FloorLedge, Ledge, LedgeSource, PaneRef, Rect, WallLedge } from "./types";
+import type { CeilingLedge, FloorLedge, Ledge, LedgeSource, PaneRef, Rect, Vec2, WallLedge } from "./types";
 
 /**
  * Pure geometry: turn a viewport size plus a set of platform rects (pane tops, status bar)
@@ -158,6 +158,37 @@ export function withoutLedgesTooCloseToTop(ledges: Ledge[], worldTop: number, st
 		}
 	}
 	return out;
+}
+
+/**
+ * The bounding rect of whichever pane sits closest to a point, by plain clamped distance (0 if
+ * the point is inside/on it) — used as `activeIE`'s fallback geometry when the mascot isn't
+ * touching any pane. See RuntimeContext.ts's own comment on `activeIE` for why this exists: the
+ * real engine's "IE" is an independently-tracked window, visible and locatable from a distance
+ * with no contact requirement, but this port only ever resolved `activeIE` by touch
+ * (resolveActivePaneLedge) — leaving every behavior that approaches a pane from the ordinary
+ * floor (JumpOnIELeftWall/JumpOnIERightWall/JumpFromBottomOfIE) permanently unreachable, since
+ * their own conditions read activeIE's geometry before the mascot has ever touched it.
+ *
+ * No dedup: a single pane's floor/wall(s)/ceiling ledges all carry the identical `rect` (see
+ * engine/types.ts's own comment on `Ledge.rect`), so comparing every pane-sourced ledge is just
+ * redundant work, not a correctness risk.
+ */
+export function nearestPaneRect(ledges: Ledge[], point: Vec2): Rect | undefined {
+	let best: Rect | undefined;
+	let bestDist = Infinity;
+	for (const ledge of ledges) {
+		if (ledge.source !== "pane" || !ledge.rect) continue;
+		const { rect } = ledge;
+		const dx = Math.max(rect.left - point.x, 0, point.x - rect.right);
+		const dy = Math.max(rect.top - point.y, 0, point.y - rect.bottom);
+		const dist = Math.hypot(dx, dy);
+		if (dist < bestDist) {
+			bestDist = dist;
+			best = rect;
+		}
+	}
+	return best;
 }
 
 export function findFloorBelow(ledges: Ledge[], x: number, y: number): FloorLedge | undefined {

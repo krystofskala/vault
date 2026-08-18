@@ -770,7 +770,7 @@ export class BehaviorAI {
 			this.spotPhase = undefined;
 		}
 
-		const env = this.buildEnv(mascot, ambientPointer, config, paneActions);
+		const env = this.buildEnv(mascot, ambientPointer, config, paneActions, ledges);
 
 		// While following, re-aim as soon as the pointer has actually gone somewhere, rather than
 		// waiting for whatever the mascot is currently doing to finish.
@@ -956,7 +956,13 @@ export class BehaviorAI {
 		return this.runner.start(name, env);
 	}
 
-	private buildEnv(mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions): PushEnv {
+	/** `ledges` is optional and only ever passed from `tick()`'s own call — the ordinary
+	 * autonomous per-tick decision loop, and the only place `activeIE`'s nearest-pane fallback
+	 * (see RuntimeContext.ts) actually matters. The other three callers (isDraggable,
+	 * forceBehavior, previewAction) are explicit/manual paths, not the idle-wandering loop this
+	 * fallback exists for, and don't have ledges in scope today — left on today's touch-only
+	 * activeIE rather than widening three more signatures for no behavioral benefit there. */
+	private buildEnv(mascot: Mascot, ambientPointer: AmbientPointer, config: EngineConfig, paneActions?: PaneActions, ledges?: Ledge[]): PushEnv {
 		const viewport = mascot.getViewportSize();
 		const ctx = createRuntimeContext(
 			mascot.physics,
@@ -967,6 +973,7 @@ export class BehaviorAI {
 				pointer: ambientPointer,
 				totalMascotCount: mascot.getTotalMascotCount(),
 				sameCharacterCount: mascot.getSameCharacterCount(),
+				ledges,
 			},
 			mascot.stateElapsedMs,
 			this.rng,
