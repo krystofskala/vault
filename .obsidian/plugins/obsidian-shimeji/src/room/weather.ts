@@ -88,17 +88,31 @@ export function computeRainStreaks(intensity: RainIntensity, width: number, heig
 	return streaks;
 }
 
-/** Raw ctx calls against the room's own canvas — same rule as the mood tint, not the
+/**
+ * Raw ctx calls against the room's own canvas — same rule as the mood tint, not the
  * Painter/fixture abstraction, since image-mode rooms never call fixture.paint(). Must run after
- * whatever sized the canvas this frame (drawRoomImage or paintRoom). */
-export function drawRain(canvas: HTMLCanvasElement, intensity: RainIntensity, t: number): void {
+ * whatever sized the canvas this frame (drawRoomImage or paintRoom).
+ *
+ * `target`, when given, is a rect in the canvas's own local bitmap-pixel space (see
+ * roomArt.roomRectToCanvas) that the rain is clipped and confined to — a painted room's window,
+ * say, rather than the whole picture. Streaks are generated as if that rect were its own canvas
+ * (so a small window still gets a full field of them, not a sparse corner of one sized for the
+ * whole room) and then placed within it. Undefined draws across the whole canvas, unchanged from
+ * before this existed — what the image room still wants.
+ */
+export function drawRain(canvas: HTMLCanvasElement, intensity: RainIntensity, t: number, target?: { x: number; y: number; w: number; h: number }): void {
 	const ctx = canvas.getContext("2d");
 	if (!ctx) return;
+	const rect = target ?? { x: 0, y: 0, w: canvas.width, h: canvas.height };
 	ctx.save();
+	ctx.beginPath();
+	ctx.rect(rect.x, rect.y, rect.w, rect.h);
+	ctx.clip();
+	ctx.translate(rect.x, rect.y);
 	ctx.strokeStyle = "rgba(200,220,235,1)";
 	ctx.lineCap = "round";
 	ctx.lineWidth = Math.max(1, canvas.width / 400);
-	for (const s of computeRainStreaks(intensity, canvas.width, canvas.height, t)) {
+	for (const s of computeRainStreaks(intensity, rect.w, rect.h, t)) {
 		ctx.globalAlpha = s.alpha;
 		ctx.beginPath();
 		ctx.moveTo(s.x, s.y);

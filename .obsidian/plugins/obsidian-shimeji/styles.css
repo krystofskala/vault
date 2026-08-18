@@ -129,6 +129,17 @@
 	display: block;
 }
 
+/* RoomOcclusion's overlay: the sliver of the room's own canvas that belongs in front of whoever
+   lives there, cropped back out and redrawn over the resident. One above the stage overlay (60),
+   below the speech layer (62) — a bubble should never be cut off by a desk. */
+.shimeji-room-occlusion {
+	position: fixed;
+	pointer-events: none;
+	z-index: 61;
+	image-rendering: pixelated;
+	image-rendering: crisp-edges;
+}
+
 /* Shown only when the chosen room expects a picture and has not got one. Falling back to the
    painted room silently is what makes a missing file look like the feature simply working
    differently than expected — nothing otherwise says a file was wanted, or where it goes. */

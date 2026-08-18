@@ -20,6 +20,7 @@ import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
 import { ChatBubble } from "./room/ChatBubble";
 import { Residency } from "./room/Residency";
+import { RoomOcclusion } from "./room/RoomOcclusion";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
 import { moodForHour } from "./room/roomArt";
 import { roomImageCandidates, roomStyle, ROOM_STYLE_IDS, type RoomStyle } from "./room/rooms";
@@ -103,6 +104,13 @@ export default class ShimejiPlugin extends Plugin {
 		packIdOf: (mascot) => this.packIdOf(mascot),
 	});
 	private residencyRaf = 0;
+	/** Crops the resident's own occluding furniture (a desk, say) back out of the room's canvas and
+	 * redraws it over whoever lives there — see RoomOcclusion's own doc for why this is a crop of
+	 * already-painted pixels rather than a second paint. Updated from Stage.onAfterRender, not from
+	 * startResidencyLoop's own independent rAF, so it always reads the resident's rect after this
+	 * frame's render rather than racing it. */
+	private readonly roomOcclusion = new RoomOcclusion();
+	private stopRoomOcclusion?: () => void;
 	/** The resident's own speech bubble, expanded into a chat docked around the room's own picture
 	 * — owned here rather than by RoomView for the same reason residency is: it belongs to whichever
 	 * mascot is resident, not to the pane, and needs to keep tracking who that is (closing itself on
@@ -218,6 +226,7 @@ export default class ShimejiPlugin extends Plugin {
 			onContextMenu: (mascot, ev) => this.showMascotContextMenu(mascot, ev),
 		});
 		this.stage.start();
+		this.stopRoomOcclusion = this.stage.onAfterRender(() => this.updateRoomOcclusion());
 		installDebugApi(
 			() => this.stage,
 			() => this.paneActionsGate,
@@ -462,6 +471,8 @@ export default class ShimejiPlugin extends Plugin {
 
 	onunload(): void {
 		cancelAnimationFrame(this.residencyRaf);
+		this.stopRoomOcclusion?.();
+		this.roomOcclusion.destroy();
 		if (this.vaultEditDebounceTimer !== null) window.clearTimeout(this.vaultEditDebounceTimer);
 		this.speech.destroy();
 		this.chatBubble.destroy();
@@ -981,9 +992,9 @@ export default class ShimejiPlugin extends Plugin {
 		view?.refresh();
 	}
 
-	/** Draws the room's collision surfaces over the artwork. The one part of the room that cannot be
-	 * checked by reasoning — an image knows nothing about the lines authored on top of it — so it is
-	 * made visible instead. */
+	/** Draws the room's collision surfaces, and its residentOcclusion rectangles if it has any, over
+	 * the artwork. The one part of a room that cannot be checked by reasoning — a picture knows
+	 * nothing about the lines or boxes authored on top of it — so they are made visible instead. */
 	private showRoomSurfaces = false;
 
 	/** A forced clock hour for the room's lighting. The day cycle is only visible over a real day,
@@ -1120,6 +1131,23 @@ export default class ShimejiPlugin extends Plugin {
 			this.residencyRaf = requestAnimationFrame(step);
 		};
 		this.residencyRaf = requestAnimationFrame(step);
+	}
+
+	/**
+	 * Runs from Stage.onAfterRender, not from startResidencyLoop's own rAF: the resident's rect has
+	 * to be read *after* this frame's mascot render, and the two loops are otherwise two independent
+	 * requestAnimationFrame chains with no ordering guarantee between them beyond which one happened
+	 * to register first — see onAfterRender's own doc comment.
+	 */
+	private updateRoomOcclusion(): void {
+		const view = this.roomView();
+		const resident = this.residency.residentMascot?.el.getBoundingClientRect();
+		this.roomOcclusion.update(
+			view?.layout(),
+			view?.canvasEl(),
+			view?.canvasRect(),
+			resident && resident.width > 0 ? { left: resident.left, top: resident.top, right: resident.right, bottom: resident.bottom } : undefined,
+		);
 	}
 
 	// ---------------------------------------------------------------- speech

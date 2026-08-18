@@ -1,21 +1,23 @@
+import { OFFICE } from "./office";
 import { LIVING_ROOM, type RoomDef } from "./roomDef";
 
 /**
  * The rooms on offer.
  *
- * Just the plant room for now — self-drawn by the plugin, no image file needed. The office (a desk
- * the resident sat behind, with a second canvas painted over the mascot to fake the furniture being
- * in front of it) was removed by request: the overlay it depended on kept drifting out of register
- * with the room behind it in ways that were never fully pinned down, and a plain room with no such
- * trick has nothing to drift. Two supplied-artwork styles (apartment, cellar) existed before that
- * and were removed too; their code is gone from apartment.ts/cellar.ts (deleted), but the plant
- * room's own definition, `LIVING_ROOM`, is still exported from roomDef.ts — RoomView.ts keeps it as
- * the generic "image not ready yet" fallback for any *future* image-based room, even with none
- * currently registered here. Adding a room back is a definition file and an entry here — the
- * feature itself has no other idea how many there are.
+ * The plant room and the office, both self-drawn by the plugin, no image file needed. The office
+ * was removed for a time: its old mechanism for showing the desk in front of the resident (a second
+ * canvas, independently re-painted and clipped to the mascot) kept drifting out of register with the
+ * room behind it, in ways that took a while to even diagnose. It is back on a different mechanism —
+ * `RoomDef.residentOcclusion` crops the already-correct base canvas instead of painting a second one,
+ * so there is nothing left to drift (see RoomOcclusion.ts). Two supplied-artwork styles (apartment,
+ * cellar) existed before that and were removed too; their code is gone from apartment.ts/cellar.ts
+ * (deleted), but the plant room's own definition, `LIVING_ROOM`, is still exported from roomDef.ts —
+ * RoomView.ts keeps it as the generic "image not ready yet" fallback for any image-based room, even
+ * one not registered here. Adding a room is a definition file and an entry here — the feature itself
+ * has no other idea how many there are.
  */
 
-export type RoomStyleId = "plant-room";
+export type RoomStyleId = "plant-room" | "office";
 
 export interface RoomStyle {
 	id: RoomStyleId;
@@ -41,9 +43,16 @@ export const ROOM_STYLES: Record<RoomStyleId, RoomStyle> = {
 		icon: "sprout",
 		def: LIVING_ROOM,
 	},
+	office: {
+		id: "office",
+		label: "Office",
+		description: "A desk still running in a room the outside is reclaiming. The resident sits behind it, held in place rather than wandering, lit by a failing lamp and a monitor that never sleeps.",
+		icon: "monitor",
+		def: OFFICE,
+	},
 };
 
-export const ROOM_STYLE_IDS: RoomStyleId[] = ["plant-room"];
+export const ROOM_STYLE_IDS: RoomStyleId[] = ["plant-room", "office"];
 
 /** Tried in order. PNG first because that is what pixel art is normally saved as. */
 export const ROOM_IMAGE_EXTENSIONS = ["png", "webp", "jpg", "jpeg", "gif"] as const;

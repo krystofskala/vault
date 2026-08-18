@@ -1,7 +1,7 @@
 import { ItemView, type WorkspaceLeaf } from "obsidian";
 import type { Rect } from "../engine/types";
 import { layoutRoom, shouldMirror, type RoomLayout } from "./RoomGeometry";
-import { drawRoomImage, drawSurfaceOverlay, moodNow, paintRoom, ROOM_ANIMATION_FPS, ROOM_BACKDROP, ROOM_BACKDROP_DUSK, sampleBackdrop } from "./roomArt";
+import { applyMoodTint, drawRoomImage, drawSurfaceOverlay, moodNow, paintRoom, ROOM_ANIMATION_FPS, ROOM_BACKDROP, ROOM_BACKDROP_DUSK, roomRectToCanvas, sampleBackdrop } from "./roomArt";
 import { LIVING_ROOM, type RoomDef } from "./roomDef";
 import { roomImageCandidates, type RoomStyle } from "./rooms";
 import { drawRain, effectiveRain, RoomWeather, type RoomRainMode } from "./weather";
@@ -216,6 +216,27 @@ export class RoomView extends ItemView {
 		return this.contentRect();
 	}
 
+	/** The room's own canvas element, for RoomOcclusion to crop pixels back out of. */
+	canvasEl(): HTMLCanvasElement | undefined {
+		return this.canvas;
+	}
+
+	/**
+	 * Where the room's own canvas actually ended up, read straight from the DOM.
+	 *
+	 * Not the same thing as `layout().rect`, on purpose: that is a JS prediction of where CSS will
+	 * centre the canvas, computed independently of the CSS that actually does it, and the two agree
+	 * on the room's size exactly but not always on its position to better than a fraction of a
+	 * pixel. RoomOcclusion aligns its own overlay to this instead, so it can only ever match where
+	 * the room in fact is.
+	 */
+	canvasRect(): Rect | undefined {
+		if (!this.canvas) return undefined;
+		const r = this.canvas.getBoundingClientRect();
+		if (r.width <= 0 || r.height <= 0) return undefined;
+		return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+	}
+
 	/** What shimejiDebug.room() reports about the artwork. */
 	get artworkState(): string {
 		const style = this.opts.style();
@@ -260,10 +281,15 @@ export class RoomView extends ItemView {
 				// shade by construction and the surround has no visible seam.
 				this.contentEl.style.backgroundColor = this.backdrop ?? "#121a1a";
 			} else {
-				// Every layer, foreground included. The desk has to be complete here so it is visible
-				// whether or not anybody lives in the room — the foreground canvas above only ever
-				// paints the sliver that covers the resident.
-				paintRoom(this.canvas, def, mood, { scale: layout.scale, mirrored: layout.mirrored, layer: "all" });
+				// Every fixture, desk (or other residentOcclusion furniture) included. This canvas has
+				// to be complete on its own, whether or not anybody lives in the room — RoomOcclusion's
+				// overlay only ever crops the sliver of it that covers the resident, back out of what
+				// is painted here.
+				paintRoom(this.canvas, def, mood, { scale: layout.scale, mirrored: layout.mirrored });
+				// Opt-in — see RoomDef.moodTintMaxAlpha's own doc comment for why the office does not
+				// set this. Before rain draws, same as the image branch's own internal tint, so a rainy
+				// night's streaks stay legible on top of it rather than being muted underneath.
+				if (def.moodTintMaxAlpha !== undefined) applyMoodTint(this.canvas, mood, def.moodTintMaxAlpha);
 				// A room that declares paneBackdrop keeps the theme's own sidebar colour around it —
 				// removed rather than set, so it follows the theme and keeps following it if the
 				// theme changes underneath.
@@ -276,7 +302,14 @@ export class RoomView extends ItemView {
 			if (def.weather === "rain") {
 				const auto = this.weather.current(mood.t);
 				const intensity = effectiveRain(this.opts.rainMode(), auto);
-				if (intensity !== "off") drawRain(this.canvas, intensity, mood.t);
+				if (intensity !== "off") {
+					// weatherWindow confines a painted room's weather to one fixture (a window) rather
+					// than the whole canvas — undefined for an image room, which has no fixtures to
+					// paint the weather behind and wants the old whole-canvas behaviour.
+					const dpr = this.canvas.width / (def.width * layout.scale);
+					const target = def.weatherWindow ? roomRectToCanvas(def.weatherWindow, def.width, layout.mirrored, layout.scale, dpr) : undefined;
+					drawRain(this.canvas, intensity, mood.t, target);
+				}
 			}
 			if (surfaces) drawSurfaceOverlay(this.canvas, def, { scale: layout.scale, mirrored: layout.mirrored });
 		}

@@ -304,3 +304,90 @@ describe("Stage container offset", () => {
 		stage.destroy();
 	});
 });
+
+describe("Stage.onAfterRender", () => {
+	// A real rAF is a live timer with no manual "now" — captured instead, so a "frame" is exactly
+	// one deliberate call rather than whatever the browser's scheduler happens to do.
+	function fakeRaf(): { flush: () => void } {
+		let pending: FrameRequestCallback | undefined;
+		vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+			pending = cb;
+			return 1;
+		});
+		vi.stubGlobal("cancelAnimationFrame", () => {
+			pending = undefined;
+		});
+		return {
+			flush: () => {
+				const cb = pending;
+				pending = undefined;
+				cb?.(performance.now());
+			},
+		};
+	}
+
+	// The reason this hook exists at all: a caller with its own independent requestAnimationFrame
+	// loop (main.ts's residency loop) has no guarantee it runs after Stage's own render — the two
+	// only stay ordered today by induction on which one happened to register first. This makes the
+	// ordering an explicit contract instead of a coincidence of two unrelated .start() calls.
+	it("runs a registered callback after mascots render, every frame", () => {
+		const raf = fakeRaf();
+		const stage = makeStage();
+		const order: string[] = [];
+		const mascot = stage.spawnMascot(100, 100)!;
+		vi.spyOn(mascot, "render").mockImplementation(() => order.push("render"));
+		stage.onAfterRender(() => order.push("afterRender"));
+
+		stage.start();
+		raf.flush();
+		expect(order).toEqual(["render", "afterRender"]);
+
+		order.length = 0;
+		raf.flush();
+		expect(order, "the hook should fire again on the next frame, not just the first").toEqual(["render", "afterRender"]);
+
+		stage.destroy();
+		vi.unstubAllGlobals();
+	});
+
+	it("stops calling a callback once unsubscribed, without disturbing others", () => {
+		const raf = fakeRaf();
+		const stage = makeStage();
+		let firstCalls = 0;
+		let secondCalls = 0;
+		const unsubscribeFirst = stage.onAfterRender(() => firstCalls++);
+		stage.onAfterRender(() => secondCalls++);
+
+		stage.start();
+		raf.flush();
+		expect(firstCalls).toBe(1);
+		expect(secondCalls).toBe(1);
+
+		unsubscribeFirst();
+		raf.flush();
+		expect(firstCalls, "unsubscribed but still firing").toBe(1);
+		expect(secondCalls, "an unrelated unsubscribe silenced this one too").toBe(2);
+
+		stage.destroy();
+		vi.unstubAllGlobals();
+	});
+
+	it("forgets every callback once destroyed", () => {
+		const raf = fakeRaf();
+		const stage = makeStage();
+		let calls = 0;
+		stage.onAfterRender(() => calls++);
+		stage.start();
+		raf.flush();
+		expect(calls).toBe(1);
+
+		stage.destroy();
+		// Restarting after destroy is not a real usage pattern, but it is the only way to prove the
+		// callback list itself was actually cleared — destroy() also cancels the pending frame, so
+		// a flush with no restart would pass this way whether or not the list had been cleared.
+		stage.start();
+		raf.flush();
+		expect(calls, "a callback survived destroy()").toBe(1);
+		vi.unstubAllGlobals();
+	});
+});

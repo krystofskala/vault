@@ -116,18 +116,6 @@ export interface RoomFixture {
 	paint(p: Painter, mood: RoomMood): void;
 	surfaces?: RoomSurface[];
 	walls?: RoomWall[];
-	/**
-	 * Which side of the resident this fixture is drawn on. Everything defaults to `background`, and
-	 * `foreground` is what puts a mascot genuinely *behind* something — a desk it is sitting at, a
-	 * counter it is standing behind.
-	 *
-	 * It cannot be done by draw order alone: mascots are not drawn into the room's canvas at all,
-	 * they live on the stage's own full-window overlay above the workspace. Making this work needs a
-	 * second canvas painted above that overlay in turn — the room this was built for (the office, a
-	 * desk the resident sat behind) was removed after that second canvas proved too hard to keep in
-	 * register with the one behind it. No room currently sets this to "foreground".
-	 */
-	layer?: "background" | "foreground";
 }
 
 export interface RoomDef {
@@ -165,8 +153,8 @@ export interface RoomDef {
 	 *
 	 * Preferred over `residentHeightFraction` for any room whose furniture the mascot has to line
 	 * up with, because it is stated in the same units as that furniture. The office, for example,
-	 * had its desktop at y=38 and its chair at y=47, so a resident 20 units tall put its head at 27
-	 * — eleven units clear of the desk — and that stayed true at every pane size, which a
+	 * has its desktop at y=38 and its chair at y=47, so a resident 40 units tall puts its head at 7
+	 * — thirty-one units clear of the desk — and that stays true at every pane size, which a
 	 * fraction-of-pixels derivation would not.
 	 */
 	residentHeightUnits?: number;
@@ -205,6 +193,18 @@ export interface RoomDef {
 	 */
 	residentMaxScale?: number;
 	/**
+	 * Rectangles (room units) that always render in front of the resident — furniture between the
+	 * camera and wherever residents sit, such as a desk. Pure geometry: nothing paints it a second
+	 * time. The room's own canvas is already correct (fixtures paint once, in one order), so
+	 * "resident behind the desk" is a matter of copying the already-painted pixels inside these
+	 * rects back on top of wherever the resident is standing — see RoomOcclusion.ts. A list, not one
+	 * rect, because a single bounding box over "the desk" would also swallow whatever of the room
+	 * legitimately shows *through* the gaps between pieces of furniture (the office's chair-back is
+	 * exposed above the desk line, in exactly the same x-range deskThings' keyboard occupies below
+	 * it). Undefined for a room with nothing to sit behind.
+	 */
+	residentOcclusion?: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+	/**
 	 * Pins the resident to one exact point, in the room's own coordinate units — enforced every
 	 * tick regardless of which pack/behavior it's wearing, the same way `residentFacing` pins
 	 * facing. For a room with no furniture and nowhere else to be: no `surfaces`/`walls` are
@@ -229,6 +229,23 @@ export interface RoomDef {
 	 */
 	weather?: "rain";
 	/**
+	 * Where a painted room's weather shows through, in room units — a window's own glass rect, say.
+	 * Meaningless without `weather` set alongside it. A room that sets `weather` but not this shows
+	 * it across the whole canvas instead, which is the right default for a room with no fixtures to
+	 * paint the weather behind — the supplied-artwork rooms this was built for.
+	 */
+	weatherWindow?: { x: number; y: number; w: number; h: number };
+	/**
+	 * A ceiling on how visible computeMoodTint's warm-dawn/cold-night wash gets over this painted
+	 * room, applied as a last step after its own fixtures paint. Undefined skips the tint
+	 * entirely — the right default for a room like the office, whose `light()` function already
+	 * carries warmth and darkness through every fixture; layering this on top of that, or on top of
+	 * a room that already darkens at dusk in its own fixtures (the plant room's `shell`/`floorAndRug`
+	 * washes), would compound rather than add. Kept well under the image room's own 0.5 default for
+	 * exactly that reason — see computeMoodTint's own doc comment.
+	 */
+	moodTintMaxAlpha?: number;
+	/**
 	 * The threshold. Both directions pass through it: a mascot moving in appears here, and one
 	 * called away walks here before the workspace becomes its world again.
 	 *
@@ -238,12 +255,6 @@ export interface RoomDef {
 	 */
 	door: { x1: number; x2: number; y: number };
 	fixtures: RoomFixture[];
-	/**
-	 * An ambient tint that would be re-applied after the foreground layer's own fixtures, so the
-	 * sliver of them redrawn over the resident ends up the same shade as the rest of the room. No
-	 * room currently has a foreground layer to need this — see `RoomFixture.layer`.
-	 */
-	foregroundWash?(p: Painter, mood: RoomMood): void;
 }
 
 const W = 72;
@@ -495,6 +506,20 @@ export const LIVING_ROOM: RoomDef = {
 	floorY: FLOOR,
 	door: { x1: 1, x2: 13, y: FLOOR },
 	fixtures: [shell, window_, pothos, bookshelf, skirtingAndDoor, sofa, snakePlant, floorAndRug],
+	// The streaks need the same continuous repaint an animated room already gets — see `animated`'s
+	// own doc comment.
+	animated: true,
+	weather: "rain",
+	// window_'s own glass rect — `p.px(6, 18, 26, 30, ...)` paints the sky colour there, before its
+	// two mullions paint over a couple of thin strips inside it. Rain draws after the whole room,
+	// mullions included, so it can cross those strips rather than stopping at them — real rain does
+	// too, and at this room's scale a two-pixel wooden divider is not worth clipping around a second
+	// time.
+	weatherWindow: { x: 6, y: 18, w: 26, h: 30 },
+	// Well under the image room's 0.5 default: the wall already gets shell's duskWash (0.22) and
+	// then floorAndRug's nightWash (0.28) stacked on top of it at dusk, so this only has to add the
+	// continuous warm/cold hue shift the boolean mood.dusk cannot — not any more darkness.
+	moodTintMaxAlpha: 0.18,
 };
 
 /** Every standable and hangable surface in a room, flattened. */

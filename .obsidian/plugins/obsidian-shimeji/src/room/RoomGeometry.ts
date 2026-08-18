@@ -24,8 +24,8 @@ const MIN_SCALE = 2;
 const MAX_SCALE = 8;
 
 export interface RoomLayout {
-	/** The room this is a placement of. Carried along so anything holding a layout — the foreground
-	 * painter, the residency controller — cannot end up applying one room's rules to another's
+	/** The room this is a placement of. Carried along so anything holding a layout — the occlusion
+	 * compositor, the residency controller — cannot end up applying one room's rules to another's
 	 * geometry. */
 	def: RoomDef;
 	scale: number;

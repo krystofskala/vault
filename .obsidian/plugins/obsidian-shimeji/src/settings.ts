@@ -802,8 +802,8 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			}
 
 			// Which rooms actually have their picture, so a missing file is visible here rather than only
-			// as the room quietly showing something else. Nothing currently listed needs one (the plant
-			// room is self-drawn) \u2014 this stays silent rather than printing an empty status line for zero rooms.
+			// as the room quietly showing something else. Nothing currently listed needs one (both rooms
+			// are self-drawn) \u2014 this stays silent rather than printing an empty status line for zero rooms.
 			const roomStatus = containerEl.createEl("p", { cls: "setting-item-description" });
 			void (async () => {
 				const lines: string[] = [];

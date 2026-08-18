@@ -66,6 +66,7 @@ export class Stage {
 	private accumulator = 0;
 	private ledgeRecomputeTimer = 0;
 	private debugEls: HTMLDivElement[] = [];
+	private afterRenderCallbacks: Array<() => void> = [];
 
 	constructor(private opts: StageOptions) {
 		this.rng = new Random(opts.seed);
@@ -400,6 +401,23 @@ export class Stage {
 		return this.ledges;
 	}
 
+	/**
+	 * Runs `cb` after every mascot has rendered this frame, before the next one is scheduled.
+	 *
+	 * For anything that has to read a mascot's post-render DOM rect (`getBoundingClientRect()`) and
+	 * must not do so against a stale position — a caller reading it from its own independent
+	 * `requestAnimationFrame` loop has no guarantee it runs after this one's, since two separately
+	 * scheduled callbacks only stay ordered by induction on which registered first each frame. This
+	 * makes that ordering an explicit contract instead of a coincidence of two unrelated `.start()`
+	 * calls' textual order. Returns an unsubscribe.
+	 */
+	onAfterRender(cb: () => void): () => void {
+		this.afterRenderCallbacks.push(cb);
+		return () => {
+			this.afterRenderCallbacks = this.afterRenderCallbacks.filter((c) => c !== cb);
+		};
+	}
+
 	private stepSimulation(dt: number): void {
 		// Matches Manager.tick()'s own ordering: the environment (including cursor.dx/dy) is
 		// refreshed before any mascot ticks, every fixed step, so nothing this step reads it stale.
@@ -434,6 +452,7 @@ export class Stage {
 				m.setHidden(!present);
 				if (present) m.render();
 			}
+			for (const cb of this.afterRenderCallbacks) cb();
 			this.rafHandle = requestAnimationFrame(loop);
 		};
 		this.rafHandle = requestAnimationFrame(loop);
@@ -447,6 +466,7 @@ export class Stage {
 		window.removeEventListener("pointermove", this.onPointerMove, { capture: true });
 		window.removeEventListener("resize", this.onResize);
 		this.removeAllMascots();
+		this.afterRenderCallbacks = [];
 		this.container.remove();
 	}
 }

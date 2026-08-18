@@ -71,16 +71,40 @@ export function mixHex(from: string, to: string, k: number): string {
 	return `rgb(${ch(r1, r2)}, ${ch(g1, g2)}, ${ch(b1, b2)})`;
 }
 
-/** How much of a day/night wash to lay over supplied artwork, and what colour — the same idea as
- * a painted room's own dusk/night washes, but computed once for the whole picture instead of per
- * fixture, since there's nothing here to consult a mood per-fixture. Undefined at full daylight,
- * so the common case draws nothing extra at all. */
-export function computeMoodTint(mood: RoomMood): { color: string; alpha: number } | undefined {
+/**
+ * How much of a day/night wash to lay over supplied artwork, and what colour — the same idea as a
+ * painted room's own dusk/night washes, but computed once for the whole picture instead of per
+ * fixture, since there's nothing here to consult a mood per-fixture. Undefined at full daylight, so
+ * the common case draws nothing extra at all.
+ *
+ * `maxAlpha` (default 0.5, the original fixed cap — unchanged for an image room) lets a painted
+ * room use a much lower ceiling: a room with its own fixture-level lighting (the office's `light()`)
+ * already carries warmth and darkness through every fixture, and a room with none (the plant room)
+ * still darkens twice at dusk today (`shell`'s duskWash, then `floorAndRug`'s nightWash on top of
+ * it) — either way, this stacking on top at its original strength would compound rather than add.
+ */
+export function computeMoodTint(mood: RoomMood, maxAlpha = 0.5): { color: string; alpha: number } | undefined {
 	const night = 1 - mood.daylight;
 	if (night <= 0.02) return undefined;
 	const warm = Math.max(0, mood.warmth);
 	const color = mixHex("#151030", "#ff9248", warm * mood.daylight);
-	return { color, alpha: night * 0.5 };
+	return { color, alpha: night * maxAlpha };
+}
+
+/** Paints computeMoodTint's wash over a canvas that has already been fully drawn — the one place
+ * that actually happens, shared by an image room (via drawRoomImage below) and a painted room that
+ * opts in (RoomDef.moodTintMaxAlpha, applied from RoomView's own painted branch), so neither has to
+ * carry its own copy of "how a tint actually gets drawn". */
+export function applyMoodTint(canvas: HTMLCanvasElement, mood: RoomMood, maxAlpha?: number): void {
+	const tint = computeMoodTint(mood, maxAlpha);
+	if (!tint) return;
+	const ctx = canvas.getContext("2d");
+	if (!ctx) return;
+	ctx.save();
+	ctx.globalAlpha = tint.alpha;
+	ctx.fillStyle = tint.color;
+	ctx.fillRect(0, 0, canvas.width, canvas.height);
+	ctx.restore();
 }
 
 function painterFor(ctx: CanvasRenderingContext2D): Painter {
@@ -100,26 +124,15 @@ function painterFor(ctx: CanvasRenderingContext2D): Painter {
 	};
 }
 
-/** Draws one layer of the room into `canvas`, sized and mirrored to match a RoomLayout. */
-export function paintRoom(
-	canvas: HTMLCanvasElement,
-	def: RoomDef,
-	mood: RoomMood,
-	opts: { scale: number; mirrored: boolean; devicePixelRatio?: number; layer?: "background" | "foreground" | "all" },
-): void {
+/** Draws the room into `canvas`, sized and mirrored to match a RoomLayout. */
+export function paintRoom(canvas: HTMLCanvasElement, def: RoomDef, mood: RoomMood, opts: { scale: number; mirrored: boolean; devicePixelRatio?: number }): void {
 	const buffer = document.createElement("canvas");
 	buffer.width = def.width;
 	buffer.height = def.height;
 	const bufferCtx = buffer.getContext("2d");
 	if (!bufferCtx) return;
 	const painter = painterFor(bufferCtx);
-	const layer = opts.layer ?? "background";
-	for (const fixture of def.fixtures) {
-		if (layer === "all" || (fixture.layer ?? "background") === layer) fixture.paint(painter, mood);
-	}
-	// The foreground redraw's own pass needs the same ambient tint the background pass gets from
-	// its own fixtures — see RoomDef.foregroundWash for why this cannot simply be a fixture.
-	if (layer === "foreground") def.foregroundWash?.(painter, mood);
+	for (const fixture of def.fixtures) fixture.paint(painter, mood);
 
 	// The CSS size is the layout's scale; the backing store is multiplied again by the display's
 	// own ratio so the art stays crisp on a HiDPI screen instead of being upscaled by the compositor.
@@ -183,14 +196,7 @@ export function drawRoomImage(canvas: HTMLCanvasElement, image: HTMLImageElement
 	const h = image.naturalHeight * fit;
 	ctx.drawImage(image, Math.round((canvas.width - w) / 2), Math.round((canvas.height - h) / 2), Math.round(w), Math.round(h));
 
-	const tint = computeMoodTint(mood);
-	if (tint) {
-		ctx.save();
-		ctx.globalAlpha = tint.alpha;
-		ctx.fillStyle = tint.color;
-		ctx.fillRect(0, 0, canvas.width, canvas.height);
-		ctx.restore();
-	}
+	applyMoodTint(canvas, mood);
 }
 
 /**
@@ -219,13 +225,27 @@ export function sampleBackdrop(image: HTMLImageElement): string | undefined {
 }
 
 /**
- * Draws the room's collision surfaces over whatever is beneath — the answer to "is the bed line in
- * the right place".
+ * A room-unit rect → the room's own canvas's local bitmap-pixel space: the same conversion
+ * `drawSurfaceOverlay` does for a single line, generalized to a rect and exported so other callers
+ * (a room's weather window, so far) can place something at canvas resolution without duplicating
+ * the scale/mirror/DPR arithmetic. Local to the canvas, not the viewport — there is no `originX/Y`
+ * offset here, unlike `layout.toViewport()`, because this positions something *within* the canvas
+ * the caller already has a handle to, not a separate DOM element positioned on the page.
+ */
+export function roomRectToCanvas(rect: { x: number; y: number; w: number; h: number }, roomWidth: number, mirrored: boolean, scale: number, dpr: number): { x: number; y: number; w: number; h: number } {
+	const x = mirrored ? roomWidth - (rect.x + rect.w) : rect.x;
+	return { x: x * scale * dpr, y: rect.y * scale * dpr, w: rect.w * scale * dpr, h: rect.h * scale * dpr };
+}
+
+/**
+ * Draws the room's collision surfaces, and its residentOcclusion rectangles if it declares any,
+ * over whatever is beneath — the answer to "is the bed line in the right place", or "does that box
+ * actually cover the desk".
  *
  * Geometry authored against supplied artwork is the one part of the room that cannot be verified by
- * reasoning: `paint` and `surfaces` are the same declaration in a painted room and cannot disagree,
- * but an image knows nothing about the lines drawn on top of it. So the lines are made visible
- * instead, and moving one is then a matter of reading a number off the screen.
+ * reasoning: `paint` and `surfaces`/`residentOcclusion` are the same declaration in a painted room
+ * and cannot disagree, but an image knows nothing about the lines or boxes drawn on top of it. So
+ * they are made visible instead, and moving one is then a matter of reading a number off the screen.
  */
 export function drawSurfaceOverlay(canvas: HTMLCanvasElement, def: RoomDef, opts: { scale: number; mirrored: boolean }): void {
 	const ctx = canvas.getContext("2d");
@@ -251,6 +271,17 @@ export function drawSurfaceOverlay(canvas: HTMLCanvasElement, def: RoomDef, opts
 		ctx.moveTo(at(w.x), down(w.y1));
 		ctx.lineTo(at(w.x), down(w.y2));
 		ctx.stroke();
+	}
+	// A distinct hue from all three surface kinds above, since this is a fourth, unrelated idea:
+	// not collision geometry at all, but which rectangles of the room's own picture always render
+	// in front of whoever lives here. `at()` on each edge separately, then re-ordered, because a
+	// mirrored room can put x1's screen position to the right of x2's — see RoomGeometry's own
+	// spanXOf for the same fix applied to a surface span.
+	ctx.strokeStyle = "rgba(230,90,230,0.95)";
+	for (const r of def.residentOcclusion ?? []) {
+		const left = Math.min(at(r.x1), at(r.x2));
+		const right = Math.max(at(r.x1), at(r.x2));
+		ctx.strokeRect(left, down(r.y1), right - left, down(r.y2) - down(r.y1));
 	}
 	ctx.restore();
 }

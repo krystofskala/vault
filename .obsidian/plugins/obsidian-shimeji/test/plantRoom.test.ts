@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { layoutRoom, shouldMirror } from "../src/room/RoomGeometry";
 import { LIVING_ROOM, roomSurfaces, roomWalls } from "../src/room/roomDef";
-import { computeMoodTint, moodForHour } from "../src/room/roomArt";
+import { OFFICE, OFFICE_DESK_Y } from "../src/room/office";
+import { residentScaleFor } from "../src/room/Residency";
+import { computeMoodTint, moodForHour, roomRectToCanvas } from "../src/room/roomArt";
 import { ROOM_STYLES, ROOM_STYLE_IDS, roomStyle, roomStyleImageMismatch } from "../src/room/rooms";
 import { findRoute } from "../src/engine/Routing";
 import { findFloorBelow } from "../src/engine/Ledges";
@@ -196,9 +198,8 @@ describe("the rooms on offer", () => {
 			expect(style.label.length).toBeGreaterThan(0);
 		}
 		// A settings file from a future version, or a hand-edited one, must not take the room down.
-		// This also covers "office", the room this file used to name here before it was removed.
 		expect(roomStyle("no-such-room").id).toBe("plant-room");
-		expect(roomStyle("office").id).toBe("plant-room");
+		expect(roomStyle("a-room-that-does-not-exist").id).toBe("plant-room");
 		expect(roomStyle(undefined).id).toBe("plant-room");
 	});
 
@@ -230,6 +231,156 @@ describe("where the room sits in its pane", () => {
 				expect(Math.abs(l.rect.left - pane.left - (pane.right - l.rect.right)), `${id} is off-centre horizontally`).toBeLessThanOrEqual(1);
 			}
 		}
+	});
+});
+
+describe("the office", () => {
+	const layout = layoutRoom(OFFICE, RIGHT_SIDEBAR, VIEWPORT_W)!;
+
+	it("gives the resident nowhere to go but the seat", () => {
+		// It stays at the desk by having no alternative, not by any rule policing it — the same
+		// substitute-the-world trick confinement itself uses, applied once more in the small.
+		const floors = layout.ledges().filter((l) => l.kind === "floor");
+		expect(floors).toHaveLength(1);
+		const seat = floors[0] as Extract<Ledge, { kind: "floor" }>;
+		expect(seat.x1).toBeGreaterThan(layout.rect.left);
+		expect(seat.x2).toBeLessThan(layout.rect.right);
+		// Walled at both ends, so it cannot walk off the short run it has.
+		const walls = layout.ledges().filter((l): l is Extract<Ledge, { kind: "wall" }> => l.kind === "wall");
+		expect(walls.some((w) => Math.abs(w.x - seat.x1) < 1)).toBe(true);
+		expect(walls.some((w) => Math.abs(w.x - seat.x2) < 1)).toBe(true);
+	});
+
+	it("sits the desktop across the resident's body, not above or below it", () => {
+		// If the desk line sits above the mascot's head it hides the whole thing; below its feet and
+		// the mascot appears to stand in front. Either way the room fails at the one thing it is for,
+		// and both depend on the resident's size — so they are checked together.
+		//
+		// The size is the *effective* one, cap included. Computing it from the fraction alone is how
+		// this test passed while the room shipped showing a scalp: the cap of 1 was silently winning
+		// in every pane wide enough to matter, and the test never knew.
+		const roomHeight = layout.rect.bottom - layout.rect.top;
+		const NATURAL_SPRITE_PX = 128;
+		// The room's own function, not a copy of it. Restating the arithmetic here is exactly how
+		// this shipped hidden twice: the test agreed with a version nobody was running.
+		const spriteHeight = NATURAL_SPRITE_PX * residentScaleFor(layout, NATURAL_SPRITE_PX, roomHeight, 1);
+		const feet = layout.toViewport(0, OFFICE.floorY).y;
+		const head = feet - spriteHeight;
+		const desktop = layout.toViewport(0, OFFICE_DESK_Y).y;
+		expect(desktop, "the desk is above the mascot's head — it would be hidden entirely").toBeGreaterThan(head);
+		expect(desktop, "the desk is below the mascot's feet — it would not hide anything").toBeLessThan(feet);
+		// Bounded at both ends, because "across the body" is a range and not a side. Too little above
+		// the desktop and only a scalp shows; too much and the desk is a skirting board it happens to
+		// be standing behind. Between a third and three quarters reads as sitting at it.
+		const showing = (desktop - head) / spriteHeight;
+		// Raised from 0.4: "some of it shows" is not the requirement, "the whole head shows" is, and
+		// a head is roughly the top quarter of a character sprite. Half clear of the desk leaves the
+		// head and shoulders with room to spare even for art that sits low in its own frame.
+		expect(showing, "not enough of the mascot clears the desk to show a whole head").toBeGreaterThan(0.5);
+		expect(showing, "the desk hides almost nothing — it does not read as sitting at it").toBeLessThan(0.85);
+	});
+
+	it("clears the desk by a whole head, in the room's own units", () => {
+		// The same guarantee as above, stated where the numbers live so it can be checked against the
+		// room by eye: chair at 47, desktop at 38, resident 40 tall puts the head at 7.
+		const height = OFFICE.residentHeightUnits;
+		expect(height, "the office no longer states its resident height in room units").toBeDefined();
+		const headY = OFFICE.floorY - height!;
+		const clearance = OFFICE_DESK_Y - headY;
+		expect(headY, "the resident's head is below the desktop — it would be hidden").toBeLessThan(OFFICE_DESK_Y);
+		expect(clearance / height!, "less than a head clears the desk").toBeGreaterThan(0.5);
+	});
+
+	it("pins which way it faces, and what it is doing", () => {
+		// Shimeji artwork is side-on and has no front-facing pose, so facing settles the side rather
+		// than turning it to camera. The held behaviour is the other half: without it the pack picks
+		// freely from walks and stands in a room twenty pixels wide, which reads as shaking.
+		expect(OFFICE.residentFacing).toBeDefined();
+		expect(OFFICE.residentBehavior, "nothing holds the resident still").toBeDefined();
+	});
+
+	it("seats the resident the same way at every pane size", () => {
+		// The bug this room shipped with, generalised. `residentMaxScale` capped the sprite at its
+		// natural 128px, so how much of it cleared the desk depended entirely on how wide the sidebar
+		// happened to be — full height in a narrow one, a scalp in a wide one. The proportion has to
+		// be a property of the room, not of the pane.
+		const NATURAL_SPRITE_PX = 128;
+		const seen: number[] = [];
+		for (const width of [220, 300, 420, 700, 1100]) {
+			const l = layoutRoom(OFFICE, { left: 0, top: 0, right: width, bottom: 1240 }, VIEWPORT_W);
+			if (!l) continue;
+			const roomHeight = l.rect.bottom - l.rect.top;
+			const sprite = NATURAL_SPRITE_PX * residentScaleFor(l, NATURAL_SPRITE_PX, roomHeight, 1);
+			const feet = l.toViewport(0, OFFICE.floorY).y;
+			seen.push((l.toViewport(0, OFFICE_DESK_Y).y - (feet - sprite)) / sprite);
+		}
+		expect(seen.length).toBeGreaterThan(3);
+		expect(Math.max(...seen) - Math.min(...seen), `how much clears the desk varies by pane width: ${seen.map((v) => v.toFixed(2)).join(", ")}`).toBeLessThan(0.05);
+	});
+});
+
+describe("the office's occlusion", () => {
+	// The mechanism that replaced RoomForeground: instead of a second, independently-painted canvas
+	// clipped to the resident (which drifted out of sync with the room behind it three separate
+	// times — see RoomOcclusion.ts's own doc comment), the room declares which rectangles of its own
+	// already-painted canvas belong in front of whoever lives there.
+
+	const inside = (rect: { x1: number; y1: number; x2: number; y2: number }, point: { x: number; y: number }): boolean => point.x >= rect.x1 && point.x <= rect.x2 && point.y >= rect.y1 && point.y <= rect.y2;
+
+	it("declares an occlusion rectangle over the desk", () => {
+		// The whole point of the room. A desk nothing crops back over the resident would leave the
+		// mascot standing on top of it rather than sitting at it.
+		const overDesk = { x: 20, y: 45 }; // inside the keyboard/desktop
+		expect(OFFICE.residentOcclusion?.some((r) => inside(r, overDesk)), "nothing declared over the desk").toBe(true);
+	});
+
+	it("declares an occlusion rectangle over the monitor, the back of which faces the viewer", () => {
+		// The mascot faces us across the desk, so the screen faces away — what shows is the case, and
+		// it has to be in front of the resident the same as the desk is.
+		const overMonitor = { x: 60, y: 25 }; // inside the monitor's case
+		expect(OFFICE.residentOcclusion?.some((r) => inside(r, overMonitor)), "nothing declared over the monitor").toBe(true);
+	});
+
+	it("never shows the chair through a declared occlusion rectangle", () => {
+		// The hazard found while designing residentOcclusion: the chair sits *behind* the resident,
+		// so if any declared rectangle ever showed the chair rather than furniture, the compositor
+		// would paste the chair on top of the resident instead of the other way round. A single
+		// "the desk area" rectangle risked exactly this — the chair's own backrest occupies the same
+		// x-range as the desk/keyboard, just higher up.
+		//
+		// Checked by paint order, not by comparing raw rectangles: the chair's declared shape does
+		// overlap the desk occlusion rectangle on paper (its seat back reaches down to where the desk
+		// panel is drawn), and that is fine, because the desk panel paints over it afterwards — a
+		// plain rectangle-vs-rectangle check would flag that harmless overlap as a false failure. What
+		// actually matters is which fixture is *last* to paint each pixel, so this paints every
+		// fixture in the room's own declared order onto a plain grid (no real canvas — jsdom's 2D
+		// context is unavailable here) and asks whether the chair ever wins inside an occlusion rect.
+		const owner: (string | undefined)[][] = Array.from({ length: OFFICE.height }, () => new Array(OFFICE.width).fill(undefined));
+		for (const fixture of OFFICE.fixtures) {
+			const painter = {
+				px: (x: number, y: number, w: number, h: number) => {
+					for (let py = Math.max(0, Math.floor(y)); py < Math.min(OFFICE.height, Math.ceil(y + h)); py++) {
+						for (let px = Math.max(0, Math.floor(x)); px < Math.min(OFFICE.width, Math.ceil(x + w)); px++) {
+							owner[py][px] = fixture.id;
+						}
+					}
+				},
+				polygon: () => {},
+			};
+			fixture.paint(painter, moodForHour(12));
+		}
+		for (const occl of OFFICE.residentOcclusion ?? []) {
+			for (let y = occl.y1; y < occl.y2; y++) {
+				for (let x = occl.x1; x < occl.x2; x++) {
+					expect(owner[y]?.[x], `occlusion rect (${occl.x1},${occl.y1})-(${occl.x2},${occl.y2}) shows the chair at room (${x},${y})`).not.toBe("chair");
+				}
+			}
+		}
+	});
+
+	it("is only needed by rooms that actually have something in front", () => {
+		expect(OFFICE.residentOcclusion, "the office has nothing to occlude with").toBeDefined();
+		expect(LIVING_ROOM.residentOcclusion, "the plant nook has nothing in front of its resident").toBeUndefined();
 	});
 });
 
@@ -277,6 +428,40 @@ describe("the room's daylight", () => {
 	});
 });
 
+describe("the office's animation", () => {
+	it("declares itself animated, and states why", () => {
+		// Opt-in: repainting a supplied photograph ten times a second to no visible effect is waste.
+		// Both real rooms need it today — the office for its lamp/screen/dust, the plant room for
+		// its rain — so this checks each actually declares it, not that one differs from the other.
+		expect(OFFICE.animated).toBe(true);
+		expect(LIVING_ROOM.animated).toBe(true);
+	});
+
+	it("paints differently from one moment to the next", () => {
+		// The actual claim: two frames a fifth of a second apart are not the same picture. Compared by
+		// what the fixtures draw rather than by a rendered canvas, since there is no canvas here.
+		const drawnAt = (t: number) => {
+			const calls: string[] = [];
+			const painter = { px: (x: number, y: number, w: number, h: number, c: string) => calls.push(`${x},${y},${w},${h},${c}`), polygon: () => {} };
+			for (const f of OFFICE.fixtures) f.paint(painter, moodForHour(21, t));
+			return calls.join("|");
+		};
+		expect(drawnAt(0)).not.toBe(drawnAt(0.2));
+		expect(drawnAt(0)).not.toBe(drawnAt(1.7));
+	});
+
+	it("paints differently at different times of day", () => {
+		const drawnAt = (hour: number) => {
+			const calls: string[] = [];
+			const painter = { px: (x: number, y: number, w: number, h: number, c: string) => calls.push(`${x},${y},${w},${h},${c}`), polygon: () => {} };
+			for (const f of OFFICE.fixtures) f.paint(painter, moodForHour(hour, 0));
+			return calls.join("|");
+		};
+		const hours = [3, 6.5, 12, 17.5, 21].map(drawnAt);
+		expect(new Set(hours).size, "some hours of the day look identical").toBe(hours.length);
+	});
+});
+
 describe("the day/night tint over supplied artwork", () => {
 	it("draws nothing at full daylight", () => {
 		expect(computeMoodTint(moodForHour(12))).toBeUndefined();
@@ -297,10 +482,68 @@ describe("the day/night tint over supplied artwork", () => {
 		}
 	});
 
+	it("respects a lower cap when a painted room asks for one", () => {
+		// A painted room that already darkens on its own (or has its own complete lighting model)
+		// needs a much lower ceiling than an image room's default — see RoomDef.moodTintMaxAlpha.
+		for (let h = 0; h < 24; h += 0.5) {
+			const tint = computeMoodTint(moodForHour(h), 0.18);
+			if (tint) expect(tint.alpha).toBeLessThanOrEqual(0.18);
+		}
+		// And it still shows something at night, rather than the cap accidentally zeroing it out.
+		expect(computeMoodTint(moodForHour(0), 0.18)!.alpha).toBeGreaterThan(0);
+	});
+
 	it("leans warm at dusk and cold in the small hours", () => {
 		const parse = (rgb: string) => rgb.match(/\d+/g)!.map(Number);
 		const [rDusk] = parse(computeMoodTint(moodForHour(19))!.color);
 		const [rNight] = parse(computeMoodTint(moodForHour(3))!.color);
 		expect(rDusk).toBeGreaterThan(rNight);
+	});
+});
+
+describe("the plant room's weather", () => {
+	it("declares rain, and the animation that keeps it moving", () => {
+		expect(LIVING_ROOM.weather).toBe("rain");
+		expect(LIVING_ROOM.animated).toBe(true);
+	});
+
+	it("confines its weather window inside the room's own bounds", () => {
+		const w = LIVING_ROOM.weatherWindow;
+		expect(w, "the plant room lost its weather window").toBeDefined();
+		expect(w!.x).toBeGreaterThanOrEqual(0);
+		expect(w!.y).toBeGreaterThanOrEqual(0);
+		expect(w!.x + w!.w).toBeLessThanOrEqual(LIVING_ROOM.width);
+		expect(w!.y + w!.h).toBeLessThanOrEqual(LIVING_ROOM.height);
+	});
+});
+
+describe("the plant room's time-of-day tint", () => {
+	it("uses a ceiling well under the image room's own default", () => {
+		// The wall already gets two stacked washes at dusk (shell's duskWash, then floorAndRug's
+		// nightWash on top of it) before this adds anything — see moodTintMaxAlpha's own doc comment.
+		expect(LIVING_ROOM.moodTintMaxAlpha, "the plant room lost its time-of-day tint").toBeDefined();
+		expect(LIVING_ROOM.moodTintMaxAlpha!).toBeLessThan(0.3);
+		expect(LIVING_ROOM.moodTintMaxAlpha!).toBeGreaterThan(0);
+	});
+
+	it("is not set on the office, whose own lighting already carries warmth", () => {
+		// OFFICE's light() function already shifts every fixture's colour with the day; layering a
+		// second, independent tint on top would double it rather than add to it.
+		expect(OFFICE.moodTintMaxAlpha).toBeUndefined();
+	});
+});
+
+describe("roomRectToCanvas", () => {
+	it("scales a room-unit rect into the canvas's own bitmap space", () => {
+		expect(roomRectToCanvas({ x: 6, y: 18, w: 26, h: 30 }, 72, false, 4, 2)).toEqual({ x: 48, y: 144, w: 208, h: 240 });
+	});
+
+	it("mirrors x within the room's width, leaving y and size untouched", () => {
+		// room width 72, rect x:6-32 → mirrored x:40-66, then scaled by 4*2=8 → 320-528.
+		expect(roomRectToCanvas({ x: 6, y: 18, w: 26, h: 30 }, 72, true, 4, 2)).toEqual({ x: 320, y: 144, w: 208, h: 240 });
+	});
+
+	it("is a plain passthrough at scale 1, DPR 1, unmirrored", () => {
+		expect(roomRectToCanvas({ x: 1, y: 2, w: 3, h: 4 }, 20, false, 1, 1)).toEqual({ x: 1, y: 2, w: 3, h: 4 });
 	});
 });
