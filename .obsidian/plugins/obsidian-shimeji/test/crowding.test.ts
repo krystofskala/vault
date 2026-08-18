@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { nearestCrowderX } from "../src/engine/crowding";
 import type { Mascot } from "../src/engine/Mascot";
 
-function fakeMascot(x: number, opts: { grounded?: boolean; confined?: boolean } = {}) {
+function fakeMascot(x: number, opts: { y?: number; grounded?: boolean; confined?: boolean } = {}) {
 	return {
-		physics: { x, y: 600, vx: 0, vy: 0, facing: 1, grounded: opts.grounded ?? true },
+		physics: { x, y: opts.y ?? 600, vx: 0, vy: 0, facing: 1, grounded: opts.grounded ?? true },
 		confinement: opts.confined ? {} : undefined,
 	} as unknown as Mascot;
 }
@@ -53,5 +53,22 @@ describe("nearestCrowderX", () => {
 		const bystander = fakeMascot(505);
 		expect(nearestCrowderX([resident, bystander], resident)).toBeUndefined();
 		expect(nearestCrowderX([resident, bystander], bystander)).toBeUndefined();
+	});
+
+	// Real bug: a mascot standing on top of a pane and one standing on the floor underneath it can
+	// share a similar x while sitting on completely different surfaces, potentially hundreds of
+	// pixels apart in y. Without a same-floor check, the one on top read as "crowding" the one below
+	// it and would appear to shove it around.
+	it("does not treat mascots on different floors as crowding each other, even at the same x", () => {
+		const onTopOfPane = fakeMascot(500, { y: 300 });
+		const onFloorBelow = fakeMascot(500, { y: 700 });
+		expect(nearestCrowderX([onTopOfPane, onFloorBelow], onTopOfPane)).toBeUndefined();
+		expect(nearestCrowderX([onTopOfPane, onFloorBelow], onFloorBelow)).toBeUndefined();
+	});
+
+	it("still treats a small y difference as the same floor (sub-pixel jitter, not a different surface)", () => {
+		const a = fakeMascot(500, { y: 600 });
+		const b = fakeMascot(510, { y: 603 });
+		expect(nearestCrowderX([a, b], a)).toBe(510);
 	});
 });

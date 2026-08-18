@@ -471,6 +471,12 @@ export class BehaviorAI {
 	 * there like any other Move, using the pack's own Walk/Run/Dash art. No position is ever set
 	 * directly, and nothing runs while a Move is already in progress — a mascot walking normally is
 	 * never interrupted mid-stride just because someone else came close.
+	 *
+	 * Only called (see tick()'s own gate) when runner.justFinishedMove is true — i.e. only for a
+	 * mascot that just walked up to a crowd, never for one that was already sitting there. Without
+	 * that gate this fires symmetrically for both mascots, so the one who arrived first would get
+	 * shoved off by whoever showed up later — exactly backwards from "the newcomer finds somewhere
+	 * else, the resident is left alone."
 	 */
 	private maybeAvoidCrowd(env: PushEnv, ledges: Ledge[], nearbyMascotX: number | undefined): boolean {
 		if (nearbyMascotX === undefined) return false;
@@ -847,8 +853,11 @@ export class BehaviorAI {
 
 		// Checked before the flavor-roam below, and unconditionally rather than at its low chance:
 		// this isn't "maybe wander somewhere interesting", it's "don't settle right next to someone
-		// already there" — see maybeAvoidCrowd's own comment.
-		if (!this.followingMouse && !this.orderedSpot && this.maybeAvoidCrowd(env, ledges, nearbyMascotX)) return;
+		// already there" — see maybeAvoidCrowd's own comment. Gated on justFinishedMove so only the
+		// mascot that just walked up to a crowd is the one that moves again — a mascot that was
+		// already sitting there, whose own Sit/Stand simply ran out, is never disturbed just because
+		// someone else showed up nearby.
+		if (!this.followingMouse && !this.orderedSpot && this.runner.justFinishedMove && this.maybeAvoidCrowd(env, ledges, nearbyMascotX)) return;
 
 		// Autonomous wandering, only ever considered when nothing more important is happening.
 		if (!this.followingMouse && !this.orderedSpot && this.maybeRoam(env, ledges)) return;

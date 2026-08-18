@@ -224,11 +224,22 @@ const LOST_GROUND_REACH = 8;
 export class ActionRunner {
 	private stack: Frame[] = [];
 	private lostGroundFlag = false;
+	private lastLeafWasMove = false;
 
 	constructor(private pack: MascotPack) {}
 
 	get isRunning(): boolean {
 		return this.stack.length > 0;
+	}
+
+	/** Whether the most recent frame to actually finish (as opposed to a Sequence/Select wrapper
+	 * simply advancing to its next child) was a Move — i.e. whether the mascot just arrived
+	 * somewhere under its own power, as against having been already sitting/standing/holding in
+	 * place. See BehaviorAI.maybeAvoidCrowd for why this distinction matters: a mascot that just
+	 * walked up to a crowd should be the one to find somewhere else, not the mascot that was
+	 * already there. */
+	get justFinishedMove(): boolean {
+		return this.lastLeafWasMove;
 	}
 
 	/**
@@ -418,6 +429,12 @@ export class ActionRunner {
 			// affordance/hotspot refreshes above — see ridePaneEdge for why the order is load-bearing.
 			this.applyPaneSideEffects(frame, env);
 			if (!done) return false;
+			// Sequence/Select are pure wrappers that delegate to a child rather than ever actually
+			// moving or holding anything themselves, so a wrapper finishing says nothing about
+			// whether the mascot just arrived somewhere — only a real leaf's own type does.
+			if (frame.action.type !== "Sequence" && frame.action.type !== "Select") {
+				this.lastLeafWasMove = frame.action.type === "Move";
+			}
 			this.stack.pop();
 		}
 		console.warn(`[obsidian-shimeji] action chain exceeded iteration guard on "${this.pack.name}", aborting`);

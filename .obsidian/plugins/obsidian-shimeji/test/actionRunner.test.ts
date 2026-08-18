@@ -239,6 +239,71 @@ describe("ActionRunner", () => {
 		expect(mascot.physics.x).toBeCloseTo(200, 5);
 	});
 
+	// See BehaviorAI.maybeAvoidCrowd/justFinishedMove's own comments: only a mascot that just
+	// arrived somewhere under its own power (a Move) should be redirected away from a crowd;
+	// a mascot whose own Stay/Sit simply ran out, already resident, must never be. This is the
+	// flag BehaviorAI.tick() reads to tell the two apart.
+	it("justFinishedMove is true once a Move completes, and flips back to false once a later Stay completes", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["Walk", action({ name: "Walk", type: "Move", animations: animOf([{ image: "/w.png", durationMs: 40, velocity: { x: -50, y: 0 } }]) })],
+				["Stand", action({ name: "Stand", type: "Stay", animations: animOf([{ image: "/stand.png", durationMs: 10 }]) })],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 0;
+		const env = envFor(pack, mascot);
+
+		expect(runner.justFinishedMove).toBe(false);
+
+		runner.start("Walk", env, { TargetX: "40" });
+		let done = false;
+		for (let i = 0; i < 2000 && !done; i++) done = runner.tick(env, 0.02, []);
+		expect(done).toBe(true);
+		expect(runner.justFinishedMove).toBe(true);
+
+		runner.start("Stand", env, { Duration: "1" });
+		expect(runner.tick(env, 0.04, [])).toBe(true);
+		expect(runner.justFinishedMove).toBe(false);
+	});
+
+	// The real case this matters for: ClimbAlongWall etc. are Type="Sequence" wrappers around
+	// several real steps. If a Sequence's own frame popping were (mis)counted as "the last thing
+	// that finished," a sequence ending in a Move would wrongly read as not-a-move, since
+	// "Sequence" !== "Move". It has to look through the wrapper to the last real child instead.
+	it("looks through a Sequence wrapper to its last real child's type, not the wrapper's own", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				["Stand", action({ name: "Stand", type: "Stay", animations: animOf([{ image: "/stand.png", durationMs: 10 }]) })],
+				["Walk", action({ name: "Walk", type: "Move", animations: animOf([{ image: "/w.png", durationMs: 40, velocity: { x: -50, y: 0 } }]) })],
+				[
+					"Seq",
+					action({
+						name: "Seq",
+						type: "Sequence",
+						children: [
+							{ name: "Stand", paramOverrides: { Duration: "1" } },
+							{ name: "Walk", paramOverrides: { TargetX: "40" } },
+						],
+					}),
+				],
+			]),
+		};
+		const runner = new ActionRunner(pack);
+		const mascot = makeFakeMascot();
+		mascot.physics.x = 0;
+		const env = envFor(pack, mascot);
+		runner.start("Seq", env);
+
+		let done = false;
+		for (let i = 0; i < 2000 && !done; i++) done = runner.tick(env, 0.04, []);
+		expect(done).toBe(true);
+		expect(runner.justFinishedMove).toBe(true);
+	});
+
 	it("aborts and flags lostGround if a Wall-bordered Move's wall vanishes mid-climb (LostGroundException equivalent)", () => {
 		const pack: MascotPack = {
 			...NOOP_PACK,
