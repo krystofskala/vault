@@ -14,6 +14,7 @@ import { Stage } from "./engine/Stage";
 import { DEFAULT_ENGINE_CONFIG, type EngineConfig } from "./engine/types";
 import { effectiveScale } from "./engine/responsiveScale";
 import { ObsidianPaneActions } from "./ObsidianPaneActions";
+import { reconcileStoredSettings, resolveEffectiveSettings, type StoredShimejiSettings } from "./platformSettings";
 import { mergeCustomContent } from "./shimeji/CustomContentBuilder";
 import { buildPaneWranglingContent } from "./shimeji/paneWrangling";
 import { PackDriver } from "./shimeji/PackDriver";
@@ -129,6 +130,11 @@ export default class ShimejiPlugin extends Plugin {
 		},
 	});
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
+	/** The on-disk shape settings is resolved from — see platformSettings.ts. Kept alongside
+	 * `settings` (rather than re-derived from it) because the effective view alone can't be
+	 * un-merged back into "what did mobile actually override" once mobile's own onChange
+	 * handlers have mutated it in place. */
+	private storedSettings: StoredShimejiSettings = { desktop: DEFAULT_SETTINGS, mobileOverrides: {} };
 	/** Undefined unless vault search is both enabled and running on desktop — see
 	 * applyVaultSearchEnabled. Public so settings.ts can read its status()/call rebuild()
 	 * directly, the same way it already reaches into other plugin state. */
@@ -191,25 +197,40 @@ export default class ShimejiPlugin extends Plugin {
 	};
 
 	async onload(): Promise<void> {
-		const raw = ((await this.loadData()) ?? {}) as Partial<ShimejiSettings> & { activePackId?: string | null };
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
+		const raw = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+		// Per-platform overrides (see platformSettings.ts) wrap the old flat shape in
+		// { desktop, mobileOverrides }. No real setting is named "desktop", so its presence
+		// unambiguously tells an install that's already migrated apart from every install that
+		// predates this feature — which stored a flat ShimejiSettings directly, same as raw itself.
+		const isSplit = typeof raw.desktop === "object" && raw.desktop !== null;
+		const rawDesktop = (isSplit ? raw.desktop : raw) as Partial<ShimejiSettings> & { activePackId?: string | null };
+		const rawMobileOverrides = (isSplit ? raw.mobileOverrides : undefined) as Partial<ShimejiSettings> | undefined;
+		this.storedSettings = {
+			desktop: Object.assign({}, DEFAULT_SETTINGS, rawDesktop),
+			mobileOverrides: { ...rawMobileOverrides },
+		};
 
 		let needsSave = false;
 		// Pre-multi-mascot installs stored a single activePackId; migrate it into the new list
-		// shape exactly once (only when the new key was never written at all).
-		if (!("activePackIds" in raw) && "activePackId" in raw) {
-			this.settings.activePackIds = raw.activePackId ? [raw.activePackId] : [];
+		// shape exactly once (only when the new key was never written at all). Applied to the
+		// desktop base directly, not the resolved effective view below: this predates the
+		// mobile/desktop split entirely, so it's a correction to the shared base, never a
+		// mobile-only override — even when the very first post-upgrade load happens to be on
+		// mobile.
+		if (!("activePackIds" in rawDesktop) && "activePackId" in rawDesktop) {
+			this.storedSettings.desktop.activePackIds = rawDesktop.activePackId ? [rawDesktop.activePackId] : [];
 			needsSave = true;
 		}
 
 		// "Shimeji" was an earlier broken default: adapter paths are vault-relative, so it
 		// resolved to <vault-root>/Shimeji instead of this plugin's own bundled folder.
 		// Migrate both a never-configured (empty) value and that specific old default.
-		if (!this.settings.packsFolder || this.settings.packsFolder === "Shimeji") {
-			this.settings.packsFolder = this.bundledPackFolder();
+		if (!this.storedSettings.desktop.packsFolder || this.storedSettings.desktop.packsFolder === "Shimeji") {
+			this.storedSettings.desktop.packsFolder = this.bundledPackFolder();
 			needsSave = true;
 		}
 
+		this.settings = resolveEffectiveSettings(this.storedSettings, Platform.isMobile);
 		if (needsSave) await this.saveSettings();
 
 		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
@@ -520,7 +541,8 @@ export default class ShimejiPlugin extends Plugin {
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		this.storedSettings = reconcileStoredSettings(this.storedSettings, this.settings, Platform.isMobile);
+		await this.saveData(this.storedSettings);
 	}
 
 	private selfTest?: SelfTestHandle;

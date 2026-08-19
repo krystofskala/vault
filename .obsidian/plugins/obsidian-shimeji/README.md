@@ -1277,6 +1277,13 @@ either way, and a pack built or edited on desktop appears here the moment the va
 search (see AI Assistant above) gets the same treatment for the same reason: indexing a vault with
 an in-browser model is a real workload, not something worth asking a phone to do.
 
+Every setting can hold a different value on mobile than on desktop. The first time the vault
+opens on a phone, everything starts out identical to desktop — nothing needs configuring twice —
+and stays that way until a setting is actually changed while on mobile, at which point just that
+one setting remembers its own value there from then on, independent of whatever desktop has (and
+desktop keeps changing freely without disturbing it). Turning "Allow dragging" off on a phone,
+say, while leaving it on for the mouse on desktop, no longer means picking one value for both.
+
 ## Commands / UI
 
 Real shimeji-ee actually has *two* separate menus, not one — the desktop tray icon (global,
