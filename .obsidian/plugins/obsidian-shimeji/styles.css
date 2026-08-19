@@ -644,10 +644,20 @@
    `background-color`, so a dark host theme still painted a native dark canvas underneath this
    bubble's own deliberately light/theme-following look. `color-scheme: light` stops that; `appearance:
    none` additionally opts the whole control out of native chrome so author CSS is what's actually
-   painted. */
+   painted.
+
+   :focus-visible is listed separately from :focus, not folded into the same "it's just another
+   state" bucket — found only by comparing a real click-focus against DevTools' own :focus-forcing
+   checkbox, which left this rule looking like it was already winning right up until that
+   comparison. A real click on a text input satisfies *both* :focus and :focus-visible at once, so
+   Obsidian's own :focus-visible rule (wherever exactly it lives) was painting its dark fill
+   unopposed the entire time — this file's own :focus coverage never mattered there, because
+   cascade resolution is per matched *selector*, not per pseudo-class a click happens to satisfy;
+   DevTools' checkbox forces only the one state it's told to, so it never reproduced this. */
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:hover,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus-visible,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:active {
 	background: transparent;
 	border: none;
@@ -658,7 +668,8 @@
 	color-scheme: light;
 }
 
-.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus {
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus-visible {
 	outline: none;
 }
 
@@ -677,6 +688,7 @@
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:hover,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:focus,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:focus-visible,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:active {
 	flex: 0 0 auto;
 	height: 100%;
