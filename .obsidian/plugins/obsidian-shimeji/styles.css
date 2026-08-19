@@ -653,30 +653,40 @@
    Obsidian's own :focus-visible rule (wherever exactly it lives) was painting its dark fill
    unopposed the entire time — this file's own :focus coverage never mattered there, because
    cascade resolution is per matched *selector*, not per pseudo-class a click happens to satisfy;
-   DevTools' checkbox forces only the one state it's told to, so it never reproduced this. */
+   DevTools' checkbox forces only the one state it's told to, so it never reproduced this.
+
+   Even after adding :focus-visible here, a real click still confirmed `rgb(46, 46, 46)` — with
+   `field.matches(':focus-visible')` independently confirmed true, so the pseudo-class genuinely
+   matched and this rule still lost outright. Obsidian's own :focus-visible rule must therefore be
+   qualified with something beyond a bare `input[type="text"]:focus-visible` (an ancestor class
+   like `body.theme-dark`, going by everything else already traced back to that class) — enough
+   extra specificity to beat two chained classes plus a pseudo-class regardless. Rather than keep
+   adding one more qualifier and re-testing against a moving target, every property below is
+   !important: the one guarantee that survives any future Obsidian selector this specific, without
+   this file needing to know what it actually is. */
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:hover,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus-visible,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:active {
-	background: transparent;
-	border: none;
-	border-radius: 0;
-	box-shadow: none;
-	appearance: none;
-	-webkit-appearance: none;
-	color-scheme: light;
+	background: transparent !important;
+	border: none !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+	appearance: none !important;
+	-webkit-appearance: none !important;
+	color-scheme: light !important;
 }
 
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus-visible {
-	outline: none;
+	outline: none !important;
 }
 
 /* Selected text otherwise picks up Chromium's default grey selection block — visible the moment
    any text in the field is highlighted. Transparent leaves only the caret itself, per request. */
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field::selection {
-	background: transparent;
+	background: transparent !important;
 }
 
 /* Same repeat-per-pseudo-class treatment as the field above, and the same reason: Obsidian's own
@@ -695,18 +705,23 @@
 	box-sizing: border-box;
 	font-size: 12px;
 	padding: 0 10px;
-	background: transparent;
+	background: transparent !important;
+	/* color/border/border-radius are deliberately *not* !important: comic mode's own rule below
+	   sets all three to a real bordered-pill look, at equal specificity but later in the file, and
+	   needs to keep winning there via ordinary cascade order — !important here would flatten that
+	   distinction and always show the plain look even in comic mode. */
 	color: inherit;
 	border: none;
 	border-radius: 0;
-	appearance: none;
-	-webkit-appearance: none;
-	color-scheme: light;
-	box-shadow: none;
+	appearance: none !important;
+	-webkit-appearance: none !important;
+	color-scheme: light !important;
+	box-shadow: none !important;
 }
 
-.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:focus {
-	outline: none;
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:focus,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:focus-visible {
+	outline: none !important;
 }
 
 /* Comic mode ignores the active theme the same way the bubble itself does (see
