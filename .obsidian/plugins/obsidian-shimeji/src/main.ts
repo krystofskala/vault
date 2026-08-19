@@ -910,7 +910,12 @@ export default class ShimejiPlugin extends Plugin {
 	 * character wizard's own mobile treatment: heavy, optional tooling, not core pet behavior. */
 	applyVaultSearchEnabled(): void {
 		if (Platform.isMobile) return;
-		if (this.settings.vaultSearchEnabled) this.vaultSearchIndex ??= new VaultSearchIndex(this.app, new LocalEmbedder(), () => this.roomFolder());
+		if (this.settings.vaultSearchEnabled)
+			this.vaultSearchIndex ??= new VaultSearchIndex(
+				this.app,
+				new LocalEmbedder((fileName) => this.app.vault.adapter.getResourcePath(`${this.roomFolder()}/onnx-wasm/${fileName}`)),
+				() => this.roomFolder(),
+			);
 		else this.vaultSearchIndex = undefined;
 	}
 

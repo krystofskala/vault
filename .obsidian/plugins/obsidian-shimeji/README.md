@@ -921,6 +921,11 @@ if Anthropic is the active provider.
 Desktop only: the model is a real (if small) machine-learning workload, heavier than this plugin
 otherwise asks of a phone, in keeping with the wizard's own desktop-only treatment below.
 
+The embedding *model*'s weights are what downloads on first use, as above — the separate ONNX
+WASM runtime that actually executes it ships with the plugin itself (an `onnx-wasm/` folder next
+to `main.js`), which is the reason this plugin's own install size is noticeably bigger than its
+feature set alone would suggest, even for someone who never turns this setting on.
+
 ### Confirmed note edits
 
 **Settings → AI Assistant → Note edits**, off by default, works on mobile too — unlike vault
