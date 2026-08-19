@@ -623,24 +623,30 @@
 	height: 100%;
 	box-sizing: border-box;
 	font-size: 12px;
-	background: transparent;
-	border: none;
-	border-radius: 0;
-	box-shadow: none;
 	color: inherit;
 	padding: 0 4px;
 }
 
-/* Repeats background/border rather than relying on the base rule above: a pseudo-class adds to a
-   selector's own specificity, so Obsidian's `input[type="text"]:focus` can outrank our unqualified
-   `:focus`-less background rule the instant the field is actually focused, even though the same
-   base rule already won while it wasn't — the exact moment "click into the field" turned the oval
-   grey again. */
-.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus {
-	outline: none;
-	box-shadow: none;
+/* background/border/box-shadow are repeated per pseudo-class rather than left on the plain
+   selector above, because each of :hover/:focus/:active adds to a selector's own specificity —
+   Obsidian's own `input[type="text"]:hover`/`:focus`/`:active` rules can outrank an otherwise-
+   winning plain-state override the instant the field is actually interacted with, even though the
+   plain rule beats Obsidian's own plain `input[type="text"]` rule just fine while idle. This was
+   found and re-found one interaction at a time (idle, then focus, then hover) — listing every state
+   in one place instead of the single state that happened to get reported closes the rest before
+   they get found the same way. */
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:hover,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:active {
 	background: transparent;
 	border: none;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus {
+	outline: none;
 }
 
 /* Selected text otherwise picks up Chromium's default grey selection block — visible the moment
