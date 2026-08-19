@@ -196,6 +196,14 @@ export interface ShimejiSettings {
 	 * persona" — introducing a file never silences a character that was already working.
 	 */
 	aiPersonaFiles: Record<string, string>;
+	/** Off by default — a fully local, in-browser embedding model still means indexing the whole
+	 * vault and, once retrieved, sending matching note excerpts to whichever chat provider is
+	 * active (see the "AI Assistant" section's own top-level callout). That is a real behavior
+	 * change worth the same explicit opt-in every other AI capability here already gets. */
+	vaultSearchEnabled: boolean;
+	/** How many notes' excerpts get spliced into a chat message's context — see
+	 * ai/vaultSearch.ts's rankRelevant. */
+	vaultSearchTopK: number;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -246,6 +254,8 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	aiLocalApiKey: "",
 	aiLocalModel: "",
 	aiPersonaFiles: {},
+	vaultSearchEnabled: false,
+	vaultSearchTopK: 4,
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
@@ -839,7 +849,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			this.callout(
 				containerEl,
 				"info",
-				"Off by default. Turning this on lets your chat messages \u2014 and, once vault search ships, matching note excerpts \u2014 leave your machine, either to Anthropic's API or to a local model server you run yourself, whichever provider below is active. The cloud key (or the local server's address) is stored in this plugin's own settings, the same trust model as everything else on this page.",
+				"Off by default. Turning this on lets your chat messages \u2014 and, if vault search below is also on, matching note excerpts \u2014 leave your machine, either to Anthropic's API or to a local model server you run yourself, whichever provider below is active. The cloud key (or the local server's address) is stored in this plugin's own settings, the same trust model as everything else on this page.",
 			);
 
 			new Setting(containerEl)
@@ -988,6 +998,74 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								b.setDisabled(false).setButtonText("Test");
 							}
 						}),
+					);
+			});
+
+			this.section(containerEl, "Vault search", this.plugin.settings.vaultSearchEnabled, (containerEl) => {
+				if (Platform.isMobile) {
+					this.callout(
+						containerEl,
+						"info",
+						"Vault search runs a small model in-browser to index every note — heavier than this plugin asks of a phone otherwise, so it's desktop-only for now.",
+					);
+					return;
+				}
+
+				this.callout(
+					containerEl,
+					"info",
+					"Finds notes related to what's being asked and lets the AI read them, using a small model that runs entirely on this device — nothing about the search itself leaves your machine. The model downloads once (needs the internet that first time) and is cached afterward. Whichever notes it finds do get sent to the active provider above as part of the chat, same as anything typed by hand — see this section's own callout at the top.",
+				);
+
+				new Setting(containerEl)
+					.setName("Let the AI search your vault")
+					.setDesc("Off by default. Indexes every note so relevant ones can be pulled into a chat message automatically.")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.vaultSearchEnabled).onChange(async (value) => {
+							this.plugin.settings.vaultSearchEnabled = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyVaultSearchEnabled();
+							this.display();
+						}),
+					);
+
+				new Setting(containerEl)
+					.setName("Notes per message")
+					.setDesc("How many of the most relevant notes get included with each chat message.")
+					.addText((text) =>
+						text.setValue(String(this.plugin.settings.vaultSearchTopK)).onChange(async (value) => {
+							const n = Number.parseInt(value, 10);
+							if (!Number.isFinite(n) || n <= 0) return;
+							this.plugin.settings.vaultSearchTopK = n;
+							await this.plugin.saveSettings();
+						}),
+					);
+
+				const status = this.plugin.vaultSearchIndex?.status();
+				const statusText = !this.plugin.settings.vaultSearchEnabled
+					? "Turn the toggle on above first."
+					: status?.indexing
+						? `Indexing… ${status.indexedCount} of ${status.totalCount} notes so far.`
+						: status && status.indexedCount > 0
+							? `${status.indexedCount} of ${status.totalCount} notes indexed.`
+							: "Not indexed yet.";
+				new Setting(containerEl)
+					.setName("Index")
+					.setDesc(statusText)
+					.addButton((btn) =>
+						btn
+							.setButtonText("Rebuild index")
+							.setDisabled(!this.plugin.settings.vaultSearchEnabled)
+							.onClick(async () => {
+								btn.setDisabled(true).setButtonText("Indexing…");
+								try {
+									await this.plugin.vaultSearchIndex?.rebuild();
+								} catch (e) {
+									new Notice(`Vault search indexing failed: ${e instanceof Error ? e.message : String(e)}`);
+								} finally {
+									this.display();
+								}
+							}),
 					);
 			});
 

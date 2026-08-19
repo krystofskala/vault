@@ -1,6 +1,10 @@
 import { Events, type EventRef, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
+import { LocalEmbedder } from "./ai/embeddings";
 import { resolvePersona } from "./ai/persona";
 import { sendAiMessage, type AiDispatchSettings } from "./ai/providers";
+import type { ChatMessage } from "./ai/types";
+import { buildContextBlock } from "./ai/vaultSearch";
+import { VaultSearchIndex } from "./ai/VaultSearchIndex";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { ObsidianDomEnvironment } from "./engine/Environment";
 import { Mascot } from "./engine/Mascot";
@@ -116,7 +120,7 @@ export default class ShimejiPlugin extends Plugin {
 	 * mascot is resident, not to the pane, and needs to keep tracking who that is (closing itself on
 	 * a resident change) independent of anything RoomView itself tracks. */
 	private readonly chatBubble: ChatBubble = new ChatBubble(this.speech.getLayer(), {
-		sendMessage: (messages, systemPrompt) => sendAiMessage(this.aiDispatchSettings(), messages, systemPrompt),
+		sendMessage: (messages, systemPrompt) => this.sendChatMessageWithVaultSearch(messages, systemPrompt),
 		personas: () => this.personaTexts,
 		style: () => this.speech.getStyle(),
 		packFor: (mascot) => {
@@ -125,6 +129,10 @@ export default class ShimejiPlugin extends Plugin {
 		},
 	});
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
+	/** Undefined unless vault search is both enabled and running on desktop — see
+	 * applyVaultSearchEnabled. Public so settings.ts can read its status()/call rebuild()
+	 * directly, the same way it already reaches into other plugin state. */
+	vaultSearchIndex?: VaultSearchIndex;
 	stage?: Stage;
 	/** What everything (settings UI, spawning, the context menu) actually consumes: basePacks
 	 * with each pack's own customContent overlaid on top. Re-derived by refreshAvailablePacks()
@@ -207,6 +215,7 @@ export default class ShimejiPlugin extends Plugin {
 		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
 		this.applyUpsideDownFeetDrag();
 		this.applyRoamEnabled();
+		this.applyVaultSearchEnabled();
 		this.obsidianPaneActions = new ObsidianPaneActions(this.app);
 
 		this.stage = new Stage({
@@ -386,17 +395,28 @@ export default class ShimejiPlugin extends Plugin {
 		);
 		this.registerEvent(
 			this.app.vault.on("create", (file) => {
-				if (file instanceof TFile) this.reactToVaultEvent(VaultReactionTrigger.create);
+				if (!(file instanceof TFile)) return;
+				this.reactToVaultEvent(VaultReactionTrigger.create);
+				this.vaultSearchIndex?.scheduleReembed(file);
 			}),
 		);
 		this.registerEvent(
 			this.app.vault.on("delete", (file) => {
-				if (file instanceof TFile) this.reactToVaultEvent(VaultReactionTrigger.delete);
+				if (!(file instanceof TFile)) return;
+				this.reactToVaultEvent(VaultReactionTrigger.delete);
+				this.vaultSearchIndex?.forget(file.path);
 			}),
 		);
 		this.registerEvent(
-			this.app.vault.on("rename", (file) => {
-				if (file instanceof TFile) this.reactToVaultEvent(VaultReactionTrigger.rename);
+			this.app.vault.on("rename", (file, oldPath) => {
+				if (!(file instanceof TFile)) return;
+				this.reactToVaultEvent(VaultReactionTrigger.rename);
+				// Treated as "forget the old entry, embed fresh under the new path" rather than a
+				// special key-rename case in VaultSearchIndex itself — renames are rare enough that
+				// re-embedding once is not worth the extra code (see VaultSearchIndex.forget's own
+				// comment).
+				this.vaultSearchIndex?.forget(oldPath);
+				this.vaultSearchIndex?.scheduleReembed(file);
 			}),
 		);
 		this.registerEvent(
@@ -409,6 +429,9 @@ export default class ShimejiPlugin extends Plugin {
 					this.vaultEditDebounceTimer = null;
 					this.reactToVaultEvent(VaultReactionTrigger.edit);
 				}, VAULT_EDIT_DEBOUNCE_MS);
+				// Its own independent debounce inside VaultSearchIndex — unrelated to the speech
+				// debounce above, just watching the same event for a different reason.
+				this.vaultSearchIndex?.scheduleReembed(file);
 			}),
 		);
 		this.applyCustomVaultReactions();
@@ -854,6 +877,35 @@ export default class ShimejiPlugin extends Plugin {
 
 	applyRoamEnabled(): void {
 		this.engineConfig.roamEnabled = this.settings.roamEnabled;
+	}
+
+	/** Called on load (if already enabled) and whenever the settings toggle changes. Constructs
+	 * the index lazily rather than for every install regardless of the setting — nobody who has
+	 * never turned this on should pay for downloading its model. Desktop-only, matching the
+	 * character wizard's own mobile treatment: heavy, optional tooling, not core pet behavior. */
+	applyVaultSearchEnabled(): void {
+		if (Platform.isMobile) return;
+		if (this.settings.vaultSearchEnabled) this.vaultSearchIndex ??= new VaultSearchIndex(this.app, new LocalEmbedder(), () => this.roomFolder());
+		else this.vaultSearchIndex = undefined;
+	}
+
+	/** ChatBubble's own `sendMessage` dependency — augments the persona's system prompt with
+	 * retrieved vault context before actually dispatching, when vault search is on. Fails soft
+	 * into the plain persona prompt on any search failure (index not built yet, model never
+	 * finished loading) rather than blocking the chat over an enhancement — the same "never let
+	 * an optional extra break the core feature" reasoning a missing sound file already gets. */
+	private async sendChatMessageWithVaultSearch(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
+		let prompt = systemPrompt;
+		const lastUserMessage = messages[messages.length - 1]?.content;
+		if (this.vaultSearchIndex && lastUserMessage) {
+			try {
+				const results = await this.vaultSearchIndex.search(lastUserMessage, this.settings.vaultSearchTopK);
+				prompt = (prompt ?? "") + buildContextBlock(results);
+			} catch (e) {
+				console.warn("[obsidian-shimeji] vault search failed; sending the chat message without it", e);
+			}
+		}
+		return sendAiMessage(this.aiDispatchSettings(), messages, prompt);
 	}
 
 	/**

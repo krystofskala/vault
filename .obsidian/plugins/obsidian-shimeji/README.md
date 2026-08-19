@@ -891,9 +891,35 @@ appear as a red entry inside the transcript instead, so a mid-conversation aside
 with the chat bubble for the same spot on screen. They're shown, not sent: the assistant never sees
 them as something it or you said.
 
-Vault search and confirmed note edits (having the assistant find notes or propose Dataview/CSS
-changes it can write with your approval) are planned but not built yet — right now it's a
-conversation with whatever persona the resident has, nothing else.
+Confirmed note edits (having the assistant propose changes it can write with your approval) are
+planned but not built yet.
+
+### Vault search
+
+**Settings → AI Assistant → Vault search**, off by default, desktop only. Lets a chat message pull
+in relevant notes automatically, using a small embedding model
+([`Xenova/all-MiniLM-L6-v2`](https://huggingface.co/Xenova/all-MiniLM-L6-v2)) that runs entirely
+on-device via [`@huggingface/transformers`](https://github.com/huggingface/transformers.js) — no
+separate server, no extra API key, nothing about the search step itself leaves the machine. It
+downloads once over the network the first time it's actually used (tens of MB) and is cached
+afterward.
+
+Turning it on indexes every markdown note: each one gets embedded and cached, keyed by its own
+modification time, so a note that hasn't changed since it was last indexed is never re-embedded.
+Editing, creating, deleting, or renaming a note updates the index incrementally in the background
+(the same "wait for edits to settle" debounce the rest of the plugin already uses for vault
+reactions) — **Rebuild index** in settings forces a full pass, useful right after turning the
+feature on for the first time, and its status line shows how many notes are indexed so far.
+
+Sending a chat message embeds it the same way and finds the **Notes per message** most similar
+already-indexed notes, splicing their content into that message's context before it goes to
+whichever provider (Anthropic or local) is actually answering. This is the one important caveat:
+the search itself is local, but the notes it finds are only as private as that provider — a note
+retrieved this way goes out over the network exactly like anything typed into the chat by hand,
+if Anthropic is the active provider.
+
+Desktop only: the model is a real (if small) machine-learning workload, heavier than this plugin
+otherwise asks of a phone, in keeping with the wizard's own desktop-only treatment below.
 
 ### Character personality
 
@@ -1228,6 +1254,22 @@ Desktop is never affected.
 
 Chasing the mouse is skipped on mobile regardless of its setting: there is no ambient pointer
 between touches, so it would only ever be dashing at a stale position.
+
+Right-click's own context menu opens the same way on a long press — held touch and hold-and-drag
+are told apart by whether the pointer actually moves before the hold finishes, the same way a real
+right-click and a drag never conflict with a mouse.
+
+Shift+triple-click "go to spot" has no touch equivalent (it is a keyboard modifier plus a mouse
+gesture) and is dropped on mobile rather than replaced — dragging a mascot by hand already covers
+most of the same need.
+
+The character wizard (creating or editing a character: slicing sprite sheets, fitting poses onto a
+canvas, removing backgrounds) is desktop-only — real pixel editing needs a mouse and a full-size
+screen more than this plugin otherwise asks of a phone. **Settings → Characters** shows a note
+instead of the wizard's own controls; packs already built are used and switched between normally
+either way, and a pack built or edited on desktop appears here the moment the vault syncs. Vault
+search (see AI Assistant above) gets the same treatment for the same reason: indexing a vault with
+an in-browser model is a real workload, not something worth asking a phone to do.
 
 ## Commands / UI
 

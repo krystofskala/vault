@@ -24,6 +24,17 @@ const context = await esbuild.context({
 		"@lezer/common",
 		"@lezer/highlight",
 		"@lezer/lr",
+		// @huggingface/transformers' own browser build (what this bundle actually resolves to,
+		// confirmed by inspecting the output) never references either of these — its Node-native
+		// ONNX backend and its image-preprocessing dependency, neither of which vault search needs
+		// (WASM is forced explicitly in ai/embeddings.ts, and this plugin never touches images
+		// through the embedding pipeline). Declared external anyway, not just left alone: both
+		// carry real CVEs in the versions this package currently pulls in, and a native addon
+		// would need a different binary per desktop OS regardless — external turns "these are
+		// unreachable today" into "these can never silently get bundled in" if a future dependency
+		// bump ever changes which entry point resolves.
+		"onnxruntime-node",
+		"sharp",
 		...builtins,
 	],
 	format: "cjs",
