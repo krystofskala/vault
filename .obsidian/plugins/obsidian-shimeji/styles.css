@@ -655,12 +655,30 @@
 	background: transparent;
 }
 
-.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send {
+/* Same repeat-per-pseudo-class treatment as the field above, and the same reason: Obsidian's own
+   `button:hover`/`:focus`/`:active` rules outrank a plain `.shimeji-room-chat-inputbar-send`
+   class the instant the button is actually interacted with, even though the plain rule beats
+   Obsidian's own bare `button` rule just fine while idle — the field's fix only ever covered the
+   field itself, so the button was still showing Obsidian's default grey hover/focus fill despite
+   sitting inside the same bubble-coloured oval. */
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:hover,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:focus,
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:active {
 	flex: 0 0 auto;
 	height: 100%;
 	box-sizing: border-box;
 	font-size: 12px;
 	padding: 0 10px;
+	background: transparent;
+	color: inherit;
+	border: none;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send:focus {
+	outline: none;
 }
 
 /* Comic mode ignores the active theme the same way the bubble itself does (see
