@@ -631,9 +631,22 @@
 	padding: 0 4px;
 }
 
+/* Repeats background/border rather than relying on the base rule above: a pseudo-class adds to a
+   selector's own specificity, so Obsidian's `input[type="text"]:focus` can outrank our unqualified
+   `:focus`-less background rule the instant the field is actually focused, even though the same
+   base rule already won while it wasn't — the exact moment "click into the field" turned the oval
+   grey again. */
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus {
 	outline: none;
 	box-shadow: none;
+	background: transparent;
+	border: none;
+}
+
+/* Selected text otherwise picks up Chromium's default grey selection block — visible the moment
+   any text in the field is highlighted. Transparent leaves only the caret itself, per request. */
+.shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field::selection {
+	background: transparent;
 }
 
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-send {
