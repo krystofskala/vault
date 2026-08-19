@@ -180,6 +180,13 @@ export interface ShimejiSettings {
 	 * persona" — introducing a file never silences a character that was already working.
 	 */
 	aiPersonaFiles: Record<string, string>;
+	/** Off by default — lets the AI chat see the title and content of whichever note is currently
+	 * open in the workspace, e.g. "what note is open" or "check the grammar in this note" actually
+	 * working instead of the assistant having no way to know. Off means genuinely nothing about the
+	 * active note (not even its title) is ever added to a message's context — see
+	 * ai/activeNoteContext.ts. Independent of vaultSearchEnabled below: this is always exactly the
+	 * one note on screen, not a ranked search over the whole vault. */
+	activeNoteContextEnabled: boolean;
 	/** Off by default — a fully local, in-browser embedding model still means indexing the whole
 	 * vault and, once retrieved, sending matching note excerpts to whichever chat provider is
 	 * active (see the "AI Assistant" section's own top-level callout). That is a real behavior
@@ -238,6 +245,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	aiEnabled: false,
 	aiBackends: [],
 	aiPersonaFiles: {},
+	activeNoteContextEnabled: false,
 	vaultSearchEnabled: false,
 	vaultSearchTopK: 4,
 	noteEditsEnabled: false,
@@ -1042,6 +1050,24 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						this.display();
 					}),
 				);
+
+			this.section(containerEl, "Active note", this.plugin.settings.activeNoteContextEnabled, (containerEl) => {
+				this.callout(
+					containerEl,
+					"info",
+					"Lets the AI chat see the title and content of whichever note is currently open in the workspace — asking it what note is open, or to check the grammar in this one, actually works instead of it having no way to know. Off means genuinely nothing about the active note is added to a message, not even its title. Independent of vault search below: this is always exactly the one note on screen, not a ranked search over the whole vault.",
+				);
+
+				new Setting(containerEl)
+					.setName("Let the AI see the active note")
+					.setDesc("Off by default. Adds the current note's title and content to every chat message's context.")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.activeNoteContextEnabled).onChange(async (value) => {
+							this.plugin.settings.activeNoteContextEnabled = value;
+							await this.plugin.saveSettings();
+						}),
+					);
+			});
 
 			this.section(containerEl, "Vault search", this.plugin.settings.vaultSearchEnabled, (containerEl) => {
 				if (Platform.isMobile) {

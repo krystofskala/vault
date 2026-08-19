@@ -1,5 +1,6 @@
 import { Events, type EventRef, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
 import { AiBackendChain } from "./ai/AiBackendChain";
+import { buildActiveNoteBlock } from "./ai/activeNoteContext";
 import type { AiBackend } from "./ai/backends";
 import { LocalEmbedder } from "./ai/embeddings";
 import { NOTE_EDIT_INSTRUCTIONS } from "./ai/noteEdits";
@@ -961,14 +962,25 @@ export default class ShimejiPlugin extends Plugin {
 		else this.vaultSearchIndex = undefined;
 	}
 
-	/** ChatBubble's own `sendMessage` dependency — augments the persona's system prompt with
-	 * retrieved vault context (when vault search is on) and the note-edit convention (when that's
-	 * on) before actually dispatching. Vault search fails soft into the plain persona prompt on any
-	 * search failure (index not built yet, model never finished loading) rather than blocking the
-	 * chat over an enhancement — the same "never let an optional extra break the core feature"
-	 * reasoning a missing sound file already gets. */
+	/** ChatBubble's own `sendMessage` dependency — augments the persona's system prompt with the
+	 * active note's own content (when that's on), retrieved vault context (when vault search is
+	 * on), and the note-edit convention (when that's on) before actually dispatching. Both the
+	 * active note and vault search fail soft into whatever prompt was already built rather than
+	 * blocking the chat over an enhancement — the same "never let an optional extra break the core
+	 * feature" reasoning a missing sound file already gets. */
 	private async dispatchChatMessage(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
 		let prompt = systemPrompt;
+		if (this.settings.activeNoteContextEnabled) {
+			const activeFile = this.app.workspace.getActiveFile();
+			if (activeFile) {
+				try {
+					const content = await this.app.vault.cachedRead(activeFile);
+					prompt = (prompt ?? "") + buildActiveNoteBlock(activeFile.path, content);
+				} catch (e) {
+					console.warn("[obsidian-shimeji] reading the active note failed; sending the chat message without it", e);
+				}
+			}
+		}
 		const lastUserMessage = messages[messages.length - 1]?.content;
 		if (this.vaultSearchIndex && lastUserMessage) {
 			try {

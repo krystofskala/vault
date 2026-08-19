@@ -913,6 +913,21 @@ them as something it or you said.
 Confirmed note edits (having the assistant propose changes it can write with your approval) are
 covered in their own section below.
 
+### Active note
+
+**Settings → AI Assistant → Active note**, off by default, works on mobile too. With it on, every
+chat message includes the title and content of whichever note is currently open in the workspace,
+so "what note is open" or "check the grammar in this note" actually has something to answer from.
+Off means genuinely nothing about the active note is added — not even its title — which is why
+asking either of those questions with it off gets an honest "I have no way to know," not a wrong
+guess.
+
+A long note is truncated rather than sent in full, the same "generous but capped" treatment vault
+search below gives each note it retrieves — enough of a real note to be worth reading, not enough
+to let one huge note dominate a whole message's own context on its own. Independent of vault
+search: this is always exactly the one note on screen, not a ranked search over the rest of the
+vault, and needs no local model to work.
+
 ### Vault search
 
 **Settings → AI Assistant → Vault search**, off by default, desktop only. Lets a chat message pull
