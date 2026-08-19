@@ -1,51 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { providerConfigError, type AiDispatchSettings } from "../src/ai/providers";
+import type { AiBackend } from "../src/ai/backends";
+import { noBackendsConfiguredError, type AiDispatchSettings } from "../src/ai/providers";
 
-function settings(overrides: Partial<AiDispatchSettings> = {}): AiDispatchSettings {
-	return {
-		enabled: true,
-		provider: "anthropic",
-		anthropic: { apiKey: "sk-ant-test", model: "claude-sonnet-5" },
-		local: { baseUrl: "http://localhost:11434/v1", apiKey: "", model: "llama3.2" },
-		...overrides,
-	};
+function backend(overrides: Partial<AiBackend> = {}): AiBackend {
+	return { id: "b1", name: "Anthropic", kind: "anthropic", baseUrl: "", apiKey: "sk-ant-test", model: "claude-sonnet-5", dailyLimit: 0, ...overrides };
 }
 
-describe("providerConfigError", () => {
-	it("reports no error when the active provider (anthropic) has a key", () => {
-		expect(providerConfigError(settings({ provider: "anthropic" }))).toBeUndefined();
+function settings(overrides: Partial<AiDispatchSettings> = {}): AiDispatchSettings {
+	return { enabled: true, backends: [backend()], ...overrides };
+}
+
+describe("noBackendsConfiguredError", () => {
+	it("reports no error when enabled with at least one backend in the list", () => {
+		expect(noBackendsConfiguredError(settings())).toBeUndefined();
 	});
 
-	it("reports an error when anthropic is active but its key is blank", () => {
-		const error = providerConfigError(settings({ provider: "anthropic", anthropic: { apiKey: "", model: "claude-sonnet-5" } }));
-		expect(error).toMatch(/Anthropic API key/);
+	it("does not itself validate a listed backend's own fields — that's backendConfigError's job, per attempt", () => {
+		expect(noBackendsConfiguredError(settings({ backends: [backend({ apiKey: "" })] }))).toBeUndefined();
 	});
 
-	it("reports an error when anthropic's key is only whitespace", () => {
-		const error = providerConfigError(settings({ provider: "anthropic", anthropic: { apiKey: "   ", model: "claude-sonnet-5" } }));
-		expect(error).toMatch(/Anthropic API key/);
+	it("reports an error when the list is empty", () => {
+		expect(noBackendsConfiguredError(settings({ backends: [] }))).toMatch(/No AI backend configured/);
 	});
 
-	it("reports no error when the active provider (local) has a server URL, even with no key", () => {
-		expect(providerConfigError(settings({ provider: "local" }))).toBeUndefined();
-	});
-
-	it("reports an error when local is active but its URL is blank", () => {
-		const error = providerConfigError(settings({ provider: "local", local: { baseUrl: "", apiKey: "", model: "llama3.2" } }));
-		expect(error).toMatch(/local model server URL/);
-	});
-
-	it("ignores the inactive provider's own configuration entirely", () => {
-		// Anthropic is blank, but local is active and configured -- no error.
-		expect(
-			providerConfigError(
-				settings({ provider: "local", anthropic: { apiKey: "", model: "" }, local: { baseUrl: "http://localhost:11434/v1", apiKey: "", model: "llama3.2" } }),
-			),
-		).toBeUndefined();
-	});
-
-	it("reports an error when disabled, even with a valid key configured", () => {
-		const error = providerConfigError(settings({ enabled: false, provider: "anthropic" }));
-		expect(error).toMatch(/turned off/);
+	it("reports an error when disabled, even with backends configured", () => {
+		expect(noBackendsConfiguredError(settings({ enabled: false }))).toMatch(/turned off/);
 	});
 });

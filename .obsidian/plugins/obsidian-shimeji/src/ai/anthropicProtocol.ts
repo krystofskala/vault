@@ -6,7 +6,7 @@
  * API key or a real request.
  */
 
-import type { ChatMessage } from "./types";
+import { AiRequestError, type ChatMessage } from "./types";
 
 export interface AiSettings {
 	apiKey: string;
@@ -56,7 +56,7 @@ export function parseAnthropicResponse(status: number, json: unknown): string {
 	if (status < 200 || status >= 300) {
 		const error = obj?.error && typeof obj.error === "object" ? (obj.error as Record<string, unknown>) : undefined;
 		const message = error?.message;
-		throw new Error(typeof message === "string" && message ? message : `Anthropic API request failed (HTTP ${status}).`);
+		throw new AiRequestError(typeof message === "string" && message ? message : `Anthropic API request failed (HTTP ${status}).`, status);
 	}
 	const content = obj?.content;
 	if (!Array.isArray(content)) throw new Error("Unexpected response shape from Anthropic (no content array).");

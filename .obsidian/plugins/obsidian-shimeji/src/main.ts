@@ -1,8 +1,10 @@
 import { Events, type EventRef, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
+import { AiBackendChain } from "./ai/AiBackendChain";
+import type { AiBackend } from "./ai/backends";
 import { LocalEmbedder } from "./ai/embeddings";
 import { NOTE_EDIT_INSTRUCTIONS } from "./ai/noteEdits";
 import { resolvePersona } from "./ai/persona";
-import { sendAiMessage, type AiDispatchSettings } from "./ai/providers";
+import { noBackendsConfiguredError, type AiDispatchSettings } from "./ai/providers";
 import type { ChatMessage } from "./ai/types";
 import { buildContextBlock } from "./ai/vaultSearch";
 import { VaultSearchIndex } from "./ai/VaultSearchIndex";
@@ -17,6 +19,7 @@ import { effectiveScale } from "./engine/responsiveScale";
 import { ObsidianPaneActions } from "./ObsidianPaneActions";
 import { reconcileStoredSettings, resolveEffectiveSettings, type StoredShimejiSettings } from "./platformSettings";
 import { mergeCustomContent } from "./shimeji/CustomContentBuilder";
+import { newSpecId } from "./shimeji/customContent";
 import { buildPaneWranglingContent } from "./shimeji/paneWrangling";
 import { PackDriver } from "./shimeji/PackDriver";
 import { runMovementSelfTest, startFreePlayRecording, type SelfTestHandle } from "./movementSelfTest";
@@ -142,6 +145,14 @@ export default class ShimejiPlugin extends Plugin {
 	 * applyVaultSearchEnabled. Public so settings.ts can read its status()/call rebuild()
 	 * directly, the same way it already reaches into other plugin state. */
 	vaultSearchIndex?: VaultSearchIndex;
+	/** Always constructed, unlike vaultSearchIndex above — trying multiple backends in order is
+	 * core to what AI chat means now, not a heavy opt-in extra, and unlike vault search's own local
+	 * ML model this costs nothing until a message is actually sent. Public for the same reason:
+	 * settings.ts reads statusFor() per backend and calls send() directly for the persona "Test"
+	 * button. A field initializer, the same as chatBubble below — Obsidian's own Plugin base class
+	 * sets `this.app`/`this.manifest` before any subclass field initializer runs, so roomFolder()
+	 * is already safe to call here despite this running before onload(). */
+	aiBackendChain: AiBackendChain = new AiBackendChain(this.app, () => this.roomFolder());
 	stage?: Stage;
 	/** What everything (settings UI, spawning, the context menu) actually consumes: basePacks
 	 * with each pack's own customContent overlaid on top. Re-derived by refreshAvailablePacks()
@@ -206,7 +217,17 @@ export default class ShimejiPlugin extends Plugin {
 		// unambiguously tells an install that's already migrated apart from every install that
 		// predates this feature — which stored a flat ShimejiSettings directly, same as raw itself.
 		const isSplit = typeof raw.desktop === "object" && raw.desktop !== null;
-		const rawDesktop = (isSplit ? raw.desktop : raw) as Partial<ShimejiSettings> & { activePackId?: string | null };
+		const rawDesktop = (isSplit ? raw.desktop : raw) as Partial<ShimejiSettings> & {
+			activePackId?: string | null;
+			// Pre-AiBackendChain shape: one active provider, two fixed slots of settings — see the
+			// aiBackends migration below.
+			aiProvider?: string;
+			aiApiKey?: string;
+			aiModel?: string;
+			aiLocalBaseUrl?: string;
+			aiLocalApiKey?: string;
+			aiLocalModel?: string;
+		};
 		const rawMobileOverrides = (isSplit ? raw.mobileOverrides : undefined) as Partial<ShimejiSettings> | undefined;
 		this.storedSettings = {
 			desktop: Object.assign({}, DEFAULT_SETTINGS, rawDesktop),
@@ -233,6 +254,31 @@ export default class ShimejiPlugin extends Plugin {
 			needsSave = true;
 		}
 
+		// AI backends used to be one active "provider" (anthropic or local) with two fixed slots of
+		// settings; now any number, tried in order (see ai/backends.ts, ai/AiBackendChain.ts).
+		// Migrated into that list exactly once, preserving whichever provider was actually active as
+		// the list's first (highest-priority) entry, so upgrading never silently drops an
+		// already-configured key. Same "shared base, not a mobile-only override" reasoning as the
+		// activePackIds migration above.
+		if (!("aiBackends" in rawDesktop)) {
+			const migrated: AiBackend[] = [];
+			if (rawDesktop.aiApiKey)
+				migrated.push({ id: newSpecId(), name: "Anthropic", kind: "anthropic", baseUrl: "", apiKey: rawDesktop.aiApiKey, model: rawDesktop.aiModel || "claude-sonnet-5", dailyLimit: 0 });
+			if (rawDesktop.aiLocalBaseUrl)
+				migrated.push({
+					id: newSpecId(),
+					name: "Local server",
+					kind: "openai-compatible",
+					baseUrl: rawDesktop.aiLocalBaseUrl,
+					apiKey: rawDesktop.aiLocalApiKey ?? "",
+					model: rawDesktop.aiLocalModel ?? "",
+					dailyLimit: 0,
+				});
+			if (rawDesktop.aiProvider === "local") migrated.reverse();
+			this.storedSettings.desktop.aiBackends = migrated;
+			needsSave = true;
+		}
+
 		this.settings = resolveEffectiveSettings(this.storedSettings, Platform.isMobile);
 		if (needsSave) await this.saveSettings();
 
@@ -240,6 +286,7 @@ export default class ShimejiPlugin extends Plugin {
 		this.applyUpsideDownFeetDrag();
 		this.applyRoamEnabled();
 		this.applyVaultSearchEnabled();
+		void this.aiBackendChain.preload();
 		this.obsidianPaneActions = new ObsidianPaneActions(this.app);
 
 		this.stage = new Stage({
@@ -790,17 +837,12 @@ export default class ShimejiPlugin extends Plugin {
 		return this.mascotPackId.get(mascot) ?? null;
 	}
 
-	/** Gathers both providers' settings into the one shape ai/providers.ts's dispatcher needs —
-	 * read fresh from live settings on every call (never cached), the same "read live via thunks"
-	 * shape the chat bubble's own deps use, so switching the active provider mid-conversation takes
+	/** Gathers the backend chain's own settings into the shape ai/AiBackendChain.ts's send() needs
+	 * — read fresh from live settings on every call (never cached), the same "read live via thunks"
+	 * shape the chat bubble's own deps use, so editing the backend list mid-conversation takes
 	 * effect on the very next message with nothing here to invalidate. */
 	aiDispatchSettings(): AiDispatchSettings {
-		return {
-			enabled: this.settings.aiEnabled,
-			provider: this.settings.aiProvider,
-			anthropic: { apiKey: this.settings.aiApiKey, model: this.settings.aiModel || "claude-sonnet-5" },
-			local: { baseUrl: this.settings.aiLocalBaseUrl, apiKey: this.settings.aiLocalApiKey, model: this.settings.aiLocalModel },
-		};
+		return { enabled: this.settings.aiEnabled, backends: this.settings.aiBackends };
 	}
 
 	/** True when `other` wears the same character (pack, including "no pack"/placeholder) as
@@ -940,7 +982,9 @@ export default class ShimejiPlugin extends Plugin {
 		// with no working Apply mechanism behind them would just be fences nobody does anything
 		// with (see NOTE_EDIT_INSTRUCTIONS's own comment).
 		if (this.settings.noteEditsEnabled) prompt = (prompt ?? "") + NOTE_EDIT_INSTRUCTIONS;
-		return sendAiMessage(this.aiDispatchSettings(), messages, prompt);
+		const configError = noBackendsConfiguredError(this.aiDispatchSettings());
+		if (configError) throw new Error(configError);
+		return this.aiBackendChain.send(this.settings.aiBackends, messages, prompt);
 	}
 
 	/** ChatBubble's own `applyNoteEdit` dependency — appends an already-user-confirmed proposal to

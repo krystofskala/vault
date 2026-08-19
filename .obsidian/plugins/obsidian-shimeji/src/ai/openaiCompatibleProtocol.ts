@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./types";
+import { AiRequestError, type ChatMessage } from "./types";
 
 /**
  * Pure request-building and response-parsing for the OpenAI-compatible `/chat/completions` shape
@@ -62,7 +62,7 @@ export function parseOpenAiCompatibleResponse(status: number, json: unknown): st
 	if (status < 200 || status >= 300) {
 		const error = obj?.error && typeof obj.error === "object" ? (obj.error as Record<string, unknown>) : undefined;
 		const message = error?.message;
-		throw new Error(typeof message === "string" && message ? message : `Local model server request failed (HTTP ${status}).`);
+		throw new AiRequestError(typeof message === "string" && message ? message : `Local model server request failed (HTTP ${status}).`, status);
 	}
 	const choices = obj?.choices;
 	const first = Array.isArray(choices) && choices.length > 0 ? choices[0] : undefined;

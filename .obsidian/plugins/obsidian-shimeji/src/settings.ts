@@ -1,13 +1,12 @@
 import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
-import { sendChatMessage } from "./ai/AnthropicClient";
-import { sendOpenAiCompatibleMessage } from "./ai/OpenAiCompatibleClient";
+import { AI_BACKEND_PRESETS, backendConfigError, type AiBackend, type AiBackendKind } from "./ai/backends";
 import { resolvePersona } from "./ai/persona";
-import { sendAiMessage } from "./ai/providers";
+import { sendToBackend } from "./ai/providers";
 import type ShimejiPlugin from "./main";
 import { ROOM_STYLE_IDS, ROOM_STYLES, roomStyle } from "./room/rooms";
 import type { RoomRainMode } from "./room/weather";
 import { CharacterEditorModal } from "./wizard/CharacterEditorModal";
-import type { CustomPackContent } from "./shimeji/customContent";
+import { newSpecId, type CustomPackContent } from "./shimeji/customContent";
 import { VaultReactionTrigger } from "./speech/vaultReactions";
 import { OBSIDIAN_EVENTS_BY_SOURCE } from "./speech/obsidianEvents";
 
@@ -162,30 +161,15 @@ export interface ShimejiSettings {
 	 * an external API is a bigger proposition than anything else this plugin does unprompted, and
 	 * it costs real money per message on top of that. */
 	aiEnabled: boolean;
-	/** Which backend actually answers a chat message — see ai/providers.ts. Each provider keeps its
-	 * own settings below rather than sharing fields, so switching back and forth never loses what
-	 * was typed into the other one. */
-	aiProvider: "anthropic" | "local";
-	/** Sent as the `x-api-key` header on every request — see AnthropicClient.ts. Stored in this
-	 * plugin's own settings (data.json) like every other setting here; no separate secret store. */
-	aiApiKey: string;
-	/** A plain configurable string rather than a fixed dropdown of choices — Anthropic ships new
-	 * models regularly, and hardcoding a fixed list would go stale faster than this setting would
-	 * ever get revisited. */
-	aiModel: string;
-	/** Base URL of an OpenAI-compatible chat-completions server — Ollama's own compat endpoint
-	 * (typically "http://localhost:11434/v1") and LM Studio's (typically "http://localhost:1234/v1")
-	 * both work here unmodified, and so does anything else that speaks the same wire format. Empty
-	 * means "not configured yet" — see ai/providers.ts's providerConfigError. */
-	aiLocalBaseUrl: string;
-	/** Almost always blank — most local servers, Ollama included, don't check one at all. Sent as a
-	 * Bearer token only when non-empty, for the servers that do want one. */
-	aiLocalApiKey: string;
-	/** A model name the local server already has pulled/loaded, e.g. "llama3.2" for Ollama. No
-	 * fallback default the way aiModel has one above: which model (if any) is actually available is
-	 * entirely local to whichever machine is running the server, so guessing one here would be as
-	 * likely to be wrong as right. */
-	aiLocalModel: string;
+	/**
+	 * Every backend a chat message can be answered by, tried strictly in this array order — see
+	 * ai/AiBackendChain.ts. Not just one active choice any more: the whole point of a list is
+	 * automatic failover, so a free-tier backend can sit ahead of a paid one and only the paid one
+	 * ever costs anything, or several free backends can queue up behind each other so one's own
+	 * daily quota running out doesn't end the conversation. An empty list (the default) means AI
+	 * chat has nothing to actually answer with yet, regardless of aiEnabled above.
+	 */
+	aiBackends: AiBackend[];
 	/**
 	 * Per-character override files for the AI assistant's system prompt, keyed by pack id — the
 	 * exact same shape packSpeechFiles uses for character-specific speech. A pack with an entry
@@ -252,12 +236,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	responsiveScale: true,
 	mobileReadingViewOnly: true,
 	aiEnabled: false,
-	aiProvider: "anthropic",
-	aiApiKey: "",
-	aiModel: "claude-sonnet-5",
-	aiLocalBaseUrl: "",
-	aiLocalApiKey: "",
-	aiLocalModel: "",
+	aiBackends: [],
 	aiPersonaFiles: {},
 	vaultSearchEnabled: false,
 	vaultSearchTopK: 4,
@@ -293,6 +272,169 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	 * repeated in every description below it. */
 	private callout(containerEl: HTMLElement, kind: "tip" | "warning" | "info", text: string): void {
 		containerEl.createDiv({ cls: `shimeji-callout shimeji-callout-${kind}`, text });
+	}
+
+	/** One entry in the AI backend list — see ShimejiSettings.aiBackends. Its own collapsible
+	 * section (the same visual weight the old fixed Anthropic/Local sections each had), open by
+	 * default: reviewing or editing a backend that's already there is the common reason to look at
+	 * this list at all, not just skimming names. */
+	private renderBackendEntry(containerEl: HTMLElement, backend: AiBackend, index: number, total: number): void {
+		this.section(containerEl, backend.name.trim() || `Backend ${index + 1}`, true, (containerEl) => {
+			new Setting(containerEl)
+				.setName("Order")
+				.setDesc("Backends are tried top to bottom on every message — move this one earlier to prefer it, or later to keep it more of a fallback.")
+				.addExtraButton((b) =>
+					b
+						.setIcon("arrow-up")
+						.setTooltip("Move up")
+						.setDisabled(index === 0)
+						.onClick(async () => {
+							const list = this.plugin.settings.aiBackends;
+							[list[index - 1], list[index]] = [list[index], list[index - 1]];
+							await this.plugin.saveSettings();
+							this.display();
+						}),
+				)
+				.addExtraButton((b) =>
+					b
+						.setIcon("arrow-down")
+						.setTooltip("Move down")
+						.setDisabled(index === total - 1)
+						.onClick(async () => {
+							const list = this.plugin.settings.aiBackends;
+							[list[index], list[index + 1]] = [list[index + 1], list[index]];
+							await this.plugin.saveSettings();
+							this.display();
+						}),
+				)
+				.addExtraButton((b) =>
+					b
+						.setIcon("trash")
+						.setTooltip("Remove this backend")
+						.onClick(async () => {
+							this.plugin.settings.aiBackends.splice(index, 1);
+							await this.plugin.saveSettings();
+							this.display();
+						}),
+				);
+
+			new Setting(containerEl)
+				.setName("Name")
+				.setDesc("Just a label for telling backends apart in this list and in status messages — never sent anywhere.")
+				.addText((text) =>
+					text
+						.setPlaceholder("e.g. Groq (free)")
+						.setValue(backend.name)
+						.onChange(async (value) => {
+							backend.name = value;
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			new Setting(containerEl)
+				.setName("Kind")
+				.setDesc("Anthropic's own API, or anything that speaks the OpenAI-compatible chat-completions format — every preset above, and most local servers, are this.")
+				.addDropdown((dropdown) => {
+					dropdown.addOption("openai-compatible", "OpenAI-compatible (URL + model)");
+					dropdown.addOption("anthropic", "Anthropic");
+					dropdown.setValue(backend.kind).onChange(async (value) => {
+						backend.kind = (value === "anthropic" ? "anthropic" : "openai-compatible") as AiBackendKind;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+				});
+
+			if (backend.kind === "openai-compatible") {
+				new Setting(containerEl)
+					.setName("Server URL")
+					.setDesc("Base URL, no trailing path needed — “/chat/completions” is added automatically.")
+					.addText((text) =>
+						text
+							.setPlaceholder("https://api.groq.com/openai/v1")
+							.setValue(backend.baseUrl)
+							.onChange(async (value) => {
+								backend.baseUrl = value.trim();
+								await this.plugin.saveSettings();
+							}),
+					);
+			}
+
+			new Setting(containerEl)
+				.setName("API key")
+				.setDesc(
+					backend.kind === "anthropic"
+						? "From console.anthropic.com. Sent as-is with every request, never logged."
+						: "Required by most cloud APIs (Groq, OpenRouter, ...); almost always blank for a local server — most, Ollama included, don't check one at all.",
+				)
+				.addText((text) => {
+					text.inputEl.type = "password";
+					text
+						.setPlaceholder(backend.kind === "anthropic" ? "sk-ant-..." : "(often not needed for a local server)")
+						.setValue(backend.apiKey)
+						.onChange(async (value) => {
+							backend.apiKey = value.trim();
+							await this.plugin.saveSettings();
+						});
+				});
+
+			new Setting(containerEl)
+				.setName("Model")
+				.setDesc("A plain string rather than a fixed list — every provider here ships new models on its own schedule.")
+				.addText((text) =>
+					text
+						.setPlaceholder(backend.kind === "anthropic" ? "claude-sonnet-5" : "model id")
+						.setValue(backend.model)
+						.onChange(async (value) => {
+							backend.model = value.trim();
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			new Setting(containerEl)
+				.setName("Daily limit")
+				.setDesc(
+					"Requests per day before this plugin stops trying this backend until tomorrow — 0 means unlimited. A backend that comes back rate-limited gets benched for the rest of today regardless of this number, since that's the provider itself saying the real limit is already hit.",
+				)
+				.addText((text) =>
+					text
+						.setPlaceholder("0 (unlimited)")
+						.setValue(String(backend.dailyLimit))
+						.onChange(async (value) => {
+							const n = Number.parseInt(value, 10);
+							if (!Number.isFinite(n) || n < 0) return;
+							backend.dailyLimit = n;
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			const status = this.plugin.aiBackendChain.statusFor(backend.id, backend.dailyLimit);
+			const statusText = status.limitHitToday
+				? "Rate-limited today — this plugin will try it again tomorrow."
+				: status.dailyLimit > 0
+					? `${status.usedToday} of ${status.dailyLimit} used today.`
+					: `${status.usedToday} used today (unlimited).`;
+			new Setting(containerEl)
+				.setName("Status")
+				.setDesc(statusText)
+				.addButton((b) =>
+					b.setButtonText("Test").onClick(async () => {
+						const configError = backendConfigError(backend);
+						if (configError) {
+							new Notice(configError);
+							return;
+						}
+						b.setDisabled(true).setButtonText("Testing…");
+						try {
+							const reply = await sendToBackend(backend, [{ role: "user", content: "Reply with just the word 'Connected.' and nothing else." }]);
+							new Notice(`${backend.name.trim() || "This backend"} says: ${reply}`);
+						} catch (e) {
+							new Notice(`Connection failed: ${e instanceof Error ? e.message : String(e)}`);
+						} finally {
+							b.setDisabled(false).setButtonText("Test");
+						}
+					}),
+				);
+		});
 	}
 
 	display(): void {
@@ -855,12 +997,12 @@ export class ShimejiSettingTab extends PluginSettingTab {
 			this.callout(
 				containerEl,
 				"info",
-				"Off by default. Turning this on lets your chat messages \u2014 and, if vault search below is also on, matching note excerpts \u2014 leave your machine, either to Anthropic's API or to a local model server you run yourself, whichever provider below is active. The cloud key (or the local server's address) is stored in this plugin's own settings, the same trust model as everything else on this page.",
+				"Off by default. Turning this on lets your chat messages \u2014 and, if vault search below is also on, matching note excerpts \u2014 leave your machine, to whichever backend below actually answers a given message. Backends are tried strictly in the order listed, falling through to the next one whenever the one before it is unconfigured, over today's own limit, or just failed \u2014 so a free-tier backend can sit ahead of a paid one and the paid one only ever gets used as a real fallback. Each backend's own key/URL is stored in this plugin's own settings, the same trust model as everything else on this page; every provider handles its data differently, so check whichever one you actually add against its own current privacy terms rather than this description \u2014 the free-tier presets below link what this plugin already knows, but a provider's own policy is the source of truth if it ever changes.",
 			);
 
 			new Setting(containerEl)
 				.setName("Enable AI assistant")
-				.setDesc("Turns on the AI chat features. Needs the active provider below actually configured regardless of this toggle.")
+				.setDesc("Turns on the AI chat features. Needs at least one backend below actually configured regardless of this toggle.")
 				.addToggle((toggle) =>
 					toggle.setValue(this.plugin.settings.aiEnabled).onChange(async (value) => {
 						this.plugin.settings.aiEnabled = value;
@@ -868,144 +1010,38 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					}),
 				);
 
+			const backends = this.plugin.settings.aiBackends;
+			backends.forEach((backend, index) => this.renderBackendEntry(containerEl, backend, index, backends.length));
+
+			let presetChoice = "custom";
 			new Setting(containerEl)
-				.setName("Provider")
-				.setDesc("Which backend actually answers a chat message. Both keep their own settings below, so switching back and forth never loses what's typed into the other.")
+				.setName("Add a backend")
+				.setDesc(
+					"Starts from a preset for a few providers with a real free tier, or fully custom for anything else that speaks the OpenAI-compatible chat-completions format \u2014 including a local server (Ollama, LM Studio, ...). New backends are added to the end of the list, tried last.",
+				)
 				.addDropdown((dropdown) => {
-					dropdown.addOption("anthropic", "Anthropic (cloud)");
-					dropdown.addOption("local", "Local server (Ollama, LM Studio, ...)");
-					dropdown.setValue(this.plugin.settings.aiProvider).onChange(async (value) => {
-						this.plugin.settings.aiProvider = value === "local" ? "local" : "anthropic";
+					dropdown.addOption("custom", "Custom / other (incl. a local server)");
+					dropdown.addOption("anthropic", "Anthropic (cloud, paid)");
+					for (const preset of AI_BACKEND_PRESETS) dropdown.addOption(preset.id, preset.label);
+					dropdown.setValue(presetChoice).onChange((value) => {
+						presetChoice = value;
+					});
+				})
+				.addButton((b) =>
+					b.setButtonText("Add").onClick(async () => {
+						const preset = AI_BACKEND_PRESETS.find((p) => p.id === presetChoice);
+						const newBackend: AiBackend =
+							presetChoice === "anthropic"
+								? { id: newSpecId(), name: "Anthropic", kind: "anthropic", baseUrl: "", apiKey: "", model: "claude-sonnet-5", dailyLimit: 0 }
+								: preset
+									? { id: newSpecId(), name: preset.label, kind: "openai-compatible", baseUrl: preset.baseUrl, apiKey: "", model: preset.exampleModel, dailyLimit: 0 }
+									: { id: newSpecId(), name: "Custom", kind: "openai-compatible", baseUrl: "", apiKey: "", model: "", dailyLimit: 0 };
+						if (preset) new Notice(preset.note, 12000);
+						this.plugin.settings.aiBackends.push(newBackend);
 						await this.plugin.saveSettings();
 						this.display();
-					});
-				});
-
-			this.section(containerEl, "Anthropic (cloud)", this.plugin.settings.aiProvider === "anthropic", (containerEl) => {
-				new Setting(containerEl)
-					.setName("API key")
-					.setDesc("From console.anthropic.com. Sent as-is with every request, never logged.")
-					.addText((text) => {
-						text.inputEl.type = "password";
-						text
-							.setPlaceholder("sk-ant-...")
-							.setValue(this.plugin.settings.aiApiKey)
-							.onChange(async (value) => {
-								this.plugin.settings.aiApiKey = value.trim();
-								await this.plugin.saveSettings();
-							});
-					});
-
-				new Setting(containerEl)
-					.setName("Model")
-					.setDesc("Anthropic model name \u2014 a plain string rather than a fixed list, since new ones ship regularly.")
-					.addText((text) =>
-						text
-							.setPlaceholder(DEFAULT_SETTINGS.aiModel)
-							.setValue(this.plugin.settings.aiModel)
-							.onChange(async (value) => {
-								this.plugin.settings.aiModel = value.trim();
-								await this.plugin.saveSettings();
-							}),
-					);
-
-				new Setting(containerEl)
-					.setName("Test connection")
-					.setDesc("Sends a trivial message and reports whether it worked \u2014 independent of the enable toggle and the provider selection above, so a key can be verified before switching to it.")
-					.addButton((b) =>
-						b.setButtonText("Test").onClick(async () => {
-							const apiKey = this.plugin.settings.aiApiKey.trim();
-							if (!apiKey) {
-								new Notice("Enter an API key first.");
-								return;
-							}
-							b.setDisabled(true).setButtonText("Testing\u2026");
-							try {
-								const reply = await sendChatMessage({ apiKey, model: this.plugin.settings.aiModel || DEFAULT_SETTINGS.aiModel }, [
-									{ role: "user", content: "Reply with just the word 'Connected.' and nothing else." },
-								]);
-								new Notice(`AI assistant says: ${reply}`);
-							} catch (e) {
-								new Notice(`Connection failed: ${e instanceof Error ? e.message : String(e)}`);
-							} finally {
-								b.setDisabled(false).setButtonText("Test");
-							}
-						}),
-					);
-			});
-
-			this.section(containerEl, "Local server (Ollama, LM Studio, ...)", this.plugin.settings.aiProvider === "local", (containerEl) => {
-				this.callout(
-					containerEl,
-					"info",
-					"Any server that speaks the OpenAI-compatible chat-completions format works here \u2014 Ollama's own compat endpoint is typically \u201chttp://localhost:11434/v1\u201d, LM Studio's is typically \u201chttp://localhost:1234/v1\u201d once its server is started. Reaching one from your phone, if you use Obsidian Mobile, means the server has to be reachable over the network \u2014 your home Wi-Fi, or a tunnel like Tailscale when you're away \u2014 which is a networking setup on your end, not something this plugin can do for you.",
+					}),
 				);
-
-				new Setting(containerEl)
-					.setName("Server URL")
-					.setDesc("Base URL, no trailing path needed \u2014 \u201c/chat/completions\u201d is added automatically.")
-					.addText((text) =>
-						text
-							.setPlaceholder("http://localhost:11434/v1")
-							.setValue(this.plugin.settings.aiLocalBaseUrl)
-							.onChange(async (value) => {
-								this.plugin.settings.aiLocalBaseUrl = value.trim();
-								await this.plugin.saveSettings();
-							}),
-					);
-
-				new Setting(containerEl)
-					.setName("Model")
-					.setDesc("A model name the server already has pulled or loaded, e.g. \u201cllama3.2\u201d for Ollama.")
-					.addText((text) =>
-						text
-							.setPlaceholder("llama3.2")
-							.setValue(this.plugin.settings.aiLocalModel)
-							.onChange(async (value) => {
-								this.plugin.settings.aiLocalModel = value.trim();
-								await this.plugin.saveSettings();
-							}),
-					);
-
-				new Setting(containerEl)
-					.setName("API key")
-					.setDesc("Almost always blank \u2014 most local servers, Ollama included, don't check one at all.")
-					.addText((text) => {
-						text.inputEl.type = "password";
-						text
-							.setPlaceholder("(usually not needed)")
-							.setValue(this.plugin.settings.aiLocalApiKey)
-							.onChange(async (value) => {
-								this.plugin.settings.aiLocalApiKey = value.trim();
-								await this.plugin.saveSettings();
-							});
-					});
-
-				new Setting(containerEl)
-					.setName("Test connection")
-					.setDesc("Sends a trivial message and reports whether it worked \u2014 independent of the enable toggle and the provider selection above, so a local server can be verified before switching to it.")
-					.addButton((b) =>
-						b.setButtonText("Test").onClick(async () => {
-							const baseUrl = this.plugin.settings.aiLocalBaseUrl.trim();
-							if (!baseUrl) {
-								new Notice("Enter the server's URL first.");
-								return;
-							}
-							b.setDisabled(true).setButtonText("Testing\u2026");
-							try {
-								const reply = await sendOpenAiCompatibleMessage(
-									{ baseUrl, apiKey: this.plugin.settings.aiLocalApiKey, model: this.plugin.settings.aiLocalModel },
-									[{ role: "user", content: "Reply with just the word 'Connected.' and nothing else." }],
-								);
-								new Notice(`AI assistant says: ${reply}`);
-							} catch (e) {
-								new Notice(`Connection failed: ${e instanceof Error ? e.message : String(e)}`);
-							} finally {
-								b.setDisabled(false).setButtonText("Test");
-							}
-						}),
-					);
-			});
 
 			this.section(containerEl, "Vault search", this.plugin.settings.vaultSearchEnabled, (containerEl) => {
 				if (Platform.isMobile) {
@@ -1152,10 +1188,10 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								b.setDisabled(true).setButtonText("Testing…");
 								try {
 									const persona = resolvePersona(pack, this.plugin.personaTexts);
-									// Through whichever provider is currently active, same as the chat bubble itself
-									// — this is a persona check, not a provider check, so it uses whatever's live
-									// rather than always testing Anthropic specifically.
-									const reply = await sendAiMessage(this.plugin.aiDispatchSettings(), [{ role: "user", content: "Say hello, briefly, in character." }], persona);
+									// Through the same backend chain the chat bubble itself uses — this is a persona
+									// check, not a backend check, so it walks the real configured order (and counts
+									// against the same daily limits) rather than always testing one backend directly.
+									const reply = await this.plugin.aiBackendChain.send(this.plugin.settings.aiBackends, [{ role: "user", content: "Say hello, briefly, in character." }], persona);
 									new Notice(`${pack.name} says: ${reply}`);
 								} catch (e) {
 									new Notice(`Connection failed: ${e instanceof Error ? e.message : String(e)}`);

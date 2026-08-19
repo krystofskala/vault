@@ -817,45 +817,64 @@ how many lines and tags its own file has.
 
 **Settings → AI Assistant**, off by default.
 
-- **Enable AI assistant** — the master switch. Nothing calls out to either provider while this is
-  off.
-- **Provider** — **Anthropic (cloud)** or **Local server (Ollama, LM Studio, ...)**. Each keeps its
-  own settings below in its own collapsible group (whichever one is active starts expanded), so
-  switching back and forth never loses what's typed into the other — a laptop that can't or
-  shouldn't run a local model (locked-down/underpowered) can point at Anthropic instead, on the
-  same plugin, without retyping anything if you switch back later.
+- **Enable AI assistant** — the master switch. Nothing calls out to any backend while this is off.
+- **Backends** — not one active provider but an ordered list of any number of them. Sending a chat
+  message tries each backend top to bottom, skipping straight past any that are unconfigured or
+  already at today's own limit, and falls through automatically to the next one if a backend errors
+  or comes back rate-limited — the whole point being to put a free-tier backend ahead of a paid one
+  so the paid one only ever gets used as a genuine fallback, or to queue up several free backends
+  behind each other so one running out mid-conversation doesn't end it.
 
-**Anthropic (cloud)**:
-- **API key** — from `console.anthropic.com`. Sent as the request's `x-api-key` header, nothing
-  else.
-- **Model** — a plain text field rather than a fixed dropdown, since Anthropic ships new models
-  regularly and a hardcoded list would go stale fast.
-- **Test connection** — sends one trivial message and reports success or failure, independent of
-  the enable toggle and the provider selection above, so a key can be verified before switching to
-  it.
+Each backend in the list has:
+- **Order** — up/down arrows moving it earlier (preferred) or later (more of a fallback) in the
+  try order, and a trash icon to remove it.
+- **Name** — just a label for telling backends apart in this list and in status/error messages;
+  never sent anywhere.
+- **Kind** — **Anthropic**, or **OpenAI-compatible** (anything that speaks the OpenAI
+  chat-completions wire format — every free-tier preset below, and most local servers, are this).
+- **Server URL** (OpenAI-compatible only) — base URL; `/chat/completions` is appended
+  automatically.
+- **API key** — from the provider's own console for a cloud backend; almost always blank for a
+  local server, since most (Ollama included) don't check one at all.
+- **Model** — a plain text field rather than a fixed dropdown, since every provider here ships new
+  models on its own schedule.
+- **Daily limit** — requests per day before this plugin stops trying this backend until tomorrow;
+  0 means unlimited. A backend that comes back rate-limited gets benched for the rest of the day
+  regardless of this number — that's the provider itself saying the real limit is already hit,
+  which this plugin otherwise has no way to know.
+- **Status / Test** — how many requests this backend has answered today (or that it's currently
+  rate-limited), plus a **Test** button that sends one trivial message straight to that backend,
+  bypassing the try-in-order chain and its limits entirely, so a key can be verified before relying
+  on it.
 
-**Local server (Ollama, LM Studio, ...)**:
-- **Server URL** — base URL of any server that speaks the OpenAI-compatible chat-completions
-  format; `/chat/completions` is appended automatically. Ollama's own compat endpoint is typically
-  `http://localhost:11434/v1`, LM Studio's `http://localhost:1234/v1` once its server is started.
-  Not locked to either one specifically — anything speaking the same wire format works, including
-  llama.cpp's own server mode or a llamafile, which is worth knowing about on a machine where
-  installing a background service (what Ollama/LM Studio both are) isn't an option: a llamafile is
-  a single self-contained executable, no installer or admin rights needed.
-- **Model** — a name the server already has pulled or loaded, e.g. `llama3.2` for Ollama. No
-  fallback default the way Anthropic's model field has one — which models are actually available
-  depends entirely on that machine, so guessing would be as likely wrong as right.
-- **API key** — almost always blank; most local servers, Ollama included, don't check one at all.
-  Sent as a Bearer token only when non-empty.
-- **Test connection** — same as the cloud provider's, against the local server instead.
+**Add a backend** offers presets for a few providers with a real free tier, verified against each
+one's own current docs, alongside **Custom / other** for anything else (a local server included):
 
-Reaching a local server from **Obsidian Mobile** means the server has to be reachable over the
-network — the same Wi-Fi at home, or a tunnel like Tailscale when away from it — since a phone
-can't run the server itself (no Obsidian plugin can run local inference on iOS/Android; there is no
-native bridge for it). That is a networking setup on your own end, not something a provider choice
-changes.
+- **Groq** — `https://api.groq.com/openai/v1`. Doesn't train on API requests by default and states
+  it doesn't log prompt/completion content beyond brief transient error monitoring.
+- **OpenRouter** — `https://openrouter.ai/api/v1`. Zero data retention by default; pick a model id
+  ending in `:free` to stay on the free tier.
+- **Cloudflare Workers AI** — account-scoped
+  (`https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1`), so the preset's own URL
+  needs your account id filled in before it can work at all.
+- **Google AI Studio** (Gemini, OpenAI-compatible) — the free tier's own terms allow human review
+  and training use; adding billing to the Google Cloud project behind the key (while still staying
+  under the free daily quota, so nothing gets charged) switches it to Google's no-training
+  commercial terms instead.
 
-Both providers' requests go out through Obsidian's own `requestUrl` rather than the browser's
+Each preset's own privacy note pops up as a toast the moment it's added, since that's the most
+relevant moment to actually read it — but a provider's own current policy is always the source of
+truth, not this plugin's description of it, especially for anything free.
+
+A local server (Ollama, LM Studio, llama.cpp's own server mode, a llamafile — anything speaking the
+OpenAI-compatible format) is just a **Custom** backend with its base URL pointed at
+`http://localhost:11434/v1` or wherever it's actually listening. Reaching one from **Obsidian
+Mobile** means the server has to be reachable over the network — the same Wi-Fi at home, or a
+tunnel like Tailscale when away from it — since a phone can't run the server itself (no Obsidian
+plugin can run local inference on iOS/Android; there is no native bridge for it). That's a
+networking setup on your own end, not something a backend choice changes.
+
+Every backend's requests go out through Obsidian's own `requestUrl` rather than the browser's
 `fetch` — `fetch` from a plugin's renderer process hits the same-origin/CORS restriction a direct
 call to an API would trip; `requestUrl` goes out through Electron's main process instead, which
 isn't subject to it. This is why every Obsidian AI plugin uses it instead of `fetch`.
@@ -913,10 +932,10 @@ feature on for the first time, and its status line shows how many notes are inde
 
 Sending a chat message embeds it the same way and finds the **Notes per message** most similar
 already-indexed notes, splicing their content into that message's context before it goes to
-whichever provider (Anthropic or local) is actually answering. This is the one important caveat:
-the search itself is local, but the notes it finds are only as private as that provider — a note
-retrieved this way goes out over the network exactly like anything typed into the chat by hand,
-if Anthropic is the active provider.
+whichever backend actually answers it. This is the one important caveat: the search itself is
+local, but the notes it finds are only as private as that backend — a note retrieved this way goes
+out over the network exactly like anything typed into the chat by hand, for any backend that isn't
+itself fully local.
 
 Desktop only: the model is a real (if small) machine-learning workload, heavier than this plugin
 otherwise asks of a phone, in keeping with the wizard's own desktop-only treatment below.
@@ -929,7 +948,7 @@ feature set alone would suggest, even for someone who never turns this setting o
 ### Confirmed note edits
 
 **Settings → AI Assistant → Note edits**, off by default, works on mobile too — unlike vault
-search above, this needs no local model, just the chat provider that's already answering.
+search above, this needs no local model, just whichever backend is already answering.
 
 When it's on, the assistant is told it may propose a concrete change to the note you're
 discussing — a grammar fix, a callout, an embed, whatever the conversation calls for — instead of
