@@ -488,6 +488,12 @@
 	/* More headroom above the first line than the sides/bottom get — flush against the rounded top
 	   corner otherwise reads as cramped in a way the other three edges don't. */
 	padding: 18px 10px 8px;
+	/* Nothing else in this file blocks selection here, but nothing explicitly enabled it either —
+	   .shimeji-mascot's own `user-select: none` (a real, deliberate rule, elsewhere in this file)
+	   is a plausible enough source of confusion that this is worth being unambiguous about: chat
+	   text, unlike the sprite itself, is meant to be selectable and copyable. */
+	user-select: text;
+	cursor: text;
 }
 
 /* The tail: a plain CSS border-triangle, not a rotated square like .shimeji-bubble's own ::after —
