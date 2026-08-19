@@ -683,10 +683,15 @@
 	outline: none !important;
 }
 
-/* Selected text otherwise picks up Chromium's default grey selection block — visible the moment
-   any text in the field is highlighted. Transparent leaves only the caret itself, per request. */
+/* Selected text otherwise picks up Chromium's default grey selection block, which read wrong
+   against this bubble's own white/black look — but fully transparent (an earlier version of this
+   rule) turned out to be a real usability problem, not just an aesthetic one: with no highlight at
+   all, selecting text to cut/copy left no way to see which characters were actually selected.
+   Obsidian's own --text-selection variable keeps this consistent with the rest of the app in
+   theme mode; comic mode gets its own fixed colour below, matching how it already ignores the
+   active theme everywhere else in this bar. */
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field::selection {
-	background: transparent !important;
+	background: var(--text-selection) !important;
 }
 
 /* Same repeat-per-pseudo-class treatment as the field above, and the same reason: Obsidian's own
@@ -735,6 +740,14 @@
 .shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-field::placeholder {
 	color: #111111;
 	opacity: 0.55;
+}
+
+/* var(--text-selection) above is the right default for theme mode, but comic mode ignores the
+   active theme everywhere else in this bar — that variable could plausibly resolve to something
+   that reads poorly against comic mode's own fixed white background, so it gets the same fixed
+   treatment as its color/border/placeholder above rather than inheriting a theme-dependent value. */
+.shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-field::selection {
+	background: rgba(17, 17, 17, 0.25) !important;
 }
 
 .shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-send {
