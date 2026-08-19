@@ -1113,7 +1113,18 @@ export default class ShimejiPlugin extends Plugin {
 			this.residency.tick();
 			const view = this.roomView();
 			view?.refresh();
-			this.speech.tick(this.stage?.getMascots() ?? [], this.stage?.getWorldTop() ?? 0);
+			const mascots = this.stage?.getMascots() ?? [];
+			// User-requested: with several mascots ordered to one spot at once, there was no way to
+			// tell which ones actually arrived on purpose versus which just happened to be nearby.
+			// Gated on speechEnabled, unlike SpeechBubbles.say's other caller (the settings "try a
+			// line" preview) — that one is a deliberate one-off test action; this fires during
+			// ordinary use, so it should respect the same toggle every other bubble does.
+			if (this.settings.speechEnabled) {
+				for (const mascot of mascots) {
+					if (mascot.consumeJustReachedSpot()) this.speech.say(mascot, "Reached my target!");
+				}
+			}
+			this.speech.tick(mascots, this.stage?.getWorldTop() ?? 0);
 			this.chatBubble.update(this.residency.residentMascot, view?.paneRect(), view?.layout()?.rect);
 			// Keeps the room's own toggle button in sync when the bubble closes on its own — the
 			// resident leaving, or its own × — rather than only ever updating on a click of the

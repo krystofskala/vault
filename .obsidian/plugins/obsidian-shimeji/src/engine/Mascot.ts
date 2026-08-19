@@ -137,6 +137,9 @@ export interface MascotDriver {
 	cancelSpotOrder?(): void;
 	/** Whether a "get to that spot" order is still outstanding, so a caller can wait for it. */
 	hasSpotOrder?(): boolean;
+	/** Read-once: true exactly once, on whichever call first observes that an outstanding order
+	 * just completed. See BehaviorAI.consumeJustReachedSpot's own doc comment. */
+	consumeJustReachedSpot?(): boolean;
 	/** The behavior currently running, for the debug readout (shimejiDebug.where/watch). */
 	currentBehaviorName?(): string | undefined;
 	onDetach?(mascot: Mascot): void;
@@ -393,6 +396,12 @@ export class Mascot {
 
 	cancelSpotOrder(): void {
 		this.driver?.cancelSpotOrder?.();
+	}
+
+	/** Read-once: see MascotDriver.consumeJustReachedSpot's own doc comment. Polled from main.ts's
+	 * per-frame loop so a mascot that reached an explicit order can say so. */
+	consumeJustReachedSpot(): boolean {
+		return this.driver?.consumeJustReachedSpot?.() ?? false;
 	}
 
 	/** What the driver is currently running, for the debug readout. Undefined with no pack-backed

@@ -256,6 +256,22 @@ export class BehaviorAI {
 		return this.orderedSpot !== undefined;
 	}
 
+	/** Set for exactly one tick — the one in which an outstanding order actually completed (the
+	 * mascot got within SPOT_ARRIVAL_PX of it) — as opposed to being cancelled or given up on as
+	 * unreachable, neither of which set this. See its own consumer in main.ts's per-frame loop:
+	 * user-requested, so a mascot that reached an explicit order can say so, distinguishing a
+	 * genuine arrival from ordinary wandering that happens to pass near the same point. */
+	private justReachedSpotFlag = false;
+
+	/** Read-once: main.ts polls this on `requestAnimationFrame`, a different (usually faster) rate
+	 * than this class's own `tick()`, so an unconsumed flag could otherwise be read — and acted on
+	 * — more than once before the next real engine tick has a chance to clear it. */
+	consumeJustReachedSpot(): boolean {
+		const flagged = this.justReachedSpotFlag;
+		this.justReachedSpotFlag = false;
+		return flagged;
+	}
+
 	/** Whether an action is mid-flight, and which behavior owns it. Exposed for the movement audit,
 	 * which has to watch one forced behavior until *it* ends — not until nothing is running, which
 	 * never happens, because the pack's own chain immediately picks the next one. */
@@ -780,6 +796,7 @@ export class BehaviorAI {
 			debugLog("spot order complete", { x: Math.round(mascot.physics.x), y: Math.round(mascot.physics.y) });
 			this.orderedSpot = undefined;
 			this.spotPhase = undefined;
+			this.justReachedSpotFlag = true;
 		}
 
 		const env = this.buildEnv(mascot, ambientPointer, config, paneActions, ledges);
@@ -798,9 +815,20 @@ export class BehaviorAI {
 		// HoldOntoCeiling — which is why a freshly-issued order also forces its way in here even while
 		// the runner is busy, not only while it's idle. See spotOrderJustIssued's own comment for why
 		// this is a one-shot force rather than an unconditional every-tick check.
+		//
+		// Once we decide to drive it at all, an outstanding order must own the whole rest of this
+		// tick regardless of what driveSpotOrder itself returns — see the later, identical guard
+		// further down for exactly why: several of its own internal transitions (deciding on pane
+		// surgery, having just pressed the new-pane button) correctly return false for "nothing to
+		// start yet" without that meaning "give up," and a bare `&&` here let that read as
+		// permission for ordinary reselection below to hijack the mascot mid-transition. A genuine
+		// give-up clears `this.orderedSpot` itself, so it can never get stuck this way.
 		const forcedBySpotOrder = this.spotOrderJustIssued;
 		this.spotOrderJustIssued = false;
-		if (this.orderedSpot && (forcedBySpotOrder || !this.runner.isRunning) && this.driveSpotOrder(env, ledges)) return;
+		if (this.orderedSpot && (forcedBySpotOrder || !this.runner.isRunning)) {
+			this.driveSpotOrder(env, ledges);
+			return;
+		}
 
 		if (this.followingMouse) {
 			// Arm the comparison the first time round. Turning the mode on kicks off the pack's own
@@ -867,7 +895,23 @@ export class BehaviorAI {
 		// pursuit straight up again.
 		if (this.followingMouse && this.startPursuitLeg(env, ambientPointer, ledges)) return;
 
-		if (this.orderedSpot && this.driveSpotOrder(env, ledges)) return;
+		// Real bug this used to have: `&& this.driveSpotOrder(...)` let ordinary reselection run
+		// below the instant driveSpotOrder returned false for *any* reason — including its own
+		// "decided on pane surgery" and "just pressed the new-pane button" transitions, both of
+		// which correctly return false only because there is nothing new to *start* on this exact
+		// tick (surgery's own comment: "new geometry arrives next tick"), not because the order was
+		// abandoned. Falling through from there handed the runner straight to pickNextBehavior,
+		// which happily started an unrelated Sit — silently stranding the order mid-surgery, with
+		// spotPhase left set but nothing ever coming back to drive it, until some unrelated action
+		// happened to finish naturally on its own. Visible exactly as reported: the mascot runs
+		// briefly, presses a pane's own "+" button, then sits down and never moves again. An
+		// outstanding order must own the rest of this tick regardless of what driveSpotOrder
+		// returns — only a genuine give-up clears `this.orderedSpot` itself, which is what actually
+		// lets ordinary reselection resume, one tick later, correctly.
+		if (this.orderedSpot) {
+			this.driveSpotOrder(env, ledges);
+			return;
+		}
 
 		// Checked before the flavor-roam below, and unconditionally rather than at its low chance:
 		// this isn't "maybe wander somewhere interesting", it's "don't settle right next to someone

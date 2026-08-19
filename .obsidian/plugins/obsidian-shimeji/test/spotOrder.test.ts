@@ -24,7 +24,7 @@ const pack: MascotPack = { id: "s", name: "S", actions, behaviors, resolveImage:
 
 const VIEWPORT = { width: 1200, height: 800, top: 40 };
 
-function scene(startX: number, panes: Array<{ left: number; top: number; right: number; bottom: number }> = [], startY = 800) {
+function scene(startX: number, panes: Array<{ left: number; top: number; right: number; bottom: number }> = [], startY = 800, seed = 5) {
 	let livePanes = [...panes];
 	let ledges = computeLedgesFromRects(VIEWPORT, livePanes.map((rect) => ({ rect, source: "pane" as const, paneRef: rect })));
 	const floor = ledges.find((l): l is Extract<Ledge, { kind: "floor" }> => l.kind === "floor" && Math.abs(l.y - startY) < 1)!;
@@ -92,7 +92,7 @@ function scene(startX: number, panes: Array<{ left: number; top: number; right: 
 		},
 	};
 
-	const ai = new BehaviorAI(pack, new Random(5));
+	const ai = new BehaviorAI(pack, new Random(seed));
 	const run = (ticks: number) => {
 		for (let i = 0; i < ticks; i++) {
 			ai.tick(mascot, 0.04, ledges, { x: 0, y: 0, dx: 0, dy: 0 }, DEFAULT_ENGINE_CONFIG, paneActions);
@@ -125,6 +125,39 @@ describe("spot order", () => {
 		expect(Math.abs(arrived.x - 900)).toBeLessThanOrEqual(40);
 		expect(s.presses).toHaveLength(0);
 		expect(s.ai.hasSpotOrder).toBe(false);
+	});
+
+	// User-requested diagnostic: with several mascots ordered to one spot, there was no way to tell
+	// which ones actually arrived on purpose. consumeJustReachedSpot is what main.ts's per-frame
+	// loop polls to show a "Reached my target!" bubble — it must fire exactly once on a genuine
+	// arrival, never before, and never again afterward (including on a later, unrelated arrival at
+	// wherever the pack's own idling happens to wander next).
+	it("consumeJustReachedSpot fires exactly once, only on genuine arrival", () => {
+		const s = scene(200);
+		expect(s.ai.consumeJustReachedSpot(), "false before any order exists").toBe(false);
+
+		// Ordered to somewhere it is already standing: arrival is detected on the very next tick,
+		// deterministically, rather than depending on however many ticks a real walk takes.
+		s.ai.orderToSpot({ x: s.physics.x, y: s.physics.y });
+		s.run(1);
+		expect(s.ai.hasSpotOrder, "the order itself should be done").toBe(false);
+		expect(s.ai.consumeJustReachedSpot()).toBe(true);
+		expect(s.ai.consumeJustReachedSpot(), "read-once: false immediately after being consumed").toBe(false);
+
+		s.run(50);
+		expect(s.ai.consumeJustReachedSpot(), "stays false afterward, however the pack idles next").toBe(false);
+
+		// A real multi-tick walk: the flag must stay false for every tick the order is still
+		// outstanding, and only turn true on the exact tick it completes — never early.
+		s.ai.orderToSpot({ x: 900, y: 800 });
+		let flaggedAt = -1;
+		for (let tick = 0; tick < 400 && flaggedAt < 0; tick++) {
+			expect(s.ai.hasSpotOrder, `order should still be outstanding before arrival (tick ${tick})`).toBe(true);
+			s.run(1);
+			if (s.ai.consumeJustReachedSpot()) flaggedAt = tick;
+		}
+		expect(flaggedAt, "should have arrived and flagged within the tick budget").toBeGreaterThanOrEqual(0);
+		expect(s.ai.hasSpotOrder, "order should already be cleared on the same tick the flag fires").toBe(false);
 	});
 
 	// Real user report: the order "does nothing" until whatever the mascot happened to already be
@@ -201,6 +234,31 @@ describe("spot order", () => {
 		}
 		// And it is shoved in the direction that closes the gap, not away from it.
 		expect(s.shoves.every((shove) => shove.deltaPx > 0)).toBe(true);
+	});
+
+	// Real user report: a single mascot "ran for a second, opened a useless window, then sat down
+	// and fell asleep" without ever reaching the target — the order silently abandoned mid-surgery.
+	// Root cause: driveSpotOrder correctly returns false at two points that are not a give-up at
+	// all — deciding on surgery, and having just pressed the new pane's own button — because there
+	// is nothing new to *start* on that exact tick (comment: "new geometry arrives next tick"). The
+	// caller used to read any false as "ordinary reselection may run," which let pickNextBehavior
+	// immediately start an unrelated autonomous action (most commonly Sit, which has no self-ending
+	// Duration by default and so holds forever) right in the middle of the surgery sequence, with
+	// spotPhase left set but never revisited. Whether this bites depends on which autonomous
+	// behavior gets picked at that exact moment, which is why the *other* STACKED tests above (all
+	// fixed at seed=5) never caught it — this sweeps several seeds specifically to catch the ones
+	// that do, over a tick budget short enough that "eventually gets lucky" doesn't paper over it.
+	it("reaches a surgery-requiring spot across a spread of seeds, not just a lucky one", () => {
+		const SHORT_BUDGET = 4000; // matches the budget the other STACKED tests above already use
+		const failures: number[] = [];
+		for (let seed = 1; seed <= 10; seed++) {
+			const s = scene(200, STACKED(), 800, seed);
+			s.ai.orderToSpot({ x: 600, y: 500 });
+			const { arrived } = s.runUntilOrderDone(SHORT_BUDGET);
+			const reached = Math.abs(arrived.x - 600) <= 40 && Math.abs(arrived.y - 500) <= 40;
+			if (!reached) failures.push(seed);
+		}
+		expect(failures, `seeds that never reached the target: ${failures.join(", ")}`).toEqual([]);
 	});
 
 	// Each attempt splits a real pane in someone's workspace, so an impossible spot must not turn

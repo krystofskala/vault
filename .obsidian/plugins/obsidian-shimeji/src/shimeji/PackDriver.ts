@@ -125,6 +125,10 @@ export class PackDriver implements MascotDriver {
 		this.ai.cancelSpotOrder();
 	}
 
+	consumeJustReachedSpot(): boolean {
+		return this.ai.consumeJustReachedSpot();
+	}
+
 	/** Real `Configuration.isBehaviorToggleable(name)` — which behaviors may be shown as
 	 * user-switchable checkboxes. Real Mascot.showPopup also skips composite names containing
 	 * "/", which never appear as standalone entries. */
