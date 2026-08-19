@@ -892,7 +892,7 @@ with the chat bubble for the same spot on screen. They're shown, not sent: the a
 them as something it or you said.
 
 Confirmed note edits (having the assistant propose changes it can write with your approval) are
-planned but not built yet.
+covered in their own section below.
 
 ### Vault search
 
@@ -920,6 +920,26 @@ if Anthropic is the active provider.
 
 Desktop only: the model is a real (if small) machine-learning workload, heavier than this plugin
 otherwise asks of a phone, in keeping with the wizard's own desktop-only treatment below.
+
+### Confirmed note edits
+
+**Settings → AI Assistant → Note edits**, off by default, works on mobile too — unlike vault
+search above, this needs no local model, just the chat provider that's already answering.
+
+When it's on, the assistant is told it may propose a concrete change to the note you're
+discussing — a grammar fix, a callout, an embed, whatever the conversation calls for — instead of
+only describing one in prose. A proposal shows up as its own small card under that reply, with a
+rendered preview of exactly what it would add and two buttons: **Apply** and **Discard**. Nothing
+is ever written to a note on its own; Apply is the only thing that touches the vault, and it only
+does one thing — append the proposed markdown to the note that's currently active in the
+workspace. If nothing is open when you click it, the card reports that instead of writing
+anywhere, so you can open the right note and try again. Discard just dismisses the card; either
+button is final for that particular proposal, and a fresh reply is a fresh card.
+
+This is deliberately not real tool-calling — it's a plain fenced code block the model writes as
+part of an ordinary text reply, the same way it would write any other code block. That works
+identically across every provider this plugin talks to, including a small local model, without
+needing function-calling support from any of them.
 
 ### Character personality
 

@@ -204,6 +204,11 @@ export interface ShimejiSettings {
 	/** How many notes' excerpts get spliced into a chat message's context — see
 	 * ai/vaultSearch.ts's rankRelevant. */
 	vaultSearchTopK: number;
+	/** Off by default — lets the AI chat propose edits to the active note (grammar fixes,
+	 * callouts, embeds) as an Apply/Discard card instead of just describing them in prose. See
+	 * ai/noteEdits.ts. Nothing is ever written to a note without the user clicking Apply on a
+	 * specific proposal, but this still gates whether the model is even invited to propose. */
+	noteEditsEnabled: boolean;
 }
 
 /** Empty means "not configured yet" — main.ts fills in a real default relative to the
@@ -256,6 +261,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	aiPersonaFiles: {},
 	vaultSearchEnabled: false,
 	vaultSearchTopK: 4,
+	noteEditsEnabled: false,
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
@@ -1066,6 +1072,25 @@ export class ShimejiSettingTab extends PluginSettingTab {
 									this.display();
 								}
 							}),
+					);
+			});
+
+			this.section(containerEl, "Note edits", this.plugin.settings.noteEditsEnabled, (containerEl) => {
+				this.callout(
+					containerEl,
+					"info",
+					"Lets the AI propose changes to the note you're discussing — a grammar fix, a callout, an embed — as a card in the chat with its own Apply and Discard buttons. Nothing is written to any note until you personally click Apply on a specific proposal; Discard (or just ignoring it) leaves the note untouched.",
+				);
+
+				new Setting(containerEl)
+					.setName("Let the AI propose note edits")
+					.setDesc("Off by default. Adds an Apply/Discard card under any chat reply that suggests a concrete change.")
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.noteEditsEnabled).onChange(async (value) => {
+							this.plugin.settings.noteEditsEnabled = value;
+							await this.plugin.saveSettings();
+							this.display();
+						}),
 					);
 			});
 

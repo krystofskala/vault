@@ -1,4 +1,5 @@
 import { Component, MarkdownRenderer } from "obsidian";
+import { parseProposedEdits } from "../ai/noteEdits";
 import { resolvePersona } from "../ai/persona";
 import type { ChatMessage } from "../ai/types";
 import type { Mascot } from "../engine/Mascot";
@@ -39,6 +40,16 @@ export interface ChatBubbleDeps {
 	 * surface reads as one object. */
 	style(): BubbleStyle;
 	packFor(mascot: Mascot): MascotPack | undefined;
+	/** Whether a reply may propose note edits at all — see ai/noteEdits.ts. Read fresh on every
+	 * send(), the same as everything else about this dependency object, so flipping the setting
+	 * mid-conversation takes effect on the very next message rather than needing chat reopened. */
+	noteEditsEnabled(): boolean;
+	/** Applies one already-user-confirmed proposal — appends `content` to whichever note is active
+	 * at the moment Apply is actually clicked (not whichever was active when the AI proposed it;
+	 * see main.ts's own implementation for why that's the deliberate choice for a v1 with no
+	 * automatic active-note context yet). Rejects (shown on the card itself, not thrown further)
+	 * when there is nothing to apply to. */
+	applyNoteEdit(content: string): Promise<void>;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -54,6 +65,23 @@ type TimelineRole = ChatMessage["role"] | "scripted";
 interface TimelineEntry {
 	role: TimelineRole;
 	content: string;
+	/** Proposals parsed out of this entry's own reply (see ai/noteEdits.ts) — only ever present on
+	 * an "assistant" entry, and only when note edits were on when the reply came in. Kept on the
+	 * entry itself, not separate state keyed by index, so a card's applied/discarded status survives
+	 * exactly as long as the message it belongs to does (which is to say: the life of this
+	 * conversation, the same as the rest of history — see this class's own doc comment). */
+	edits?: NoteEditState[];
+}
+
+/** One card's worth of state. "pending" is the only state Apply/Discard are shown for; the other
+ * two are terminal — a card never goes back to pending, and never re-applies once applied. */
+interface NoteEditState {
+	content: string;
+	status: "pending" | "applied" | "discarded";
+	/** Set only on a failed Apply (e.g. no active note) — shown on the card, cleared if retried and
+	 * it succeeds. Distinct from `status` because a failed attempt stays "pending" (retryable),
+	 * unlike "applied"/"discarded" which are both final. */
+	error?: string;
 }
 
 /** Drops scripted lines before a turn goes out over the wire, so a mascot's ambient chatter can
@@ -226,7 +254,15 @@ export class ChatBubble extends Component {
 		try {
 			const persona = resolvePersona(this.deps.packFor(this.mascot), this.deps.personas());
 			const reply = await this.deps.sendMessage(toChatMessages(this.history), persona);
-			this.history.push({ role: "assistant", content: reply });
+			// Parsed even when the setting only just turned off mid-conversation (a reply already in
+			// flight was asked for under the old system prompt) — the fences would otherwise show up
+			// as literal text in the transcript instead of quietly becoming plain prose again.
+			const { text, proposals } = parseProposedEdits(reply);
+			this.history.push({
+				role: "assistant",
+				content: text,
+				edits: proposals.length > 0 ? proposals.map((content) => ({ content, status: "pending" as const })) : undefined,
+			});
 		} catch (e) {
 			// Deliberately not pushed into history: an error string sent back as a future "assistant"
 			// turn would confuse the model about what it actually said last, for a message that was
@@ -253,12 +289,68 @@ export class ChatBubble extends Component {
 			const row = el.createDiv({ cls: `shimeji-bubble-chat-msg shimeji-bubble-chat-msg-${entry.role}` });
 			await MarkdownRenderer.renderMarkdown(entry.content, row, "", this);
 			if (generation !== this.renderGeneration) return;
+			if (entry.edits) {
+				for (const edit of entry.edits) {
+					await this.renderEditCard(el, edit);
+					if (generation !== this.renderGeneration) return;
+				}
+			}
 		}
 		if (this.sending) {
 			el.createDiv({ cls: "shimeji-bubble-chat-msg shimeji-bubble-chat-msg-assistant shimeji-bubble-chat-thinking", text: "…" });
 		}
 		if (this.notice) el.createDiv({ cls: "shimeji-bubble-chat-notice", text: this.notice });
 		el.scrollTop = el.scrollHeight;
+	}
+
+	/**
+	 * One Apply/Discard card for a single proposed edit — see ai/noteEdits.ts for where `edit`
+	 * comes from. Mutates `edit` in place (it's a reference into `this.history`, not a copy) and
+	 * re-renders the whole transcript afterward, the same pattern every other state change in this
+	 * class already uses (sending/notice) rather than trying to patch just this one card's DOM.
+	 *
+	 * The proposed content is rendered as markdown too, not shown as raw text — a proposed callout
+	 * or embed is a lot more meaningful to review as what it will actually look like than as its
+	 * own source text, and this is the entire point of a *confirmed* write: seeing it before
+	 * deciding, not just being told it happened.
+	 */
+	private async renderEditCard(container: HTMLElement, edit: NoteEditState): Promise<void> {
+		const card = container.createDiv({ cls: "shimeji-bubble-chat-edit" });
+		card.createDiv({ cls: "shimeji-bubble-chat-edit-label", text: "Proposed change" });
+		const preview = card.createDiv({ cls: "shimeji-bubble-chat-edit-preview" });
+		await MarkdownRenderer.renderMarkdown(edit.content, preview, "", this);
+
+		if (edit.status === "applied") {
+			card.createDiv({ cls: "shimeji-bubble-chat-edit-status", text: "✓ Applied" });
+			return;
+		}
+		if (edit.status === "discarded") {
+			card.createDiv({ cls: "shimeji-bubble-chat-edit-status", text: "Discarded" });
+			return;
+		}
+
+		if (edit.error) card.createDiv({ cls: "shimeji-bubble-chat-notice", text: edit.error });
+		const actions = card.createDiv({ cls: "shimeji-bubble-chat-edit-actions" });
+		const applyBtn = actions.createEl("button", { cls: "shimeji-bubble-chat-edit-apply", text: "Apply" });
+		const discardBtn = actions.createEl("button", { cls: "shimeji-bubble-chat-edit-discard", text: "Discard" });
+		applyBtn.onclick = async () => {
+			// Disabled synchronously, before the actual (async) apply — Apply staying clickable for
+			// the round-trip to vault.append is a real double-click window, not a hypothetical one.
+			applyBtn.disabled = true;
+			discardBtn.disabled = true;
+			try {
+				await this.deps.applyNoteEdit(edit.content);
+				edit.status = "applied";
+				edit.error = undefined;
+			} catch (e) {
+				edit.error = e instanceof Error ? e.message : String(e);
+			}
+			void this.renderMessages();
+		};
+		discardBtn.onclick = () => {
+			edit.status = "discarded";
+			void this.renderMessages();
+		};
 	}
 
 	/**

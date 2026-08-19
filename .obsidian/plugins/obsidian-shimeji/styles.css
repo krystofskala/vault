@@ -586,6 +586,125 @@
 	padding: 4px 2px 0 2px;
 }
 
+/* A proposed note edit ("Phase 5" — see ai/noteEdits.ts, ChatBubble.renderEditCard) rendered as
+   its own small card under the assistant message that proposed it, not folded into the message
+   text itself: it needs to read as "a pending action with controls", not more prose. Sized to
+   match the transcript's own compact scale (.shimeji-bubble-chat-msg's 12px/1.4) rather than a
+   full note-editing UI — this is still a small chat bubble, not a settings panel. */
+.shimeji-bubble-chat-edit {
+	margin: 2px 0 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+}
+
+.shimeji-bubble-chat-edit-label {
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--text-muted);
+	margin-bottom: 3px;
+}
+
+.shimeji-bubble-chat-edit-preview {
+	font-size: 12px;
+	line-height: 1.4;
+	color: var(--text-normal);
+}
+
+.shimeji-bubble-chat-edit-preview :is(p, ul, ol, h1, h2, h3, h4, h5, h6) {
+	margin: 0;
+}
+
+.shimeji-bubble-chat-edit-status {
+	font-size: 11px;
+	color: var(--text-muted);
+	margin-top: 4px;
+}
+
+.shimeji-bubble-chat-edit-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: 6px;
+}
+
+/* Repeated per pseudo-class and qualified with the actions row's own class, not left as a single
+   class on the buttons themselves — the exact same trap the input bar's field/send button hit
+   above: Obsidian's bare `button:hover`/`:focus`/`:active` rules (element + pseudo-class) outrank
+   a single plain class (see that block's own comment for the specificity arithmetic), so a plain
+   `.shimeji-bubble-chat-edit-apply` would lose its own background the instant it's interacted
+   with even though it wins while idle. Two classes here beats that outright without needing
+   !important — cheaper than the input bar's fix, and worth doing up front rather than waiting for
+   the same bug to get reported a second time. */
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-apply,
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-apply:hover,
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-apply:focus,
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-apply:focus-visible,
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-apply:active {
+	flex: 0 0 auto;
+	font-size: 11px;
+	padding: 3px 10px;
+	border-radius: 999px;
+	cursor: pointer;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+	box-shadow: none;
+	outline: none;
+}
+
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-discard,
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-discard:hover,
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-discard:focus,
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-discard:focus-visible,
+.shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-discard:active {
+	flex: 0 0 auto;
+	font-size: 11px;
+	padding: 3px 10px;
+	border-radius: 999px;
+	cursor: pointer;
+	background: transparent;
+	color: var(--text-muted);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: none;
+	outline: none;
+}
+
+.shimeji-bubble-chat-edit-apply:disabled,
+.shimeji-bubble-chat-edit-discard:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+/* Comic mode's fixed white-background/ink-outline look (see .shimeji-bubble-comic) — the
+   theme-relative colours above would wash out against a background that ignores the active theme
+   on purpose, same reasoning as .shimeji-bubble-chat-msg-assistant's own comic override. */
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-edit {
+	border-color: #111111;
+	background: rgba(17, 17, 17, 0.05);
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-edit-label,
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-edit-status {
+	color: #555555;
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-edit-preview {
+	color: #111111;
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-apply {
+	background: #111111;
+	color: #ffffff;
+}
+
+.shimeji-bubble-chat.shimeji-bubble-comic .shimeji-bubble-chat-edit-actions .shimeji-bubble-chat-edit-discard {
+	color: #111111;
+	border-color: #111111;
+}
+
 /* The thin bar docked directly below the room picture — "and under that a thin input field".
    Carries the same .shimeji-bubble/.shimeji-bubble-comic classes as the transcript above it (see
    ChatBubble.build()), so the whole chat surface reads as one object instead of a themed bubble

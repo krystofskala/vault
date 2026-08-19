@@ -1,5 +1,6 @@
 import { Events, type EventRef, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
 import { LocalEmbedder } from "./ai/embeddings";
+import { NOTE_EDIT_INSTRUCTIONS } from "./ai/noteEdits";
 import { resolvePersona } from "./ai/persona";
 import { sendAiMessage, type AiDispatchSettings } from "./ai/providers";
 import type { ChatMessage } from "./ai/types";
@@ -121,13 +122,15 @@ export default class ShimejiPlugin extends Plugin {
 	 * mascot is resident, not to the pane, and needs to keep tracking who that is (closing itself on
 	 * a resident change) independent of anything RoomView itself tracks. */
 	private readonly chatBubble: ChatBubble = new ChatBubble(this.speech.getLayer(), {
-		sendMessage: (messages, systemPrompt) => this.sendChatMessageWithVaultSearch(messages, systemPrompt),
+		sendMessage: (messages, systemPrompt) => this.dispatchChatMessage(messages, systemPrompt),
 		personas: () => this.personaTexts,
 		style: () => this.speech.getStyle(),
 		packFor: (mascot) => {
 			const id = this.packIdOf(mascot);
 			return id ? this.availablePacks.find((p) => p.id === id) : undefined;
 		},
+		noteEditsEnabled: () => this.settings.noteEditsEnabled,
+		applyNoteEdit: (content) => this.applyNoteEdit(content),
 	});
 	settings: ShimejiSettings = DEFAULT_SETTINGS;
 	/** The on-disk shape settings is resolved from — see platformSettings.ts. Kept alongside
@@ -912,11 +915,12 @@ export default class ShimejiPlugin extends Plugin {
 	}
 
 	/** ChatBubble's own `sendMessage` dependency — augments the persona's system prompt with
-	 * retrieved vault context before actually dispatching, when vault search is on. Fails soft
-	 * into the plain persona prompt on any search failure (index not built yet, model never
-	 * finished loading) rather than blocking the chat over an enhancement — the same "never let
-	 * an optional extra break the core feature" reasoning a missing sound file already gets. */
-	private async sendChatMessageWithVaultSearch(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
+	 * retrieved vault context (when vault search is on) and the note-edit convention (when that's
+	 * on) before actually dispatching. Vault search fails soft into the plain persona prompt on any
+	 * search failure (index not built yet, model never finished loading) rather than blocking the
+	 * chat over an enhancement — the same "never let an optional extra break the core feature"
+	 * reasoning a missing sound file already gets. */
+	private async dispatchChatMessage(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
 		let prompt = systemPrompt;
 		const lastUserMessage = messages[messages.length - 1]?.content;
 		if (this.vaultSearchIndex && lastUserMessage) {
@@ -927,7 +931,24 @@ export default class ShimejiPlugin extends Plugin {
 				console.warn("[obsidian-shimeji] vault search failed; sending the chat message without it", e);
 			}
 		}
+		// Told to the model only when the setting is actually on — instructions for a convention
+		// with no working Apply mechanism behind them would just be fences nobody does anything
+		// with (see NOTE_EDIT_INSTRUCTIONS's own comment).
+		if (this.settings.noteEditsEnabled) prompt = (prompt ?? "") + NOTE_EDIT_INSTRUCTIONS;
 		return sendAiMessage(this.aiDispatchSettings(), messages, prompt);
+	}
+
+	/** ChatBubble's own `applyNoteEdit` dependency — appends an already-user-confirmed proposal to
+	 * whichever note is active right now, at the moment Apply is actually clicked. Not whichever
+	 * note was active when the AI proposed it: this plugin has no automatic active-note context
+	 * yet (a chat message only ever discusses whatever the user typed or pasted into it), so there
+	 * is no *other* note the user could plausibly mean by "the note we were just discussing" — the
+	 * one open right now is the only sensible target, matching how a copy-paste-driven review
+	 * workflow already has to work today regardless of this feature. */
+	private async applyNoteEdit(content: string): Promise<void> {
+		const file = this.app.workspace.getActiveFile();
+		if (!file) throw new Error("No active note to apply this to — open the note first, then click Apply again.");
+		await this.app.vault.append(file, `\n\n${content}\n`);
 	}
 
 	/**
