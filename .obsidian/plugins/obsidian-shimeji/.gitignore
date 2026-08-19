@@ -1,3 +1,8 @@
 node_modules/
 *.tsbuildinfo
 .vitest-cache/
+# Vault search's own cache (src/ai/VaultSearchIndex.ts) — excerpts of real note content plus
+# their embedding vectors, written into this same tracked folder. Never belongs in this dev
+# repo's history: this folder is the plugin's own source, not vault content, and unlike main.js
+# it has no reason to ever be committed.
+vault-search-index.json
