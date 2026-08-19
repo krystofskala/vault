@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
 import { sendChatMessage } from "./ai/AnthropicClient";
 import { sendOpenAiCompatibleMessage } from "./ai/OpenAiCompatibleClient";
 import { resolvePersona } from "./ai/persona";
@@ -319,34 +319,48 @@ export class ShimejiSettingTab extends PluginSettingTab {
 						}),
 					);
 
-				new Setting(containerEl)
-					.setName("Create a new character")
-					.setDesc("Names a character, sets it up with the full standard behavior set, then walks through exactly which pose images it needs.")
-					.addButton((btn) =>
-						btn
-							.setButtonText("Create...")
-							.setCta()
-							.onClick(() => new CharacterEditorModal(this.app, this.plugin, undefined, () => this.display()).open()),
+				// The wizard is a canvas-based pixel editor — drag-select rectangles, scroll-wheel zoom,
+				// keyboard pan — built for a mouse and a full-size screen, not a touchscreen. Rather
+				// than ship a barely-usable version of it, it is desktop-only: create or edit characters
+				// there, then sync the vault, and the finished pack shows up here on mobile like any
+				// other. Everything else in this section (pack folder, rescan, enabling/disabling a
+				// pack) still works on mobile, since none of it needs precision pointing.
+				if (Platform.isMobile) {
+					this.callout(
+						containerEl,
+						"info",
+						"Creating or editing a character (slicing sprite sheets, fitting poses onto a canvas) needs a mouse, so the wizard is desktop-only. Build or edit packs on desktop, then sync this vault — finished packs appear below automatically.",
 					);
+				} else {
+					new Setting(containerEl)
+						.setName("Create a new character")
+						.setDesc("Names a character, sets it up with the full standard behavior set, then walks through exactly which pose images it needs.")
+						.addButton((btn) =>
+							btn
+								.setButtonText("Create...")
+								.setCta()
+								.onClick(() => new CharacterEditorModal(this.app, this.plugin, undefined, () => this.display()).open()),
+						);
 
-				new Setting(containerEl)
-					.setName("Reference art for the character wizard")
-					.setDesc(
-						"Optional. A vault-relative folder of shime1.png…shime46.png you supply yourself — any character you " +
-							"want to match the proportions of, not necessarily the original — shown as a translucent guide while " +
-							"fitting each pose. A slot with nothing there just gets no guide; this never blocks anything, and this " +
-							"plugin never ships that art itself. Leave blank to use this plugin's own bundled Shimeji/img (which, " +
-							"the same way, has none included).",
-					)
-					.addText((text) =>
-						text
-							.setPlaceholder(`${this.plugin.bundledPackFolder()}/img`)
-							.setValue(this.plugin.settings.referenceArtFolder)
-							.onChange(async (value) => {
-								this.plugin.settings.referenceArtFolder = value.trim();
-								await this.plugin.saveSettings();
-							}),
-					);
+					new Setting(containerEl)
+						.setName("Reference art for the character wizard")
+						.setDesc(
+							"Optional. A vault-relative folder of shime1.png…shime46.png you supply yourself — any character you " +
+								"want to match the proportions of, not necessarily the original — shown as a translucent guide while " +
+								"fitting each pose. A slot with nothing there just gets no guide; this never blocks anything, and this " +
+								"plugin never ships that art itself. Leave blank to use this plugin's own bundled Shimeji/img (which, " +
+								"the same way, has none included).",
+						)
+						.addText((text) =>
+							text
+								.setPlaceholder(`${this.plugin.bundledPackFolder()}/img`)
+								.setValue(this.plugin.settings.referenceArtFolder)
+								.onChange(async (value) => {
+									this.plugin.settings.referenceArtFolder = value.trim();
+									await this.plugin.saveSettings();
+								}),
+						);
+				}
 
 				if (this.plugin.availablePacks.length > 0) {
 					containerEl.createEl("p", {
@@ -356,7 +370,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 					for (const pack of this.plugin.availablePacks) {
 						const content = this.plugin.settings.customContent[pack.id];
 						const customCount = (content?.actions.length ?? 0) + (content?.behaviors.length ?? 0);
-						new Setting(containerEl)
+						const setting = new Setting(containerEl)
 							.setName(pack.name)
 							.setDesc(customCount > 0 ? `${customCount} custom action/behavior entr${customCount === 1 ? "y" : "ies"}` : "")
 							.addToggle((toggle) =>
@@ -366,10 +380,14 @@ export class ShimejiSettingTab extends PluginSettingTab {
 									await this.plugin.saveSettings();
 									this.plugin.respawnWithCurrentSettings();
 								}),
-							)
-							.addButton((btn) =>
+							);
+						// Enabling/disabling a pack is a plain toggle either platform can do; editing one
+						// opens the same desktop-only wizard as "Create a new character" above.
+						if (!Platform.isMobile) {
+							setting.addButton((btn) =>
 								btn.setButtonText("Edit...").onClick(() => new CharacterEditorModal(this.app, this.plugin, pack.id, () => this.display()).open()),
 							);
+						}
 					}
 				} else {
 					containerEl.createEl("p", {

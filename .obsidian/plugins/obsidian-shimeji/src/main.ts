@@ -358,7 +358,11 @@ export default class ShimejiPlugin extends Plugin {
 
 		// Capture phase, for the same reason the ambient pointer tracker uses it: a bubble-phase
 		// listener on window can be starved by any handler in between calling stopPropagation.
-		this.registerDomEvent(window, "click", (ev) => this.onPossibleSpotOrder(ev), { capture: true });
+		// Desktop-only: the gesture is a keyboard modifier plus a mouse click, which touch has no
+		// equivalent for, and dragging a mascot by hand already covers most of the same need on
+		// mobile. Not registered at all rather than gated inside the handler, so a touch build never
+		// pays for a listener it can never usefully fire.
+		if (!Platform.isMobile) this.registerDomEvent(window, "click", (ev) => this.onPossibleSpotOrder(ev), { capture: true });
 
 		this.registerEvent(
 			this.app.workspace.on("resize", () => {
