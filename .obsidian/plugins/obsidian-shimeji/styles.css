@@ -634,7 +634,17 @@
    plain rule beats Obsidian's own plain `input[type="text"]` rule just fine while idle. This was
    found and re-found one interaction at a time (idle, then focus, then hover) — listing every state
    in one place instead of the single state that happened to get reported closes the rest before
-   they get found the same way. */
+   they get found the same way.
+
+   color-scheme/appearance are a *different* mechanism from all of the above, found only once a
+   user's own DevTools confirmed `background-color` was already computing as transparent here —
+   despite that, the field kept painting a solid dark fill. `body.theme-dark` sets `color-scheme:
+   dark` (confirmed directly in that same user's Styles panel), an inherited property nothing here
+   ever overrode; Chromium uses it to pick native form-control rendering *independently* of
+   `background-color`, so a dark host theme still painted a native dark canvas underneath this
+   bubble's own deliberately light/theme-following look. `color-scheme: light` stops that; `appearance:
+   none` additionally opts the whole control out of native chrome so author CSS is what's actually
+   painted. */
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:hover,
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus,
@@ -643,6 +653,9 @@
 	border: none;
 	border-radius: 0;
 	box-shadow: none;
+	appearance: none;
+	-webkit-appearance: none;
+	color-scheme: light;
 }
 
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus {
@@ -674,6 +687,9 @@
 	color: inherit;
 	border: none;
 	border-radius: 0;
+	appearance: none;
+	-webkit-appearance: none;
+	color-scheme: light;
 	box-shadow: none;
 }
 
