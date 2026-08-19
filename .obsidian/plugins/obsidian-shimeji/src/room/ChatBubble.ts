@@ -97,6 +97,16 @@ export class ChatBubble extends Component {
 	private inputBarEl?: HTMLDivElement;
 	private inputEl?: HTMLInputElement;
 	private mascot?: Mascot;
+	/** The pack id resolved for `mascot` as of the last open()/history-reset — not just the mascot
+	 * object itself. "Switch character" (the per-mascot context menu) reassigns a *different* pack
+	 * to the same live Mascot instance rather than replacing it, so object identity alone never
+	 * changes here and this class had no way to notice: the system prompt recomputed correctly on
+	 * every send() (see resolvePersona there), but stale history in the old character's own voice
+	 * kept riding along with it, outweighing a merely-updated prompt. Reloading used to "fix" this
+	 * only by destroying and rebuilding this whole object, wiping the poisoned history along with
+	 * it — undefined here means "no pack" (the placeholder character), a real, distinct value from
+	 * any actual pack id, so switching to or from the placeholder counts as a change too. */
+	private lastPackId?: string;
 	private history: TimelineEntry[] = [];
 	private sending = false;
 	private notice?: string;
@@ -120,11 +130,13 @@ export class ChatBubble extends Component {
 	}
 
 	open(mascot: Mascot): void {
-		if (this.mascot !== mascot) {
+		const packId = this.deps.packFor(mascot)?.id;
+		if (this.mascot !== mascot || packId !== this.lastPackId) {
 			this.history = [];
 			this.notice = undefined;
 		}
 		this.mascot = mascot;
+		this.lastPackId = packId;
 		if (!this.isOpen) this.build();
 		else void this.renderMessages();
 	}
@@ -271,7 +283,11 @@ export class ChatBubble extends Component {
 	 */
 	update(residentMascot: Mascot | undefined, paneRect: Rect | undefined, roomRect: Rect | undefined): void {
 		if (!this.isOpen) return;
-		if (this.mascot !== residentMascot) {
+		const mascot = this.mascot;
+		// Same guard open() uses (see lastPackId's own comment) — a live "Switch character" on the
+		// mascot this chat is already open for closes it exactly like the resident leaving/changing
+		// object entirely already did, rather than silently carrying poisoned history forward.
+		if (!mascot || mascot !== residentMascot || this.deps.packFor(mascot)?.id !== this.lastPackId) {
 			this.close();
 			return;
 		}
