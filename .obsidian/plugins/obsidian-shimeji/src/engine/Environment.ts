@@ -14,6 +14,12 @@ export interface Environment {
 	 * chrome (e.g. in tests). See ObsidianDomEnvironment's own implementation for why this needs
 	 * to exist at all. */
 	getWorldTop(): number;
+	/** Bottom of the usable/walkable area, in the same viewport-relative coordinates as
+	 * everything else here — above any app-level chrome docked to the bottom edge (Obsidian
+	 * Mobile's toolbar), not the literal bottom of the window. Equal to the viewport height when
+	 * there's no such chrome (e.g. on desktop, or in tests) — see ObsidianDomEnvironment's own
+	 * implementation for why this needs to exist at all. */
+	getWorldBottom(): number;
 	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }>;
 }
 
@@ -63,6 +69,31 @@ export class ObsidianDomEnvironment implements Environment {
 		const containerEl = this.workspace?.containerEl ?? document.querySelector<HTMLElement>(".workspace");
 		const workspaceTop = containerEl ? Math.max(0, containerEl.getBoundingClientRect().top) : 0;
 		return Math.max(workspaceTop, this.topTabHeaderRowBottom());
+	}
+
+	/**
+	 * Mirrors getWorldTop(), for the opposite edge: Obsidian Mobile docks a toolbar to the
+	 * bottom of the screen, and nothing before this excluded it, so the world's floor sat at the
+	 * literal bottom of the WebView — behind the toolbar, not above it — and an autonomously
+	 * walking/falling mascot would settle there, reading as "fell below the bottom edge" since
+	 * the toolbar draws over it.
+	 *
+	 * Only one signal here, unlike getWorldTop()'s two: there's no bottom-edge equivalent of a
+	 * title bar "merging" into a tab strip (the specific case that made a second, explicit
+	 * chrome-element measurement necessary up top), and `.workspace`'s own bottom edge is the
+	 * same general-purpose signal getWorldTop() already leans on first — Obsidian lays the
+	 * workspace out as a sibling of its surrounding chrome, so this needs no Mobile-specific
+	 * selector (unverifiable from here) to already exclude a genuinely-docked bottom toolbar.
+	 * Defaults to the full viewport height (no exclusion) when `.workspace` can't be found, same
+	 * graceful degradation as getWorldTop()'s own workspaceTop.
+	 */
+	getWorldBottom(): number {
+		const containerEl = this.workspace?.containerEl ?? document.querySelector<HTMLElement>(".workspace");
+		const rect = containerEl?.getBoundingClientRect();
+		// A collapsed/not-yet-laid-out rect (height 0) is not a real "the workspace ends here"
+		// signal — trusting it would plant the floor at y=0 and drop every mascot instantly.
+		if (!rect || rect.height <= 0) return window.innerHeight;
+		return Math.min(window.innerHeight, rect.bottom);
 	}
 
 	private topTabHeaderRowBottom(): number {

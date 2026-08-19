@@ -95,6 +95,43 @@ describe("computeLedgesFromRects", () => {
 			expect(withDefault).toEqual(withExplicitZero);
 		});
 	});
+
+	// Mirrors worldTop, for the opposite edge: Obsidian Mobile docks a toolbar to the bottom of
+	// the screen, and without this, the window floor sat at the literal bottom of the WebView —
+	// behind that toolbar — so an autonomously walking/falling mascot would settle there, reading
+	// as "fell below the bottom edge" from the toolbar drawing over it.
+	describe("worldBottom", () => {
+		it("moves the window floor and the bottom of both window walls up to worldBottom instead of viewport.height", () => {
+			const ledges = computeLedgesFromRects({ width: 800, height: 600, bottom: 560 }, []);
+			expect(ledges).toContainEqual({ kind: "floor", y: 560, x1: 0, x2: 800, source: "window" });
+			expect(ledges).toContainEqual({ kind: "wall", side: "left", x: 0, y1: 0, y2: 560, source: "window" });
+			expect(ledges).toContainEqual({ kind: "wall", side: "right", x: 800, y1: 0, y2: 560, source: "window" });
+			// The window ceiling (top) is untouched — only the bottom of the world moved.
+			expect(ledges).toContainEqual({ kind: "ceiling", y: 0, x1: 0, x2: 800, source: "window" });
+		});
+
+		it("clamps a pane's own side walls to worldBottom even when the pane's rect extends below it", () => {
+			// A pane whose measured bottom (590) sits below worldBottom (560) shouldn't let a
+			// mascot climb its left/right wall on down past worldBottom into the chrome below —
+			// same bug, different path (via a pane's own wall instead of the window's).
+			const rect = { left: 100, top: 300, right: 400, bottom: 590 };
+			const ledges = computeLedgesFromRects({ width: 800, height: 600, bottom: 560 }, [{ rect, source: "pane" }]);
+			const leftWall = ledges.find((l) => l.kind === "wall" && l.side === "left" && l.source === "pane");
+			expect(leftWall).toMatchObject({ y1: 300, y2: 560 });
+		});
+
+		it("does not add a ceiling for a pane whose bottom is at or below worldBottom", () => {
+			const rect = { left: 100, top: 300, right: 400, bottom: 580 };
+			const ledges = computeLedgesFromRects({ width: 800, height: 600, bottom: 560 }, [{ rect, source: "pane" }]);
+			expect(ledges.some((l) => l.kind === "ceiling" && l.source === "pane")).toBe(false);
+		});
+
+		it("omitting bottom behaves exactly as before (defaults to viewport.height)", () => {
+			const withDefault = computeLedgesFromRects({ width: 800, height: 600 }, []);
+			const withExplicitHeight = computeLedgesFromRects({ width: 800, height: 600, bottom: 600 }, []);
+			expect(withDefault).toEqual(withExplicitHeight);
+		});
+	});
 });
 
 describe("findCeilingAt", () => {

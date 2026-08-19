@@ -1252,6 +1252,12 @@ else, touches pass straight through to whatever is underneath. It carries on wal
 reacting either way; this gates input, not life. Turn it off under Interaction → Touch & mobile.
 Desktop is never affected.
 
+The world's floor and walls stop at `app.workspace`'s own bottom edge, not the literal bottom of
+the screen — mirroring `getWorldTop()`'s title-bar exclusion (see below) for the opposite edge.
+Obsidian Mobile docks a toolbar to the bottom of the screen, and without this a mascot walking or
+falling on its own could settle at the literal bottom of the WebView, behind that toolbar, reading
+as having fallen off the bottom of the screen entirely.
+
 Chasing the mouse is skipped on mobile regardless of its setting: there is no ambient pointer
 between touches, so it would only ever be dashing at a stale position.
 

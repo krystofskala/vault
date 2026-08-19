@@ -3,10 +3,11 @@ import { Stage, type StageOptions } from "../src/engine/Stage";
 import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
 import type { Environment } from "../src/engine/Environment";
 
-function fakeEnvironment(worldTop = 0): Environment {
+function fakeEnvironment(worldTop = 0, worldBottom = 600): Environment {
 	return {
 		getViewportSize: () => ({ width: 800, height: 600 }),
 		getWorldTop: () => worldTop,
+		getWorldBottom: () => worldBottom,
 		getPlatformRects: () => [],
 	};
 }
@@ -301,6 +302,36 @@ describe("Stage container offset", () => {
 		// Container starts at y=40, so a mascot whose physics y is 300 must be drawn at 260
 		// within it — plus its own anchor offset, which is its full height (feet-anchored).
 		expect(top).toBeCloseTo(300 - 40 - mascot.height * mascot.scale, 5);
+		stage.destroy();
+	});
+});
+
+// Regression coverage for a real report: on Obsidian Mobile the mascot fell below the visible
+// bottom edge of the screen — Ledges.ts' own worldBottom unit tests cover the geometry, but this
+// confirms Stage actually asks the environment for it and threads it through, the one thing
+// those pure-function tests can't catch on their own.
+describe("Stage world-bottom wiring", () => {
+	it("plants the window floor at environment.getWorldBottom() instead of the raw viewport height", () => {
+		const stage = makeStage({ environment: fakeEnvironment(0, 560) });
+		expect(stage.getLedges()).toContainEqual({ kind: "floor", y: 560, x1: 0, x2: 800, source: "window" });
+		stage.destroy();
+	});
+
+	it("re-derives the floor when the layout changes and worldBottom moves", () => {
+		let worldBottom = 560;
+		const stage = new Stage({
+			config: DEFAULT_ENGINE_CONFIG,
+			paneLedgesEnabled: false,
+			debugLedges: false,
+			maxMascots: 10,
+			allowBreeding: true,
+			environment: { ...fakeEnvironment(), getWorldBottom: () => worldBottom },
+		});
+		expect(stage.getLedges()).toContainEqual(expect.objectContaining({ kind: "floor", source: "window", y: 560 }));
+
+		worldBottom = 600;
+		stage.notifyLayoutChanged();
+		expect(stage.getLedges()).toContainEqual(expect.objectContaining({ kind: "floor", source: "window", y: 600 }));
 		stage.destroy();
 	});
 });

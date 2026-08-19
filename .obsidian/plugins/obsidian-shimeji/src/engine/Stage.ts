@@ -52,6 +52,7 @@ export class Stage {
 	private mascots: Mascot[] = [];
 	private ledges: Ledge[] = [];
 	private worldTop = 0;
+	private worldBottom = 0;
 	private readonly environment: Environment;
 	private ambientPos: { x: number; y: number };
 	/** The position ambientPos held as of the *previous* fixed tick, and the smoothed per-tick
@@ -207,8 +208,9 @@ export class Stage {
 	private recomputeLedges(): void {
 		const viewport = this.environment.getViewportSize();
 		this.worldTop = this.environment.getWorldTop();
+		this.worldBottom = this.environment.getWorldBottom();
 		const platforms = this.opts.paneLedgesEnabled ? this.environment.getPlatformRects() : [];
-		this.ledges = computeLedgesFromRects({ ...viewport, top: this.worldTop }, platforms);
+		this.ledges = computeLedgesFromRects({ ...viewport, top: this.worldTop, bottom: this.worldBottom }, platforms);
 		// The overlay's own box must genuinely not cover the title bar / tab strip. Keeping
 		// mascots' anchors below worldTop (Ledges.ts) isn't enough on its own, and `clip-path`
 		// (tried first) demonstrably wasn't either — the user reported no change at all from it.

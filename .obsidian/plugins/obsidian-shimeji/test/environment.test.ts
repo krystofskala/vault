@@ -82,3 +82,61 @@ describe("ObsidianDomEnvironment.getWorldTop", () => {
 		expect(env.getWorldTop()).toBe(70);
 	});
 });
+
+describe("ObsidianDomEnvironment.getWorldBottom", () => {
+	const originalInnerHeight = window.innerHeight;
+	afterEach(() => {
+		Object.defineProperty(window, "innerHeight", { value: originalInnerHeight, configurable: true });
+	});
+	function setInnerHeight(px: number): void {
+		Object.defineProperty(window, "innerHeight", { value: px, configurable: true });
+	}
+
+	// Regression coverage for a real, reported bug: Obsidian Mobile docks a toolbar to the
+	// bottom of the screen, and nothing before this excluded it from the world's floor — an
+	// autonomously walking/falling mascot would settle at the literal window bottom, behind
+	// that toolbar, reading as "fell below the bottom edge".
+	it("reads the injected workspace's containerEl bottom when it stops above the window edge", () => {
+		setInnerHeight(800);
+		const containerEl = document.createElement("div");
+		containerEl.getBoundingClientRect = () => rectAt(0, 740, 400);
+		const env = new ObsidianDomEnvironment({ containerEl });
+		expect(env.getWorldBottom()).toBe(740);
+	});
+
+	it("falls back to window.innerHeight when nothing was injected and no .workspace element exists", () => {
+		setInnerHeight(800);
+		const env = new ObsidianDomEnvironment();
+		expect(env.getWorldBottom()).toBe(800);
+	});
+
+	it("never returns more than window.innerHeight, even if the measured rect somehow extends past it", () => {
+		setInnerHeight(800);
+		const containerEl = document.createElement("div");
+		containerEl.getBoundingClientRect = () => rectAt(0, 850, 400);
+		const env = new ObsidianDomEnvironment({ containerEl });
+		expect(env.getWorldBottom()).toBe(800);
+	});
+
+	it("falls back to window.innerHeight when the workspace rect is collapsed (not yet laid out)", () => {
+		setInnerHeight(800);
+		const containerEl = document.createElement("div");
+		containerEl.getBoundingClientRect = () => rectAt(0, 0, 0);
+		const env = new ObsidianDomEnvironment({ containerEl });
+		expect(env.getWorldBottom()).toBe(800);
+	});
+
+	it("falls back to the selector-based .workspace lookup when no workspace was injected", () => {
+		setInnerHeight(800);
+		const workspaceEl = document.createElement("div");
+		workspaceEl.className = "workspace";
+		workspaceEl.getBoundingClientRect = () => rectAt(0, 760, 400);
+		document.body.appendChild(workspaceEl);
+		try {
+			const env = new ObsidianDomEnvironment();
+			expect(env.getWorldBottom()).toBe(760);
+		} finally {
+			workspaceEl.remove();
+		}
+	});
+});

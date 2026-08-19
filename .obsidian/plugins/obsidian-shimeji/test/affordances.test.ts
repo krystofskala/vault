@@ -4,7 +4,7 @@ import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
 import type { Environment } from "../src/engine/Environment";
 
 function env(): Environment {
-	return { getViewportSize: () => ({ width: 800, height: 600 }), getWorldTop: () => 0, getPlatformRects: () => [] };
+	return { getViewportSize: () => ({ width: 800, height: 600 }), getWorldTop: () => 0, getWorldBottom: () => 600, getPlatformRects: () => [] };
 }
 function makeStage(o: Partial<StageOptions> = {}): Stage {
 	return new Stage({
