@@ -25,10 +25,17 @@ interface FakeMascot {
 	hasSpotOrder: boolean;
 	orders: Vec2[];
 	hidden: boolean;
+	currentBehaviorName: string | undefined;
+	/** Set directly by a test to simulate a real BehaviorAI having just flagged arrival — mirrors
+	 * the real read-once semantics so a test can tell whether Residency's own internal waypoint
+	 * handling drained it before it could reach a later, simulated main.ts-style poll. */
+	pendingArrivalFlag: boolean;
 	orderToSpot(p: Vec2): void;
 	cancelSpotOrder(): void;
+	consumeJustReachedSpot(): boolean;
 	setFollowingMouse(on: boolean): void;
 	setHidden(hidden: boolean): void;
+	startNamedBehavior(name: string): void;
 }
 
 function fakeMascot(x: number, y: number): FakeMascot {
@@ -40,12 +47,25 @@ function fakeMascot(x: number, y: number): FakeMascot {
 		hasSpotOrder: false,
 		orders: [],
 		hidden: false,
+		currentBehaviorName: undefined,
+		pendingArrivalFlag: false,
+		startNamedBehavior(name) {
+			m.currentBehaviorName = name;
+		},
 		orderToSpot(p) {
 			m.orders.push({ ...p });
 			m.hasSpotOrder = true;
 		},
 		cancelSpotOrder() {
 			m.hasSpotOrder = false;
+		},
+		// Read-once, same as the real Mascot.consumeJustReachedSpot — defaults to false (the same
+		// safe fallback with no driver attached) unless a test has set pendingArrivalFlag to simulate
+		// a real BehaviorAI having just flagged arrival.
+		consumeJustReachedSpot() {
+			const flagged = m.pendingArrivalFlag;
+			m.pendingArrivalFlag = false;
+			return flagged;
 		},
 		setFollowingMouse() {},
 		setHidden(hidden) {
@@ -149,6 +169,26 @@ describe("moving into the plant room", () => {
 		expect(m.physics.grounded).toBe(false);
 	});
 
+	it("drains a stale arrival flag from reaching the doorstep, rather than letting it leak out", () => {
+		// The doorstep is handleOrder's own waypoint, not the point the user actually clicked — and
+		// moveIn does not even land the mascot there (see moveIn's own landing logic). A "Reached my
+		// target!" bubble firing off this arrival would be reporting the wrong point entirely, on an
+		// order the user never saw as two separate legs. Simulates the real BehaviorAI having just
+		// set the flag on the same tick it reached the doorstep, and checks Residency's own handling
+		// consumed it before anything downstream (main.ts's per-frame poll, in the real app) could.
+		const s = scene();
+		const m = s.add(fakeMascot(400, 900));
+		s.order(s.layout().doorInside(), m);
+		const door = s.layout().doorOutside();
+		m.physics.x = door.x;
+		m.physics.y = door.y;
+		m.pendingArrivalFlag = true;
+		s.residency.tick();
+
+		expect(s.residency.hasResident, "sanity check: the move-in itself still happened").toBe(true);
+		expect(m.consumeJustReachedSpot(), "already drained by residency.tick() itself").toBe(false);
+	});
+
 	it("removes every other mascot the moment the first one is home", () => {
 		const s = scene();
 		const first = s.add(fakeMascot(400, 900));
@@ -239,6 +279,26 @@ describe("leaving the plant room", () => {
 		expect(m.physics.x).toBe(s.layout().doorOutside().x);
 		expect(m.orders[m.orders.length - 1]).toEqual(target);
 		expect(s.remembered).toBeNull();
+	});
+
+	it("drains a stale arrival flag from reaching the door, rather than letting it leak out", () => {
+		// Same reasoning as the incoming side (see roomResidency's other drain test): the door is
+		// handleOrder's own waypoint, and moveOut immediately re-issues the real order to the real
+		// target on the far side — a flag from reaching the door must not survive to be misread as
+		// having reached that real target while the mascot has not moved toward it at all yet.
+		// Concretely, without this drain: order a resident somewhere across the screen, and the very
+		// next frame announces "Reached my target!" while it is still standing at the doorway.
+		const { s, m } = housed();
+		s.order({ x: 300, y: 900 }, m);
+		const inside = s.layout().doorInside();
+		m.physics.x = inside.x;
+		m.physics.y = inside.y;
+		m.hasSpotOrder = false;
+		m.pendingArrivalFlag = true;
+		s.residency.tick();
+
+		expect(s.residency.hasResident, "sanity check: the move-out itself still happened").toBe(false);
+		expect(m.consumeJustReachedSpot(), "already drained by residency.tick() itself").toBe(false);
 	});
 
 	it("stays home when the walk to the door was abandoned rather than completed", () => {
@@ -518,5 +578,44 @@ describe("a room with a fixed resident spot", () => {
 
 		expect(m.physics.x).toBe(spot.x);
 		expect(m.physics.y).toBe(spot.y);
+	});
+
+	it("does not fight a walk toward the door once it has been sent outside", () => {
+		// Ordering the resident somewhere outside sets leavingFor and sends it walking to the door
+		// (see handleOrder) — driven by its own ordinary orderToSpot, exactly like any other walk.
+		// Left pinned straight through that, the resident can never get further than one tick's worth
+		// of walking from residentSpot before being snapped straight back, so it can never reach
+		// THRESHOLD_REACH_PX of the door at all. Reported live as "stayed sitting and did nothing" for
+		// what should have been one ordinary walk to the door.
+		const { s, m } = housed();
+		s.order({ x: 300, y: 900 }, m);
+		const spot = s.layout().toViewport(60, 70);
+		// Stands in for one tick of the real walk actually landing somewhere off the pinned spot —
+		// FakeMascot has no physics of its own, so the test moves it the way a real Move action would.
+		m.physics.x = spot.x + 5;
+		m.physics.y = spot.y - 3;
+		s.residency.tick();
+
+		expect(m.physics.x, "left alone rather than snapped back to the pinned spot").toBe(spot.x + 5);
+		expect(m.physics.y).toBe(spot.y - 3);
+	});
+
+	it("does not force the seated behaviour back on while walking to the door", () => {
+		// The same fight as the position pin above, but through residentBehavior instead: forcing the
+		// hold behaviour back on every tick stomps driveSpotOrder's own Move the instant it starts,
+		// before it ever advances a single tick — a second, independent way the exact same order gets
+		// stranded, this time even for a room with no residentSpot at all.
+		const HOLD_ROOM: RoomDef = { ...SPOT_ROOM, residentBehavior: "Sit" };
+		const s = scene({ def: HOLD_ROOM });
+		const m = s.add(fakeMascot(400, 900), "umbreon");
+		s.residency.placeDirectly(m as unknown as Mascot);
+		s.residency.tick(); // establishes the hold under ordinary, non-leaving conditions
+		expect(m.currentBehaviorName).toBe("Sit");
+
+		s.order({ x: 300, y: 900 }, m);
+		m.currentBehaviorName = "Walk"; // what driveSpotOrder's own Move would actually have started
+		s.residency.tick();
+
+		expect(m.currentBehaviorName, "the walk must be left alone, not restarted back into Sit").toBe("Walk");
 	});
 });

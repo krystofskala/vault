@@ -34,7 +34,11 @@ export interface RouteOptions {
 	 * rather than a ballistic arc (real Jump.java recomputes a direction vector every tick), so reach
 	 * is a straight budget rather than something derived from gravity. */
 	maxJumpDx: number;
-	/** How far *up* a jump can carry. Dropping is unlimited — gravity is free. */
+	/** How far a jump can carry vertically, up or down, between two floors. Reused symmetrically for
+	 * "down" rather than treating a lower neighbour as unbounded-via-drop: dropping only ever lands
+	 * wherever is straight below the departing floor's own end (see the drop transfer below), so it
+	 * cannot reach a floor that is lower *and* to the side unless that floor happens to sit directly
+	 * under that one edge point — see the floor-to-floor jump transfer's own comment. */
 	maxJumpUp: number;
 	/**
 	 * How fast each kind of movement actually is, in pixels per engine tick, so routes can be costed
@@ -311,13 +315,27 @@ function transfersFrom(ledge: Ledge, at: Vec2, goal: Vec2, ledges: Ledge[], opts
 			}
 		}
 
-		// Jumps, from a floor only: a mascot pushes off something it is standing on. Reaching *up* is
-		// bounded; reaching down is a drop and handled below, so this skips anything lower.
+		// Jumps, from a floor only: a mascot pushes off something it is standing on. Bounded
+		// symmetrically (up or down) rather than "up is a jump, down is always a drop": a drop only
+		// ever lands straight below *the departing floor's own end* (see the drop transfer below), so
+		// a neighbouring floor that is lower but also to the side is not reachable that way at all
+		// unless it happens to sit directly beneath that one edge point. Two panes at nearly the same
+		// height with a real gap between them (wider than the corner-join slack, or off by more than a
+		// pixel or two so bridgeNarrowGaps does not treat them as one surface) are exactly this case —
+		// confirmed live: ordered to a spot a few steps away on "the same level", the router found no
+		// edge to the neighbouring floor at all and sent the mascot on a screen-spanning detour to
+		// approach it from some entirely different surface, or worse, opened a needless new pane via
+		// spot-order surgery for a target that was already standing on a perfectly good existing floor.
+		// `Jumping` is a constant-speed leap toward an arbitrary target point (see the real Jump.java
+		// port), not an upward-only lunge, so a shallow hop down and across is exactly as legitimate a
+		// move as one up — reusing maxJumpUp's own tuned magnitude for "how far down" rather than
+		// inventing a second constant, since there is no reason a jump should reach further downhill
+		// than up.
 		if (ledge.kind === "floor" && other.kind === "floor") {
 			const landing = pointOn(other, goal);
 			const dx = Math.abs(landing.x - at.x);
 			const up = ledge.y - other.y;
-			if (dx <= opts.maxJumpDx && up > 0 && up <= opts.maxJumpUp) {
+			if (dx <= opts.maxJumpDx && Math.abs(up) <= opts.maxJumpUp) {
 				out.push({ from: at, to: other, at: landing, via: "jump" });
 			}
 		}

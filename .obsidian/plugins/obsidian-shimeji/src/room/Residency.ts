@@ -169,7 +169,17 @@ export class Residency {
 			// by hand. Both are "it is at the threshold", so both are one check.
 			const atDoor = distance(m.physics, layout.doorOutside()) <= THRESHOLD_REACH_PX;
 			const droppedIn = layout.contains(m.physics) && !m.isBeingDragged;
-			if (atDoor || droppedIn) this.moveIn(m, layout);
+			if (atDoor || droppedIn) {
+				// Discards whatever consumeJustReachedSpot would report here rather than letting it
+				// reach main.ts's own poll: the doorstep is an internal waypoint handleOrder chose,
+				// not the point the user actually clicked, and moveIn doesn't even land the resident
+				// there — it lands on residentSpot/doorInside instead (see moveIn). A "Reached my
+				// target!" fired off arriving at the threshold would be reporting the wrong point, on
+				// an order the user never saw as two separate legs. A no-op when droppedIn is what
+				// moved it in instead, since no order (and so no flag) exists in that case.
+				m.consumeJustReachedSpot();
+				this.moveIn(m, layout);
+			}
 			return;
 		}
 
@@ -191,8 +201,17 @@ export class Residency {
 		if (this.leavingFor && !this.resident.hasSpotOrder) {
 			// The order to the door has been discharged — either by arriving or by the router
 			// giving up. Only the first counts.
-			if (distance(this.resident.physics, layout.doorInside()) <= THRESHOLD_REACH_PX) this.moveOut(layout);
-			else this.leavingFor = undefined;
+			if (distance(this.resident.physics, layout.doorInside()) <= THRESHOLD_REACH_PX) {
+				// Same reasoning as the incoming side above: the door is handleOrder's own waypoint,
+				// not where the user actually pointed, and moveOut immediately re-issues the real
+				// order to the real target on the far side — so a flag from reaching the door must
+				// not survive to be misread as having reached that real target while the mascot has
+				// not moved toward it at all yet. Concretely: order a resident somewhere across the
+				// screen, and without this drain the very next frame announces "Reached my target!"
+				// while it is still standing at the doorway, about to set off.
+				this.resident.consumeJustReachedSpot();
+				this.moveOut(layout);
+			} else this.leavingFor = undefined;
 		}
 	}
 
@@ -209,11 +228,27 @@ export class Residency {
 		// it back within seconds.
 		if (layout.def.residentFacing !== undefined) mascot.physics.facing = layout.def.residentFacing;
 
+		// Both the position pin below and the behaviour hold two paragraphs down are skipped while
+		// leavingFor is set: that is the resident mid-walk to the door on its way out (see
+		// handleOrder), driven by its own ordinary orderToSpot like anything else that walks. Left
+		// active through it, either one fights that walk on its own — the pin by snapping physics
+		// straight back to the seat every tick, the hold by restarting the seated behaviour the
+		// instant driveSpotOrder's own Move starts, before it ever advances a single tick — and
+		// either fight is enough on its own to strand the order. Unlike being dragged (the other
+		// thing both already skip for), there is no later "released, snap back" moment to recover
+		// into: nothing un-sets leavingFor except the walk actually reaching the door. Left fighting
+		// it, the order either never gets within THRESHOLD_REACH_PX of the door at all (the resident
+		// sits at its spot forever, order technically still "running") or does so only by coincidence
+		// of the spot already sitting that close, with no visible walk at all — reported as "stayed
+		// sitting and did nothing" and "popped out", respectively, for what should have been one
+		// ordinary walk to the door.
+		const exiting = this.leavingFor !== undefined;
+
 		// A room with nowhere else to be pins position directly rather than relying on collision to
 		// hold it — skipped mid-drag so nothing here fights the cursor; releasing inside the room
 		// lets the very next tick snap it straight back.
 		const spot = layout.def.residentSpot;
-		if (spot && !mascot.isBeingDragged) {
+		if (spot && !mascot.isBeingDragged && !exiting) {
 			const p = layout.toViewport(spot.x, spot.y);
 			mascot.physics.x = p.x;
 			mascot.physics.y = p.y;
@@ -225,7 +260,7 @@ export class Residency {
 		// pack keeps selecting from its whole repertoire, and in a room the size of a seat the result
 		// reads as jittering rather than as idling — reported as "shaking like crazy".
 		const hold = layout.def.residentBehavior;
-		if (hold && mascot.currentBehaviorName !== hold) mascot.startNamedBehavior(hold);
+		if (hold && !exiting && mascot.currentBehaviorName !== hold) mascot.startNamedBehavior(hold);
 	}
 
 	/**

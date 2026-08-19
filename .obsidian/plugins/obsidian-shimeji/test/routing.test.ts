@@ -92,6 +92,45 @@ describe("findRoute", () => {
 		expect(route.some((s) => s.via === "jump")).toBe(false);
 	});
 
+	// Two panes at nearly the same height, with a real gap between them — a normal side-by-side
+	// split whose tops differ by a few pixels (a header, a breadcrumb bar) reads as "the same level"
+	// to a person looking at the screen but is two separate floor ledges to the graph. Before the
+	// fix, jump only fired for `up > 0` (strictly higher), and drop only ever lands straight below
+	// the *departing* floor's own end — neither reaches a floor that is lower *and* to the side, so
+	// there was no edge between them at all. Confirmed live: ordered to a spot a few steps away on
+	// "the same level", the router settled for walking to its own floor's end and stopping there,
+	// well short of the target, which is what tripped chooseSpotPlan's drop/surgery machinery for a
+	// spot that already sat on a perfectly good existing floor.
+	it("jumps down to a neighbouring floor that is lower and to the side, with no wall bridging them", () => {
+		const ledges = computeLedgesFromRects(VIEWPORT, [
+			{ rect: { left: 50, top: 200, right: 500, bottom: 780 }, source: "pane" as const, paneRef: 1 },
+			// 10px gap (past the 6px corner-join slack) and 12px lower (past the 1.5px same-level
+			// tolerance bridgeNarrowGaps uses) — close enough to read as "the same level", far enough
+			// that nothing joins them into one surface or connects them by a shared wall.
+			{ rect: { left: 510, top: 212, right: 1150, bottom: 780 }, source: "pane" as const, paneRef: 2 },
+		]);
+		const start = floorAt(ledges, 200)!;
+		const route = findRoute(ledges, { x: 452, y: 200 }, { x: 558, y: 212 }, start);
+
+		expect(route).toHaveLength(1);
+		expect(route[0].via).toBe("jump");
+		expect(route[0].x).toBeCloseTo(558, 0);
+		expect(route[0].y).toBeCloseTo(212, 0);
+	});
+
+	it("will not jump further down than the jump budget allows", () => {
+		// Same shape as the case above, but now 400px lower — far past maxJumpUp's own magnitude,
+		// reused symmetrically for "how far down". No direct jump should exist, only whatever indirect
+		// route (if any) the rest of the graph provides.
+		const ledges = computeLedgesFromRects(VIEWPORT, [
+			{ rect: { left: 50, top: 200, right: 500, bottom: 780 }, source: "pane" as const, paneRef: 1 },
+			{ rect: { left: 510, top: 600, right: 1150, bottom: 780 }, source: "pane" as const, paneRef: 2 },
+		]);
+		const start = floorAt(ledges, 200)!;
+		const route = findRoute(ledges, { x: 452, y: 200 }, { x: 558, y: 600 }, start);
+		expect(route.some((s) => s.via === "jump" && s.y > 500)).toBe(false);
+	});
+
 	it("drops off the end of a raised floor to reach something below it", () => {
 		const ledges = withPane({ left: 300, top: 700, right: 900, bottom: 780 });
 		const paneTop = floorAt(ledges, 700)!;
