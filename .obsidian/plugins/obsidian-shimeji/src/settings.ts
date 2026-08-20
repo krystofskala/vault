@@ -76,6 +76,10 @@ export interface ShimejiSettings {
 	/** Invented: mascots occasionally pick a destination anywhere in the layout and route to it over
 	 * the ledge graph, climbing walls and hopping between panes to get there. See engine/Routing.ts. */
 	roamEnabled: boolean;
+	/** Invented: a per-mascot mood biases autonomous movement speed — ambient vault activity (recent
+	 * edits/opens) gives a happy/normal/bored baseline, and being thrown twice in quick succession
+	 * overrides it with anger for that one mascot for a while. See engine/mood.ts. */
+	moodEnabled: boolean;
 	/** Invented, and the most invasive thing here: a spot order may *split a pane* to create a surface
 	 * where none exists, so the mascot can reach any point at all. Only ever reached from the explicit
 	 * shift-triple-click gesture, never autonomously. See PaneActions.makeSurfaceAt. */
@@ -233,6 +237,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	allowWindowThrow: false,
 	allowPaneWrangling: true,
 	roamEnabled: true,
+	moodEnabled: true,
 	allowLayoutSurgery: true,
 	allowNoteMischief: false,
 	customContent: {},
@@ -730,6 +735,21 @@ export class ShimejiSettingTab extends PluginSettingTab {
 							this.plugin.settings.chaseMouseEnabled = value;
 							await this.plugin.saveSettings();
 							this.plugin.applyChaseMouseEnabled();
+						}),
+					);
+			});
+
+			this.section(containerEl, "Mood", true, (containerEl) => {
+				new Setting(containerEl)
+					.setName("Mood affects movement")
+					.setDesc(
+						"A per-mascot mood biases how fast it moves. A burst of vault activity (opening, editing, creating, or renaming notes) makes mascots a little quicker and more active for a while; a long quiet stretch slows them down. Throwing one mascot twice in quick succession also makes that one angry — visibly faster and more restless — until it settles back down on its own. Invented; real shimeji-ee has no emotional state at all.",
+					)
+					.addToggle((toggle) =>
+						toggle.setValue(this.plugin.settings.moodEnabled).onChange(async (value) => {
+							this.plugin.settings.moodEnabled = value;
+							await this.plugin.saveSettings();
+							this.plugin.applyMoodEnabled();
 						}),
 					);
 			});

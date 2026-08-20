@@ -180,6 +180,10 @@ export default class ShimejiPlugin extends Plugin {
 	private spotClicks: { x: number; y: number; at: number; count: number } = { x: 0, y: 0, at: 0, count: 0 };
 	/** Reset on every vault "modify" event — see VAULT_EDIT_DEBOUNCE_MS. */
 	private vaultEditDebounceTimer: number | null = null;
+	/** Updated by recordVaultActivity(), unconditionally (unlike reactToVaultEvent, never gated by
+	 * speechEnabled/vaultReactionsEnabled — mood is its own feature). The shared ambient signal
+	 * every mascot's own `mood` getter reads via MascotDeps.getMsSinceVaultActivity. */
+	private lastVaultActivityAt = Date.now();
 	/** The last set of related-note paths actually announced for a given note (its own path, as
 	 * key), sorted and joined — so pausing mid-edit repeatedly on a note whose related notes
 	 * haven't changed doesn't make a mascot repeat itself every time the debounce settles again.
@@ -293,6 +297,7 @@ export default class ShimejiPlugin extends Plugin {
 		this.engineConfig.chaseMouseEnabled = this.effectiveChaseMouseEnabled();
 		this.applyUpsideDownFeetDrag();
 		this.applyRoamEnabled();
+		this.applyMoodEnabled();
 		this.applyVaultSearchEnabled();
 		void this.aiBackendChain.preload();
 		this.obsidianPaneActions = new ObsidianPaneActions(this.app);
@@ -312,6 +317,7 @@ export default class ShimejiPlugin extends Plugin {
 			environment: new ObsidianDomEnvironment(this.app.workspace),
 			onMascotCreated: (mascot, bornBehaviorName, parent, forcedPackId) => this.onMascotCreated(mascot, bornBehaviorName, parent, forcedPackId),
 			onContextMenu: (mascot, ev) => this.showMascotContextMenu(mascot, ev),
+			getMsSinceVaultActivity: () => Date.now() - this.lastVaultActivityAt,
 		});
 		this.stage.start();
 		this.stopRoomOcclusion = this.stage.onAfterRender(() => this.updateRoomOcclusion());
@@ -496,12 +502,16 @@ export default class ShimejiPlugin extends Plugin {
 		// not itself read as the user having opened something.
 		this.registerEvent(
 			this.app.workspace.on("file-open", (file) => {
-				if (file) this.reactToVaultEvent(VaultReactionTrigger.open);
+				if (file) {
+					this.recordVaultActivity();
+					this.reactToVaultEvent(VaultReactionTrigger.open);
+				}
 			}),
 		);
 		this.registerEvent(
 			this.app.vault.on("create", (file) => {
 				if (!(file instanceof TFile)) return;
+				this.recordVaultActivity();
 				this.reactToVaultEvent(VaultReactionTrigger.create);
 				this.vaultSearchIndex?.scheduleReembed(file);
 			}),
@@ -509,6 +519,7 @@ export default class ShimejiPlugin extends Plugin {
 		this.registerEvent(
 			this.app.vault.on("delete", (file) => {
 				if (!(file instanceof TFile)) return;
+				this.recordVaultActivity();
 				this.reactToVaultEvent(VaultReactionTrigger.delete);
 				this.vaultSearchIndex?.forget(file.path);
 			}),
@@ -516,6 +527,7 @@ export default class ShimejiPlugin extends Plugin {
 		this.registerEvent(
 			this.app.vault.on("rename", (file, oldPath) => {
 				if (!(file instanceof TFile)) return;
+				this.recordVaultActivity();
 				this.reactToVaultEvent(VaultReactionTrigger.rename);
 				// Treated as "forget the old entry, embed fresh under the new path" rather than a
 				// special key-rename case in VaultSearchIndex itself — renames are rare enough that
@@ -528,6 +540,9 @@ export default class ShimejiPlugin extends Plugin {
 		this.registerEvent(
 			this.app.vault.on("modify", (file) => {
 				if (!(file instanceof TFile)) return;
+				// Recorded on the raw event, unlike reactToVaultEvent below — mood's "happy" baseline
+				// should track typing as it happens, not wait for the same debounce speech does.
+				this.recordVaultActivity();
 				// "modify" fires on every autosave pause, so this only reacts once edits go quiet —
 				// see VAULT_EDIT_DEBOUNCE_MS.
 				if (this.vaultEditDebounceTimer !== null) window.clearTimeout(this.vaultEditDebounceTimer);
@@ -980,6 +995,10 @@ export default class ShimejiPlugin extends Plugin {
 
 	applyRoamEnabled(): void {
 		this.engineConfig.roamEnabled = this.settings.roamEnabled;
+	}
+
+	applyMoodEnabled(): void {
+		this.engineConfig.moodEnabled = this.settings.moodEnabled;
 	}
 
 	/** Called on load (if already enabled) and whenever the settings toggle changes. Constructs
@@ -1788,6 +1807,13 @@ export default class ShimejiPlugin extends Plugin {
 	private reactToVaultEvent(triggerId: string): void {
 		if (!this.settings.speechEnabled || !this.settings.vaultReactionsEnabled) return;
 		for (const mascot of this.mascotsOnActivePane({ excludeConfined: true })) this.speech.announceEvent(mascot, triggerId);
+	}
+
+	/** Unlike reactToVaultEvent, deliberately unconditional: mood's ambient happy/bored baseline
+	 * (see engine/mood.ts) is a separate feature from speech/vault-reaction toggles, and every
+	 * mascot everywhere shares this one clock rather than only those on the active pane. */
+	private recordVaultActivity(): void {
+		this.lastVaultActivityAt = Date.now();
 	}
 
 	/**

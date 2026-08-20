@@ -100,6 +100,9 @@ export interface EngineConfig {
 	/** Lets mascots occasionally pick a destination anywhere in the layout and route to it, climbing
 	 * and jumping between panes to get there. Invented; see BehaviorAI.maybeRoam. */
 	roamEnabled: boolean;
+	/** Invented: an ambient/anger mood biases autonomous movement speed (faster and more restless
+	 * when angry or happy, slower when bored) — see engine/mood.ts and Mascot.moodSpeedMultiplier. */
+	moodEnabled: boolean;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -110,6 +113,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
 	chaseMouseEnabled: true,
 	upsideDownFeetDrag: true,
 	roamEnabled: true,
+	moodEnabled: true,
 };
 
 /** Shimeji-ee's own engine runs a fixed-timestep loop at this rate; Stage's simulation loop

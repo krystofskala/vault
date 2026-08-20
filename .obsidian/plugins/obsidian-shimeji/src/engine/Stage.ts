@@ -35,6 +35,8 @@ export interface StageOptions {
 	 * character, but otherwise an ordinary fresh spawn" — real per-mascot "Another One!". */
 	onMascotCreated?: (mascot: Mascot, bornBehaviorName?: string, parent?: Mascot, forcedPackId?: string | null) => void;
 	onContextMenu?: (mascot: Mascot, ev: MouseEvent) => void;
+	/** Passed straight through to every mascot's MascotDeps — see Mascot's own field doc. */
+	getMsSinceVaultActivity?: () => number;
 }
 
 const FIXED_DT = ENGINE_FIXED_TICK_MS / 1000;
@@ -297,6 +299,7 @@ export class Stage {
 			requestRemoval: (mascot) => this.removeMascot(mascot),
 			findMascotWithAffordance: (affordance) => this.getMascotWithAffordance(affordance),
 			onContextMenu: this.opts.onContextMenu,
+			getMsSinceVaultActivity: this.opts.getMsSinceVaultActivity,
 		};
 		return new Mascot(deps, x, y);
 	}

@@ -388,7 +388,11 @@ export function tickWalk(args: TickArgs, walk: WalkState, speedScale = 1): boole
 	return walk.remaining > 0;
 }
 
-export function tickChaseMouse(args: TickArgs, pointer: { x: number; y: number }, dashScale = 1.4): boolean {
+/** Exported so callers layering a further multiplier (e.g. Mascot's own mood speed bias) on top
+ * of the default dash don't have to duplicate this literal. */
+export const CHASE_MOUSE_DASH_SCALE = 1.4;
+
+export function tickChaseMouse(args: TickArgs, pointer: { x: number; y: number }, dashScale = CHASE_MOUSE_DASH_SCALE): boolean {
 	const { physics, config, dt } = args;
 	applyGravityAndLand(args);
 	const dx = pointer.x - physics.x;

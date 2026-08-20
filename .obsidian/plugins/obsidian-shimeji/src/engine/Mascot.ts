@@ -1,6 +1,7 @@
 import { applyPlaceholderPose, createPlaceholderElement, PLACEHOLDER_HEIGHT, PLACEHOLDER_WIDTH } from "../placeholder/placeholderSprite";
 import {
 	applyGravityAndLand,
+	CHASE_MOUSE_DASH_SCALE,
 	findClingableWall,
 	pickWalk,
 	tickChaseMouse,
@@ -13,6 +14,7 @@ import {
 	type WalkState,
 } from "./nativeBehaviors";
 import type { HotspotDef } from "../shimeji/types";
+import { ambientMood, ANGER_HEAT_PER_THROW, ANGER_THRESHOLD, decayAnger, MOOD_SPEED_MULTIPLIER, type Mood } from "./mood";
 import { TICKS_PER_SEC, type AmbientPointer, type EngineConfig, type Ledge, type MascotPhysics, type NativeStateName, type PointerState, type Vec2 } from "./types";
 import type { Random } from "./Random";
 
@@ -176,6 +178,11 @@ export interface MascotDeps {
 	 * once, at the single point where a physics coordinate becomes a DOM offset. Defaults to 0
 	 * for callers with no such offset (tests, a host with no chrome above the stage). */
 	getWorldTop?: () => number;
+	/** Ms since the last vault activity main.ts observed (create/delete/rename/modify/file-open) —
+	 * the shared, global ambient signal every mascot's mood baseline reads from. Undefined (tests,
+	 * a host with no such tracking) falls back to a neutral "normal" ambient mood in the getter
+	 * below rather than guessing happy or bored. See engine/mood.ts's ambientMood. */
+	getMsSinceVaultActivity?: () => number;
 	rng: Random;
 	/** Requests a new independent mascot near this one (Breed). Position is an offset from
 	 * this mascot's current position, matching the original's BornX/BornY semantics. `parent`
@@ -243,6 +250,13 @@ export class Mascot {
 	 * every behavior starting blank.
 	 */
 	readonly variables = new Map<string, unknown>();
+
+	/** Invented per-mascot mood state — see engine/mood.ts. Heat added by finishDrag() whenever
+	 * this specific mascot was just thrown, decayed every simulate() tick regardless of whether
+	 * moodEnabled is currently on (cheap, and keeps re-enabling the setting later honest instead
+	 * of resetting to zero). Only the mood/moodSpeedMultiplier getters below actually gate on the
+	 * setting. */
+	private angerHeat = 0;
 
 	private driver?: MascotDriver;
 	private walk?: WalkState;
@@ -564,6 +578,23 @@ export class Mascot {
 		return this.isDragging && this.dragUpsideDown;
 	}
 
+	/** Invented — see engine/mood.ts. "normal" (multiplier 1, no bias) whenever moodEnabled is off
+	 * or there's no ambient signal, rather than gating every call site that reads
+	 * moodSpeedMultiplier individually. Exposed for the debug API and tests. */
+	get mood(): Mood {
+		if (!this.deps.config.moodEnabled) return "normal";
+		if (this.angerHeat >= ANGER_THRESHOLD) return "angry";
+		const msSinceVaultActivity = this.deps.getMsSinceVaultActivity?.();
+		return msSinceVaultActivity === undefined ? "normal" : ambientMood(msSinceVaultActivity);
+	}
+
+	/** Scales autonomous-movement speed only (ActionRunner's Move-type tick, and the native
+	 * fallback's Walk/ChaseMouse) — never Fall/Dragged/Thrown, which are physics/mouse-driven, not
+	 * the mascot's own agency. See engine/mood.ts's MOOD_SPEED_MULTIPLIER. */
+	get moodSpeedMultiplier(): number {
+		return MOOD_SPEED_MULTIPLIER[this.mood];
+	}
+
 	private onWindowBlur = (): void => {
 		if (this.isDragging) this.finishDrag();
 		this.clearLongPress();
@@ -604,6 +635,7 @@ export class Mascot {
 		this.physics.vx = releaseVx;
 		this.physics.vy = releaseVy;
 		const wasThrown = Math.hypot(releaseVx, releaseVy) > this.deps.config.minThrowSpeed;
+		if (wasThrown) this.angerHeat += ANGER_HEAT_PER_THROW;
 		this.enterState(wasThrown ? "thrown" : "fall");
 		this.driver?.notifyReleased?.(this, wasThrown, ambient);
 	}
@@ -613,6 +645,7 @@ export class Mascot {
 	 * simulate() calls if the display stalled). */
 	simulate(dtSeconds: number, ledges: Ledge[], nearbyMascotX?: number): void {
 		this.stateElapsedMs += dtSeconds * 1000;
+		this.angerHeat = decayAnger(this.angerHeat, dtSeconds);
 		const ambient = this.deps.getAmbientPointer();
 
 		if (this.isDragging) {
@@ -682,7 +715,7 @@ export class Mascot {
 			}
 			case "walk": {
 				if (!this.walk) this.walk = pickWalk(this.deps.rng);
-				const continuing = tickWalk(args, this.walk);
+				const continuing = tickWalk(args, this.walk, this.moodSpeedMultiplier);
 				this.setVisualState("walk");
 				if (!continuing) {
 					this.walk = undefined;
@@ -697,7 +730,7 @@ export class Mascot {
 				break;
 			}
 			case "chase-mouse": {
-				const reached = tickChaseMouse(args, ambient);
+				const reached = tickChaseMouse(args, ambient, CHASE_MOUSE_DASH_SCALE * this.moodSpeedMultiplier);
 				this.setVisualState("chase-mouse");
 				if (reached || this.stateElapsedMs > 4000) this.enterState("idle");
 				break;

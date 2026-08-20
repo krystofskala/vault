@@ -727,29 +727,34 @@ export class ActionRunner {
 		const targetY = numOrUndefined(frame.locals.TargetY);
 
 		if (pose.velocity) {
+			// Invented: biases every pack's Move physics uniformly by the mascot's own mood (see
+			// engine/mood.ts) — 1 when moodEnabled is off, so this is a no-op then. The `?? 1`
+			// also covers test fixtures that fake only part of Mascot's surface without this
+			// getter — leaving it off would silently turn undefined into NaN physics below.
+			const speed = env.mascot.moodSpeedMultiplier ?? 1;
 			// Authored velocities assume the sprite faces left; -physics.facing flips the sign
 			// so the same pose data works walking either direction (facing is pre-set to point
 			// at the target when one is given, see pushAction).
 			if (targetX !== undefined) {
 				const prev = physics.x;
-				physics.x += pose.velocity.x * -physics.facing * dt;
+				physics.x += pose.velocity.x * -physics.facing * dt * speed;
 				if ((prev - targetX) * (physics.x - targetX) <= 0) {
 					physics.x = targetX;
 					return true;
 				}
 			} else {
-				physics.x += pose.velocity.x * -physics.facing * dt;
+				physics.x += pose.velocity.x * -physics.facing * dt * speed;
 			}
 
 			if (targetY !== undefined) {
 				const prev = physics.y;
-				physics.y += pose.velocity.y * dt;
+				physics.y += pose.velocity.y * dt * speed;
 				if ((prev - targetY) * (physics.y - targetY) <= 0) {
 					physics.y = targetY;
 					return true;
 				}
 			} else {
-				physics.y += pose.velocity.y * dt;
+				physics.y += pose.velocity.y * dt * speed;
 			}
 		}
 
