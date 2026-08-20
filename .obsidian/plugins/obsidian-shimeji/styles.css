@@ -414,6 +414,27 @@
 	animation: shimeji-bubble-in 140ms ease-out;
 }
 
+/* An ordinary speech line rendered as markdown (see SpeechBubbles.show) can embed an image —
+   ![[pic.png|300]] — with a width the note author chose for a full-page context, not this 170px
+   box. Scaled down to actually fit rather than overflowing/clipping; never scaled *up* past
+   whatever the embed itself asked for. */
+.shimeji-bubble img {
+	max-width: 100%;
+	height: auto;
+	display: block;
+}
+
+/* MarkdownRenderer wraps even a single plain line in a <p>, which carries browser-default
+   top/bottom margins a setText() call never had — trimmed so an ordinary one-line remark still
+   sits centred in the bubble with no extra whitespace above or below it. */
+.shimeji-bubble p:first-child {
+	margin-top: 0;
+}
+
+.shimeji-bubble p:last-child {
+	margin-bottom: 0;
+}
+
 .shimeji-bubble::after {
 	content: "";
 	position: absolute;

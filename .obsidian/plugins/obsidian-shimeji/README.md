@@ -738,6 +738,18 @@ own tags would recite the explanation.
 
 Saving the note reloads it immediately; there is no separate step.
 
+**A line can embed a vault image**, and it shows up as an actual picture in the bubble, at
+whatever size you gave the embed:
+
+```markdown
+Check this out! ![[chart.png|120]] @Sit
+```
+
+Lines are rendered as markdown, not plain text, so this is just Obsidian's own embed syntax —
+`![[name]]`, `![[name|width]]`, `![[name|widthxheight]]` — doing what it always does. No special
+casing needed; the same is true of a redirected line shown in an open chat (see Vault reactions
+below and AI Assistant above).
+
 ### How often it talks
 
 Speech is triggered by a mascot **starting** a behavior it has a line for. Everything a mascot does

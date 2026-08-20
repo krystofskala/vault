@@ -1,3 +1,4 @@
+import { Component, MarkdownRenderer } from "obsidian";
 import type { Mascot } from "../engine/Mascot";
 import { SpeechScheduler, type SpeechOptions } from "./SpeechScheduler";
 import type { SpeechPool } from "./speechLines";
@@ -42,8 +43,15 @@ export function resolveSpeechPool(packId: string | null, defaultPool: SpeechPool
  */
 export class SpeechBubbles {
 	private layer: HTMLDivElement;
-	private bubbles = new Map<Mascot, { el: HTMLDivElement; until: number }>();
+	private bubbles = new Map<Mascot, { el: HTMLDivElement; until: number; generation: number }>();
 	private scheduler: SpeechScheduler;
+	/** Owns the lifecycle of whatever MarkdownRenderer.renderMarkdown attaches inside a bubble
+	 * (an embedded image's own load, hover-link previews) — the same "a plain owned Component
+	 * stands in for a class that can't itself extend Component" reasoning
+	 * RewriteSelectionModal.ts's own rendererLifecycle uses, and for the same reason: this class
+	 * already extends nothing, so composing one is simpler than restructuring it to extend
+	 * Component only for this. */
+	private readonly rendererLifecycle = new Component();
 	/** The lines file everyone uses unless their own character overrides it below. */
 	private defaultPool: SpeechPool = new Map();
 	/** Per-character overrides, keyed by pack id — see settings.packSpeechFiles. A pack with no
@@ -180,14 +188,33 @@ export class SpeechBubbles {
 		}
 	}
 
+	/**
+	 * Rendered as markdown, not set as plain text, so an ordinary line that happens to embed a
+	 * vault image — `Check this out! ![[chart.png|120]] @Sit` — actually shows that image at the
+	 * width its own note author chose, the same way ChatBubble.ts's transcript already renders
+	 * every entry (including a redirected scripted line — see addScriptedLine there). A plain
+	 * line with no embed renders exactly as it did under setText: one paragraph, no visible markup.
+	 *
+	 * Async (embed resolution/image load isn't instant), so a per-mascot `generation` counter on
+	 * the bubbles map guards against a slow render finishing *after* a newer line has already
+	 * replaced this same mascot's bubble — the same "a later call wins" shape
+	 * ChatBubble.renderGeneration already uses, just keyed per-mascot here since one SpeechBubbles
+	 * instance is juggling every mascot's bubble at once rather than one single transcript.
+	 */
 	private show(mascot: Mascot, text: string): void {
 		if (this.tryRedirect(mascot, text)) return;
 		const existing = this.bubbles.get(mascot);
 		const el = existing?.el ?? this.layer.createDiv({ cls: "shimeji-bubble" });
-		el.setText(text);
 		el.toggleClass("shimeji-bubble-comic", this.style === "comic");
-		this.bubbles.set(mascot, { el, until: performance.now() + BUBBLE_MS });
+		const generation = (existing?.generation ?? 0) + 1;
+		this.bubbles.set(mascot, { el, until: performance.now() + BUBBLE_MS, generation });
 		this.position(mascot, el);
+		el.empty();
+		void MarkdownRenderer.renderMarkdown(text, el, "", this.rendererLifecycle).then(() => {
+			if (this.bubbles.get(mascot)?.generation !== generation) return;
+			// The embed may have changed the bubble's own size once it finished laying out.
+			this.position(mascot, el);
+		});
 	}
 
 	/**
@@ -220,5 +247,6 @@ export class SpeechBubbles {
 	destroy(): void {
 		this.clear();
 		this.layer.remove();
+		this.rendererLifecycle.unload();
 	}
 }
