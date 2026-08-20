@@ -1374,6 +1374,10 @@ one setting remembers its own value there from then on, independent of whatever 
 desktop keeps changing freely without disturbing it). Turning "Allow dragging" off on a phone,
 say, while leaving it on for the mouse on desktop, no longer means picking one value for both.
 
+The one exception is the AI backend list (see AI Assistant above): an API key or local server URL
+configured on any device is always the same list everywhere, never a per-device override. Adding
+a backend on your phone means it's there on desktop too, and vice versa.
+
 ## Commands / UI
 
 Real shimeji-ee actually has *two* separate menus, not one — the desktop tray icon (global,

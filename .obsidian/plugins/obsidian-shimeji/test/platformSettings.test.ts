@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { reconcileStoredSettings, resolveEffectiveSettings, type StoredShimejiSettings } from "../src/platformSettings";
 import { DEFAULT_SETTINGS, type ShimejiSettings } from "../src/settings";
+import type { AiBackend } from "../src/ai/backends";
 
 function stored(overrides: { desktop?: Partial<ShimejiSettings>; mobileOverrides?: Partial<ShimejiSettings> } = {}): StoredShimejiSettings {
 	return {
 		desktop: { ...DEFAULT_SETTINGS, ...overrides.desktop },
 		mobileOverrides: { ...overrides.mobileOverrides },
 	};
+}
+
+function backend(name: string): AiBackend {
+	return { id: name, name, kind: "anthropic", baseUrl: "", apiKey: `${name}-key`, model: "claude-sonnet-5", dailyLimit: 0 };
 }
 
 describe("resolveEffectiveSettings", () => {
@@ -108,5 +113,42 @@ describe("reconcileStoredSettings", () => {
 		const effective = resolveEffectiveSettings(s, true);
 		const result = reconcileStoredSettings(s, effective, true);
 		expect(result.mobileOverrides).toEqual(s.mobileOverrides);
+	});
+});
+
+describe("PLATFORM_SHARED_KEYS (aiBackends never splits per-device)", () => {
+	it("on mobile, always reflects the desktop list even when a stale mobileOverrides.aiBackends is sitting in storage", () => {
+		const s = stored({
+			desktop: { aiBackends: [backend("Anthropic"), backend("Groq")] },
+			mobileOverrides: { aiBackends: [backend("Anthropic")] }, // e.g. left over from before this fix
+		});
+		const effective = resolveEffectiveSettings(s, true);
+		expect(effective.aiBackends).toEqual([backend("Anthropic"), backend("Groq")]);
+	});
+
+	it("on mobile, editing aiBackends writes straight into the desktop base, not mobileOverrides", () => {
+		const s = stored({ desktop: { aiBackends: [backend("Anthropic")] } });
+		const effective = { ...resolveEffectiveSettings(s, true), aiBackends: [backend("Anthropic"), backend("Ollama")] };
+		const result = reconcileStoredSettings(s, effective, true);
+		expect(result.desktop.aiBackends).toEqual([backend("Anthropic"), backend("Ollama")]);
+		expect(result.mobileOverrides.aiBackends).toBeUndefined();
+	});
+
+	it("a stale mobileOverrides.aiBackends is dropped by the very next mobile save, even with no other change", () => {
+		const s = stored({
+			desktop: { aiBackends: [backend("Anthropic"), backend("Groq")] },
+			mobileOverrides: { aiBackends: [backend("Anthropic")], allowDragging: false },
+		});
+		const effective = resolveEffectiveSettings(s, true); // nothing changed on this device
+		const result = reconcileStoredSettings(s, effective, true);
+		expect(result.mobileOverrides.aiBackends).toBeUndefined();
+		expect(result.mobileOverrides.allowDragging).toBe(false); // unrelated real override survives
+	});
+
+	it("a backend added on mobile is visible back on desktop afterward, same as an edit made on desktop itself", () => {
+		const s = stored({ desktop: { aiBackends: [backend("Anthropic")] } });
+		const effective = { ...resolveEffectiveSettings(s, true), aiBackends: [backend("Anthropic"), backend("Groq")] };
+		const afterMobileSave = reconcileStoredSettings(s, effective, true);
+		expect(resolveEffectiveSettings(afterMobileSave, false).aiBackends).toEqual([backend("Anthropic"), backend("Groq")]);
 	});
 });
