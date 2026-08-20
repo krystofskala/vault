@@ -39,12 +39,26 @@ function normalizeBaseUrl(baseUrl: string): string {
 	return baseUrl.trim().replace(/\/+$/, "");
 }
 
+/** A plain string when there are no images (unchanged from before this feature existed, and the
+ * overwhelming majority of messages) — the OpenAI vision content-parts shape (`content` as an
+ * array of `{type: "text"}`/`{type: "image_url"}` parts, each image as a data: URI) is only
+ * actually needed once there is an image to carry alongside the text. Text first, matching the
+ * order OpenAI's own vision examples use; an image-only message (no caption typed) omits the text
+ * part entirely rather than sending an empty one. */
+function contentFor(message: ChatMessage): string | Array<Record<string, unknown>> {
+	if (!message.images || message.images.length === 0) return message.content;
+	const parts: Array<Record<string, unknown>> = [];
+	if (message.content) parts.push({ type: "text", text: message.content });
+	for (const img of message.images) parts.push({ type: "image_url", image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
+	return parts;
+}
+
 /** The exact request an OpenAI-compatible `/chat/completions` endpoint expects. Unlike Anthropic's
  * Messages API, there is no separate top-level system field — the system prompt is just another
  * message, first, with role "system". */
 export function buildOpenAiCompatibleRequest(settings: OpenAiCompatibleSettings, messages: ChatMessage[], systemPrompt?: string): OpenAiCompatibleRequest {
-	const chatMessages: Array<{ role: string; content: string }> = systemPrompt ? [{ role: "system", content: systemPrompt }] : [];
-	chatMessages.push(...messages.map((m) => ({ role: m.role, content: m.content })));
+	const chatMessages: Array<{ role: string; content: unknown }> = systemPrompt ? [{ role: "system", content: systemPrompt }] : [];
+	chatMessages.push(...messages.map((m) => ({ role: m.role, content: contentFor(m) })));
 	const headers: Record<string, string> = { "content-type": "application/json" };
 	const apiKey = settings.apiKey.trim();
 	if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;

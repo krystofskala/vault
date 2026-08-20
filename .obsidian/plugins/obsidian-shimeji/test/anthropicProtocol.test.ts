@@ -51,6 +51,61 @@ describe("buildAnthropicRequest", () => {
 		const body = JSON.parse(req.body);
 		expect(body.system).toBe("You are a helpful desktop companion.");
 	});
+
+	describe("attached images", () => {
+		it("turns a captioned image into an image block followed by a text block", () => {
+			const messages: ChatMessage[] = [{ role: "user", content: "what is this?", images: [{ base64: "QUFB", mimeType: "image/png" }] }];
+			const req = buildAnthropicRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages).toEqual([
+				{
+					role: "user",
+					content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "QUFB" } }, { type: "text", text: "what is this?" }],
+				},
+			]);
+		});
+
+		it("omits the text block entirely for an image sent with no caption", () => {
+			const messages: ChatMessage[] = [{ role: "user", content: "", images: [{ base64: "QUFB", mimeType: "image/png" }] }];
+			const req = buildAnthropicRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages[0].content).toEqual([{ type: "image", source: { type: "base64", media_type: "image/png", data: "QUFB" } }]);
+		});
+
+		it("carries every attached image as its own block, in order", () => {
+			const messages: ChatMessage[] = [
+				{
+					role: "user",
+					content: "compare these",
+					images: [
+						{ base64: "AAA", mimeType: "image/png" },
+						{ base64: "BBB", mimeType: "image/jpeg" },
+					],
+				},
+			];
+			const req = buildAnthropicRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages[0].content).toEqual([
+				{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAA" } },
+				{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "BBB" } },
+				{ type: "text", text: "compare these" },
+			]);
+		});
+
+		it("stays a plain string, exactly as before this feature existed, when no images are attached", () => {
+			const messages: ChatMessage[] = [{ role: "user", content: "just text" }];
+			const req = buildAnthropicRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages[0].content).toBe("just text");
+		});
+
+		it("stays a plain string for an explicitly empty images array too", () => {
+			const messages: ChatMessage[] = [{ role: "user", content: "just text", images: [] }];
+			const req = buildAnthropicRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages[0].content).toBe("just text");
+		});
+	});
 });
 
 describe("parseAnthropicResponse", () => {

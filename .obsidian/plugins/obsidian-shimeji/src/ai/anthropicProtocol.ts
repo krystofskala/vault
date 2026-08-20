@@ -25,12 +25,28 @@ const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const MAX_TOKENS = 1024;
 
+/** A plain string when there are no images (unchanged from before this feature existed, and the
+ * overwhelming majority of messages) — Anthropic's Messages API accepts `content` as either a bare
+ * string or a content-block array, and only actually needs the array form once there is an image
+ * block to carry alongside the text. Image blocks come first, text last, matching the order the
+ * Anthropic docs use in their own multimodal examples. An image-only message (no caption typed)
+ * omits the text block entirely rather than sending an empty one. */
+function contentFor(message: ChatMessage): string | Array<Record<string, unknown>> {
+	if (!message.images || message.images.length === 0) return message.content;
+	const blocks: Array<Record<string, unknown>> = message.images.map((img) => ({
+		type: "image",
+		source: { type: "base64", media_type: img.mimeType, data: img.base64 },
+	}));
+	if (message.content) blocks.push({ type: "text", text: message.content });
+	return blocks;
+}
+
 /** The exact request Anthropic's Messages API expects for a given settings/message-history pair. */
 export function buildAnthropicRequest(settings: AiSettings, messages: ChatMessage[], systemPrompt?: string): AnthropicRequest {
 	const body: Record<string, unknown> = {
 		model: settings.model,
 		max_tokens: MAX_TOKENS,
-		messages: messages.map((m) => ({ role: m.role, content: m.content })),
+		messages: messages.map((m) => ({ role: m.role, content: contentFor(m) })),
 	};
 	if (systemPrompt) body.system = systemPrompt;
 	return {

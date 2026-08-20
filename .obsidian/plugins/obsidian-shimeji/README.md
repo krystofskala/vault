@@ -903,6 +903,15 @@ either one; they only ever use whatever space the pane already has above and bel
 rather than growing past it, which is why the layout suits a tall sidebar particularly well. Type
 in the bar and press **Enter** (or click **Send**) to talk; the toggle button closes it again.
 
+**Paste an image straight into the input** (a screenshot, a copied picture) and it attaches as a
+small thumbnail chip, sent alongside whatever you typed. It's genuinely sent, not just shown —
+Anthropic and any OpenAI-compatible vision-capable model can actually see it, using each provider's
+own real image format. A backend that can't (most local/free-tier text-only models) just fails on
+that one request; with more than one backend configured, the existing automatic-failover chain
+already tries the next one, so nothing extra needs configuring to fall back to a text-only model.
+No compression or resizing is attempted — the pasted image goes out as-is, capped only at a size
+sane enough to not hang the browser on an enormous screenshot.
+
 Messages render as plain markdown text rather than boxed bubbles — your own turns align right in a
 muted colour, the assistant's align left in the ordinary text colour. It is still the mascot's own
 speech bubble, not a separate window: it's drawn against whichever resident is currently home,

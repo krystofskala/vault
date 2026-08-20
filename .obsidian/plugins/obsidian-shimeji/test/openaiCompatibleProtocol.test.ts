@@ -55,6 +55,57 @@ describe("buildOpenAiCompatibleRequest", () => {
 			{ role: "user", content: "hello" },
 		]);
 	});
+
+	describe("attached images", () => {
+		it("turns a captioned image into a text part followed by an image_url part", () => {
+			const messages: ChatMessage[] = [{ role: "user", content: "what is this?", images: [{ base64: "QUFB", mimeType: "image/png" }] }];
+			const req = buildOpenAiCompatibleRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages).toEqual([
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "what is this?" },
+						{ type: "image_url", image_url: { url: "data:image/png;base64,QUFB" } },
+					],
+				},
+			]);
+		});
+
+		it("omits the text part entirely for an image sent with no caption", () => {
+			const messages: ChatMessage[] = [{ role: "user", content: "", images: [{ base64: "QUFB", mimeType: "image/png" }] }];
+			const req = buildOpenAiCompatibleRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages[0].content).toEqual([{ type: "image_url", image_url: { url: "data:image/png;base64,QUFB" } }]);
+		});
+
+		it("carries every attached image as its own part, in order", () => {
+			const messages: ChatMessage[] = [
+				{
+					role: "user",
+					content: "compare these",
+					images: [
+						{ base64: "AAA", mimeType: "image/png" },
+						{ base64: "BBB", mimeType: "image/jpeg" },
+					],
+				},
+			];
+			const req = buildOpenAiCompatibleRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages[0].content).toEqual([
+				{ type: "text", text: "compare these" },
+				{ type: "image_url", image_url: { url: "data:image/png;base64,AAA" } },
+				{ type: "image_url", image_url: { url: "data:image/jpeg;base64,BBB" } },
+			]);
+		});
+
+		it("stays a plain string, exactly as before this feature existed, when no images are attached", () => {
+			const messages: ChatMessage[] = [{ role: "user", content: "just text" }];
+			const req = buildOpenAiCompatibleRequest(SETTINGS, messages);
+			const body = JSON.parse(req.body);
+			expect(body.messages[0].content).toBe("just text");
+		});
+	});
 });
 
 describe("parseOpenAiCompatibleResponse", () => {

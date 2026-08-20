@@ -1,7 +1,7 @@
 import { Component, MarkdownRenderer } from "obsidian";
 import { parseProposedEdits } from "../ai/noteEdits";
 import { resolvePersona } from "../ai/persona";
-import type { ChatMessage } from "../ai/types";
+import type { ChatImage, ChatMessage } from "../ai/types";
 import type { Mascot } from "../engine/Mascot";
 import type { Rect } from "../engine/types";
 import type { MascotPack } from "../shimeji/types";
@@ -27,6 +27,11 @@ const INPUT_GAP_PX = 4;
 const INPUT_BAR_HEIGHT = 36;
 /** Below this neither zone is worth showing — a sliver conveys nothing a hidden bubble doesn't. */
 const MIN_VISIBLE = 40;
+/** A clipboard screenshot can genuinely be this large — capped so one pathological paste can't hang
+ * the FileReader conversion or blow a request past what a free-tier backend accepts, with a clear
+ * notice instead of a cryptic provider error. Well above anything a normal screenshot needs: this
+ * is a safety rail, not a target size — no resizing/compression is attempted below it either. */
+const MAX_PASTED_IMAGE_BYTES = 8 * 1024 * 1024;
 
 export interface ChatBubbleDeps {
 	/** Sends through whichever AI provider is currently active (see ai/providers.ts) — ChatBubble
@@ -71,6 +76,11 @@ interface TimelineEntry {
 	 * exactly as long as the message it belongs to does (which is to say: the life of this
 	 * conversation, the same as the rest of history — see this class's own doc comment). */
 	edits?: NoteEditState[];
+	/** Only ever present on a "user" entry — see ai/types.ts's own ChatMessage.images. Declared here
+	 * too (not inherited) so toChatMessages' structural narrowing carries it through to what
+	 * actually goes out over the wire, the same reason `content`/`edits` are declared directly on
+	 * this interface rather than by extending ChatMessage. */
+	images?: ChatImage[];
 }
 
 /** One card's worth of state. "pending" is the only state Apply/Discard are shown for; the other
@@ -138,6 +148,10 @@ export class ChatBubble extends Component {
 	private history: TimelineEntry[] = [];
 	private sending = false;
 	private notice?: string;
+	/** A pasted image waiting to go out with the next sent message — see handlePaste(). Cleared the
+	 * moment send() actually attaches it to a pushed entry, same as the text input's own value. */
+	private pendingImage?: ChatImage;
+	private pendingImagePreviewEl?: HTMLElement;
 	/** Bumped on every renderMessages() call so an older, still-in-flight one (markdown rendering
 	 * is async) can tell it has been superseded and stop touching the DOM — the same "a later call
 	 * wins" guard RoomView.loadImage() uses for the same reason. */
@@ -225,9 +239,15 @@ export class ChatBubble extends Component {
 		const inputBar = this.layer.createDiv({ cls: "shimeji-room-chat-inputbar shimeji-bubble" });
 		inputBar.toggleClass("shimeji-bubble-comic", comic);
 		inputBar.style.pointerEvents = "auto";
+		// Hidden (display:none, see updatePendingImagePreview) until an image is actually pasted —
+		// an ordinary flex sibling of the field/button below rather than a separate layout zone, so
+		// it fits inside the bar's own existing fixed height with no change to the pane's outer
+		// transcript/input-bar position math.
+		this.pendingImagePreviewEl = inputBar.createDiv({ cls: "shimeji-room-chat-pending-image" });
 		const input = inputBar.createEl("input", { cls: "shimeji-room-chat-inputbar-field", attr: { type: "text" } });
 		input.placeholder = "Say something…";
 		this.inputEl = input;
+		input.addEventListener("paste", (e) => this.handlePaste(e));
 		const sendBtn = inputBar.createEl("button", { cls: "shimeji-room-chat-inputbar-send", text: "Send" });
 		const trigger = () => void this.send();
 		sendBtn.onclick = trigger;
@@ -238,17 +258,71 @@ export class ChatBubble extends Component {
 			}
 		});
 		this.inputBarEl = inputBar;
+		this.updatePendingImagePreview();
 
 		void this.renderMessages();
+	}
+
+	/**
+	 * Intercepts an image on the clipboard rather than letting it paste as whatever garbled text a
+	 * plain `<input>` would otherwise turn image binary into — ordinary text paste is untouched,
+	 * since `clipboardData.items` only ever has an `image/*` entry when something was actually
+	 * copied as an image (a screenshot, a copied picture), never for copied text.
+	 */
+	private handlePaste(e: ClipboardEvent): void {
+		const items = e.clipboardData?.items;
+		if (!items) return;
+		const imageItem = Array.from(items).find((item) => item.type.startsWith("image/"));
+		if (!imageItem) return;
+		e.preventDefault();
+		const file = imageItem.getAsFile();
+		if (!file) return;
+		if (file.size > MAX_PASTED_IMAGE_BYTES) {
+			this.notice = `That image is too large to attach (${Math.round(file.size / 1024 / 1024)} MB, limit ${MAX_PASTED_IMAGE_BYTES / 1024 / 1024} MB).`;
+			void this.renderMessages();
+			return;
+		}
+		const reader = new FileReader();
+		reader.onload = () => {
+			const dataUrl = typeof reader.result === "string" ? reader.result : "";
+			// "data:image/png;base64,AAAA..." — the part after the comma is exactly what Anthropic's
+			// source.data and the OpenAI-compatible image_url field each want (bare for the former,
+			// re-prefixed for the latter — see anthropicProtocol.ts/openaiCompatibleProtocol.ts).
+			const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+			if (!base64) return;
+			this.pendingImage = { base64, mimeType: file.type || "image/png" };
+			this.updatePendingImagePreview();
+		};
+		reader.readAsDataURL(file);
+	}
+
+	private updatePendingImagePreview(): void {
+		const el = this.pendingImagePreviewEl;
+		if (!el) return;
+		el.empty();
+		if (!this.pendingImage) {
+			el.style.display = "none";
+			return;
+		}
+		el.style.display = "";
+		el.createEl("img", { attr: { src: `data:${this.pendingImage.mimeType};base64,${this.pendingImage.base64}` } });
+		const removeBtn = el.createEl("button", { text: "×", attr: { "aria-label": "Remove attached image" } });
+		removeBtn.onclick = () => {
+			this.pendingImage = undefined;
+			this.updatePendingImagePreview();
+		};
 	}
 
 	private async send(): Promise<void> {
 		if (!this.inputEl || !this.mascot || this.sending) return;
 		const text = this.inputEl.value.trim();
-		if (!text) return;
+		if (!text && !this.pendingImage) return;
 		this.notice = undefined;
 		this.inputEl.value = "";
-		this.history.push({ role: "user", content: text });
+		const images = this.pendingImage ? [this.pendingImage] : undefined;
+		this.pendingImage = undefined;
+		this.updatePendingImagePreview();
+		this.history.push({ role: "user", content: text, images });
 		this.sending = true;
 		void this.renderMessages();
 		try {
@@ -289,6 +363,11 @@ export class ChatBubble extends Component {
 			const row = el.createDiv({ cls: `shimeji-bubble-chat-msg shimeji-bubble-chat-msg-${entry.role}` });
 			await MarkdownRenderer.renderMarkdown(entry.content, row, "", this);
 			if (generation !== this.renderGeneration) return;
+			// A user turn's own attached image(s) — see send()/handlePaste(). Never present on an
+			// "assistant" entry: none of this plugin's backends can return an image, only accept one.
+			for (const image of entry.images ?? []) {
+				row.createEl("img", { cls: "shimeji-bubble-chat-msg-image", attr: { src: `data:${image.mimeType};base64,${image.base64}` } });
+			}
 			if (entry.edits) {
 				for (const edit of entry.edits) {
 					await this.renderEditCard(el, edit);

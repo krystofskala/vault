@@ -1,9 +1,24 @@
+/** A pasted image attached to a user message. Raw base64 with no `data:` URI prefix — Anthropic's
+ * own `source.data` field wants it bare; openaiCompatibleProtocol.ts re-adds the prefix itself
+ * when building the `image_url` field, since that's the form OpenAI-compatible vision endpoints
+ * expect instead. */
+export interface ChatImage {
+	base64: string;
+	mimeType: string;
+}
+
 /** Provider-agnostic — every protocol adapter (anthropicProtocol.ts, openaiCompatibleProtocol.ts)
  * builds its own wire format from the same shape, so ChatBubble's own history never needs to know
  * which backend is actually answering it. */
 export interface ChatMessage {
 	role: "user" | "assistant";
 	content: string;
+	/** Only ever present on a "user" entry — an assistant reply is text-only, and every message
+	 * from before this feature existed simply has no such field. A backend that can't actually see
+	 * images (most local/free-tier text models) just errors on the request; AiBackendChain.send
+	 * already falls through to the next configured backend on any such failure — no separate
+	 * per-backend "supports images" flag needed for that to work correctly. */
+	images?: ChatImage[];
 }
 
 /**
