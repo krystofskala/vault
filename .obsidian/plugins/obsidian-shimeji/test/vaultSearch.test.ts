@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContextBlock, diffIndex, rankRelevant, type IndexedNote } from "../src/ai/vaultSearch";
+import { buildContextBlock, buildRelatedNotesLine, diffIndex, rankRelevant, type IndexedNote } from "../src/ai/vaultSearch";
 
 function note(path: string, embedding: number[], excerpt = `content of ${path}`): IndexedNote {
 	return { path, mtime: 0, excerpt, embedding };
@@ -67,5 +67,26 @@ describe("buildContextBlock", () => {
 		expect(block).toContain("first note's text");
 		expect(block).toContain("b.md");
 		expect(block).toContain("second note's text");
+	});
+});
+
+describe("buildRelatedNotesLine", () => {
+	it("returns an empty string for no paths, so a caller can always call it unconditionally", () => {
+		expect(buildRelatedNotesLine([])).toBe("");
+	});
+
+	it("wikilinks a single note, stripping the .md extension", () => {
+		expect(buildRelatedNotesLine(["Daily/2026-08-19.md"])).toBe("This might be related: [[Daily/2026-08-19]]");
+	});
+
+	it("uses plural wording and joins multiple wikilinks", () => {
+		const line = buildRelatedNotesLine(["a.md", "folder/b.md"]);
+		expect(line).toContain("These might be related:");
+		expect(line).toContain("[[a]]");
+		expect(line).toContain("[[folder/b]]");
+	});
+
+	it("leaves a non-.md path untouched inside the wikilink", () => {
+		expect(buildRelatedNotesLine(["Attachments/scan.pdf"])).toContain("[[Attachments/scan.pdf]]");
 	});
 });

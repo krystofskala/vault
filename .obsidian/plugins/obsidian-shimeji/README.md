@@ -980,6 +980,37 @@ part of an ordinary text reply, the same way it would write any other code block
 identically across every provider this plugin talks to, including a small local model, without
 needing function-calling support from any of them.
 
+### Related notes while writing
+
+**Settings → AI Assistant → Vault search → Suggest related notes while writing**, off by default,
+only available when vault search itself is on (it reuses the exact same local index rather than
+building a second one — see Vault search above).
+
+With it on, a mascot on the pane you're working in mentions notes that look related once edits to
+the active note settle — the exact same "wait for a pause, then remark" mechanism vault reactions
+already use for things like `@note:edit`, just triggered by a live search instead of a fixed tagged
+line. The remark is real wikilinks (`[[Like This]]`), so clicking one navigates like any other note
+link. It only ever speaks — nothing is written to the note, and a suggestion that hasn't actually
+changed since the last time it was mentioned for that note isn't repeated just because the debounce
+fired again.
+
+### Right-click rewrite
+
+**Works whenever Note edits above is on** — no separate toggle, since it's the same underlying
+permission (an AI-proposed change to a note that needs your own Apply click before anything
+happens), just reached from a different place.
+
+Select some text in a note, right-click it, and a few commands appear — **Ask the mascot: Fix
+grammar & wording**, **Make more concise**, **Improve clarity**. Each opens a small window showing
+the original passage, then the rewritten version once it comes back, with **Apply** (replaces
+exactly that selection, in place) and **Discard** buttons. This is a separate, smaller flow from
+the chat's own note-edit cards on purpose: rewriting *this specific passage* only makes sense while
+that exact selection is still the one being talked about, which a window that closes before you
+walk away guarantees in a way an open-ended chat conversation can't. The rewrite itself is
+deliberately *not* asked for in the resident's own character voice — a wording fix in your notes
+shouldn't come back sounding like whichever character happens to live in the room, however fun that
+voice is in chat.
+
 ### Character personality
 
 **Settings → AI Assistant → Character personality** lists every loaded character with a field for

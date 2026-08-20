@@ -61,3 +61,25 @@ export function buildContextBlock(notes: readonly IndexedNote[]): string {
 	const sections = notes.map((n) => `### ${n.path}\n${n.excerpt}`).join("\n\n");
 	return `\n\nHere are notes from the user's vault that might be relevant to their question. Use them if they help answer it; ignore them if they don't:\n\n${sections}`;
 }
+
+/** Turns a vault path into what goes inside a wikilink's own `[[...]]` — strips a trailing ".md"
+ * (Obsidian's own extension for a note), leaving the rest (including the folder, so two notes
+ * that share a name in different folders each still resolve to the right one) untouched. A
+ * non-".md" path — unusual, but real, since Obsidian can wikilink other file types — is left
+ * exactly as-is. */
+function wikilinkTarget(path: string): string {
+	return path.endsWith(".md") ? path.slice(0, -3) : path;
+}
+
+/**
+ * A short ambient line for SpeechBubbles.say, not the chat's own context block above — what a
+ * mascot says out loud (or writes into the transcript, if chat is open) on noticing related notes
+ * while a note is being written, never fed back into a model itself. Real wikilinks, so clicking
+ * one in the transcript navigates like any other note link would. Empty input means nothing worth
+ * saying, the same "caller never needs its own length check" shape buildContextBlock already uses.
+ */
+export function buildRelatedNotesLine(paths: readonly string[]): string {
+	if (paths.length === 0) return "";
+	const links = paths.map((p) => `[[${wikilinkTarget(p)}]]`).join(", ");
+	return paths.length === 1 ? `This might be related: ${links}` : `These might be related: ${links}`;
+}

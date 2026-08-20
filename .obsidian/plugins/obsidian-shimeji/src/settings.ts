@@ -195,6 +195,13 @@ export interface ShimejiSettings {
 	/** How many notes' excerpts get spliced into a chat message's context — see
 	 * ai/vaultSearch.ts's rankRelevant. */
 	vaultSearchTopK: number;
+	/** Off by default, and only takes effect when vaultSearchEnabled above is also on — this reuses
+	 * the same local index rather than building a second one. When on, a mascot on the active pane
+	 * mentions related notes it noticed once edits to the active note settle, the same
+	 * "reactToVaultEvent" ambient-remark mechanism vault reactions already use, just triggered by a
+	 * live search instead of a static tagged line. Never writes anything into the note itself —
+	 * this only ever speaks, the same restraint noteEditsEnabled below applies to actual edits. */
+	relatedNoteSuggestionsEnabled: boolean;
 	/** Off by default — lets the AI chat propose edits to the active note (grammar fixes,
 	 * callouts, embeds) as an Apply/Discard card instead of just describing them in prose. See
 	 * ai/noteEdits.ts. Nothing is ever written to a note without the user clicking Apply on a
@@ -248,6 +255,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	activeNoteContextEnabled: false,
 	vaultSearchEnabled: false,
 	vaultSearchTopK: 4,
+	relatedNoteSuggestionsEnabled: false,
 	noteEditsEnabled: false,
 };
 
@@ -1135,13 +1143,28 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								}
 							}),
 					);
+
+				new Setting(containerEl)
+					.setName("Suggest related notes while writing")
+					.setDesc(
+						"Off by default. A mascot on the current pane mentions notes that look related once edits to the active note settle — never writes anything, just says so, the same way vault-reaction remarks already work.",
+					)
+					.addToggle((toggle) =>
+						toggle
+							.setDisabled(!this.plugin.settings.vaultSearchEnabled)
+							.setValue(this.plugin.settings.relatedNoteSuggestionsEnabled)
+							.onChange(async (value) => {
+								this.plugin.settings.relatedNoteSuggestionsEnabled = value;
+								await this.plugin.saveSettings();
+							}),
+					);
 			});
 
 			this.section(containerEl, "Note edits", this.plugin.settings.noteEditsEnabled, (containerEl) => {
 				this.callout(
 					containerEl,
 					"info",
-					"Lets the AI propose changes to the note you're discussing — a grammar fix, a callout, an embed — as a card in the chat with its own Apply and Discard buttons. Nothing is written to any note until you personally click Apply on a specific proposal; Discard (or just ignoring it) leaves the note untouched.",
+					"Lets the AI propose changes to the note you're discussing — a grammar fix, a callout, an embed — as a card in the chat with its own Apply and Discard buttons. Nothing is written to any note until you personally click Apply on a specific proposal; Discard (or just ignoring it) leaves the note untouched. Also adds a few commands to the editor's own right-click menu when text is selected — \"Ask the mascot: Fix grammar\" and similar — for asking about one specific passage directly, without opening chat at all. Same rule there: nothing changes until Apply is clicked on that passage's own proposal.",
 				);
 
 				new Setting(containerEl)

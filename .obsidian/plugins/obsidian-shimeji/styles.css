@@ -87,6 +87,45 @@
 	display: none;
 }
 
+/* RewriteSelectionModal — the editor right-click "ask the mascot" commands. Reuses the
+   .shimeji-bubble-chat-edit* classes from the room chat's own note-edit card for the proposed
+   rewrite itself (same "proposed change with Apply/Discard" shape, same look), since both already
+   work fine standalone: they're built entirely from Obsidian's own theme variables, with no
+   dependency on a specific ancestor class the way the chat bubble's comic-mode overrides need one.
+   Only the "what was selected" preview above the proposal needs anything new here. */
+.shimeji-rewrite-modal {
+	min-width: 420px;
+}
+
+.shimeji-rewrite-original {
+	margin-bottom: 12px;
+	padding: 8px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+	max-height: 160px;
+	overflow-y: auto;
+}
+
+.shimeji-rewrite-label {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--text-muted);
+	margin-bottom: 4px;
+}
+
+/* Plain textContent, not markdown — the original selection is shown verbatim for comparison, not
+   re-rendered, so its own line breaks need pre-wrap or a multi-line selection reads as one run-on
+   paragraph. */
+.shimeji-rewrite-original p {
+	margin: 0;
+	color: var(--text-muted);
+	font-size: 13px;
+	white-space: pre-wrap;
+}
+
 .shimeji-wizard-modal {
 	width: 640px;
 	max-width: 90vw;

@@ -6,8 +6,9 @@ import { LocalEmbedder } from "./ai/embeddings";
 import { NOTE_EDIT_INSTRUCTIONS } from "./ai/noteEdits";
 import { resolvePersona } from "./ai/persona";
 import { noBackendsConfiguredError, type AiDispatchSettings } from "./ai/providers";
+import { REWRITE_PRESETS } from "./ai/rewriteSelection";
 import type { ChatMessage } from "./ai/types";
-import { buildContextBlock } from "./ai/vaultSearch";
+import { buildContextBlock, buildRelatedNotesLine } from "./ai/vaultSearch";
 import { VaultSearchIndex } from "./ai/VaultSearchIndex";
 import { installDebugApi, uninstallDebugApi } from "./debugApi";
 import { ObsidianDomEnvironment } from "./engine/Environment";
@@ -29,6 +30,7 @@ import { sounds } from "./shimeji/SoundPlayer";
 import type { MascotPack } from "./shimeji/types";
 import { DEFAULT_SETTINGS, ShimejiSettingTab, type ShimejiSettings } from "./settings";
 import { ChatBubble } from "./room/ChatBubble";
+import { RewriteSelectionModal } from "./room/RewriteSelectionModal";
 import { orderEveryoneToSpot, Residency } from "./room/Residency";
 import { RoomOcclusion } from "./room/RoomOcclusion";
 import { ROOM_VIEW_TYPE, RoomView } from "./room/RoomView";
@@ -178,6 +180,11 @@ export default class ShimejiPlugin extends Plugin {
 	private spotClicks: { x: number; y: number; at: number; count: number } = { x: 0, y: 0, at: 0, count: 0 };
 	/** Reset on every vault "modify" event — see VAULT_EDIT_DEBOUNCE_MS. */
 	private vaultEditDebounceTimer: number | null = null;
+	/** The last set of related-note paths actually announced for a given note (its own path, as
+	 * key), sorted and joined — so pausing mid-edit repeatedly on a note whose related notes
+	 * haven't changed doesn't make a mascot repeat itself every time the debounce settles again.
+	 * See maybeAnnounceRelatedNotes. */
+	private lastRelatedNotesShown = new Map<string, string>();
 	/** Live listeners built from settings.customVaultReactions, tracked so a settings edit can tear
 	 * down and rebuild them without waiting for a plugin reload — see applyCustomVaultReactions. */
 	private customVaultReactionRefs: Array<{ on: Events; ref: EventRef }> = [];
@@ -457,6 +464,33 @@ export default class ShimejiPlugin extends Plugin {
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.applyMobileInteractivity()));
 		this.registerInterval(window.setInterval(() => this.maybeTriggerNoteMischief(), NOTE_MISCHIEF_CHECK_MS));
 
+		// Editor right-click "ask the mascot" rewrite commands — gated on noteEditsEnabled rather
+		// than a setting of their own: both are the same underlying permission ("let AI propose a
+		// change to my note that I confirm before anything's written"), just reached from a
+		// different place (this menu vs. a chat reply's own card), so this reuses that one toggle
+		// rather than adding a near-duplicate. Not registered at all when it wouldn't offer
+		// anything, rather than added-then-disabled, so an unconfigured install's context menu
+		// stays exactly as uncluttered as it already was.
+		this.registerEvent(
+			this.app.workspace.on("editor-menu", (menu, editor) => {
+				if (!this.settings.aiEnabled || !this.settings.noteEditsEnabled) return;
+				if (!editor.somethingSelected()) return;
+				const from = editor.getCursor("from");
+				const to = editor.getCursor("to");
+				const original = editor.getSelection();
+				for (const preset of REWRITE_PRESETS) {
+					menu.addItem((item) =>
+						item
+							.setTitle(`Ask the mascot: ${preset.label}`)
+							.setIcon("wand-2")
+							.onClick(() => {
+								new RewriteSelectionModal(this.app, { editor, from, to, original, preset, backends: this.settings.aiBackends, chain: this.aiBackendChain }).open();
+							}),
+					);
+				}
+			}),
+		);
+
 		// Vault reactions — see reactToVaultEvent/vaultReactionsEnabled. Deliberately no "note:open"
 		// fired here at startup (shimeji-buddy's own onLayoutReady did that): a plugin reload should
 		// not itself read as the user having opened something.
@@ -500,6 +534,7 @@ export default class ShimejiPlugin extends Plugin {
 				this.vaultEditDebounceTimer = window.setTimeout(() => {
 					this.vaultEditDebounceTimer = null;
 					this.reactToVaultEvent(VaultReactionTrigger.edit);
+					void this.maybeAnnounceRelatedNotes(file);
 				}, VAULT_EDIT_DEBOUNCE_MS);
 				// Its own independent debounce inside VaultSearchIndex — unrelated to the speech
 				// debounce above, just watching the same event for a different reason.
@@ -1753,6 +1788,35 @@ export default class ShimejiPlugin extends Plugin {
 	private reactToVaultEvent(triggerId: string): void {
 		if (!this.settings.speechEnabled || !this.settings.vaultReactionsEnabled) return;
 		for (const mascot of this.mascotsOnActivePane({ excludeConfined: true })) this.speech.announceEvent(mascot, triggerId);
+	}
+
+	/**
+	 * Called from the same "edits have gone quiet" debounce reactToVaultEvent already fires on —
+	 * searching and speaking is exactly the kind of thing worth waiting for a pause for, the same
+	 * reason vault reactions themselves wait for it. Only ever considers the file actually active
+	 * in the workspace right now: `vault.on("modify")` fires for any file, including ones nobody is
+	 * looking at (a sync client, a background process), and those have no "what you're writing"
+	 * angle to suggest anything useful for.
+	 */
+	private async maybeAnnounceRelatedNotes(file: TFile): Promise<void> {
+		if (!this.settings.speechEnabled || !this.settings.relatedNoteSuggestionsEnabled) return;
+		if (!this.vaultSearchIndex) return;
+		if (this.app.workspace.getActiveFile()?.path !== file.path) return;
+		let results;
+		try {
+			const content = await this.app.vault.cachedRead(file);
+			results = await this.vaultSearchIndex.search(content, this.settings.vaultSearchTopK);
+		} catch (e) {
+			console.warn("[obsidian-shimeji] related-note search failed", e);
+			return;
+		}
+		const related = results.filter((r) => r.path !== file.path).map((r) => r.path);
+		if (related.length === 0) return;
+		const key = [...related].sort().join("|");
+		if (this.lastRelatedNotesShown.get(file.path) === key) return; // same suggestion as last time — nothing new to say
+		this.lastRelatedNotesShown.set(file.path, key);
+		const line = buildRelatedNotesLine(related);
+		for (const mascot of this.mascotsOnActivePane({ excludeConfined: true })) this.speech.say(mascot, line);
 	}
 
 	/**
