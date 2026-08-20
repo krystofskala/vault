@@ -88,4 +88,34 @@ describe("parseOpenAiCompatibleResponse", () => {
 		expect(() => parseOpenAiCompatibleResponse(200, { choices: [{}] })).toThrow(/Unexpected response shape/);
 		expect(() => parseOpenAiCompatibleResponse(200, { choices: [{ message: { content: "" } }] })).toThrow(/Unexpected response shape/);
 	});
+
+	// Reasoning models (DeepSeek-R1, QwQ, Qwen3-thinking, etc.) emit their <think> block inline in
+	// this same content string — unlike Anthropic, which returns thinking as its own typed content
+	// block parseAnthropicResponse already filters out before this shape is even reached.
+	describe("<think> stripping", () => {
+		it("strips a closed <think> block, leaving only the real answer", () => {
+			const json = { choices: [{ message: { content: "<think>let me consider this\nstep by step</think>The capital is Paris." } }] };
+			expect(parseOpenAiCompatibleResponse(200, json)).toBe("The capital is Paris.");
+		});
+
+		it("leaves an ordinary reply with no <think> tag completely unchanged", () => {
+			const json = { choices: [{ message: { content: "The capital is Paris." } }] };
+			expect(parseOpenAiCompatibleResponse(200, json)).toBe("The capital is Paris.");
+		});
+
+		it("strips every closed <think> block when a model interleaves more than one", () => {
+			const json = { choices: [{ message: { content: "<think>first</think>Part one.<think>second</think>Part two." } }] };
+			expect(parseOpenAiCompatibleResponse(200, json)).toBe("Part one.Part two.");
+		});
+
+		it("strips an unterminated <think> block through to the end, not just the closed form", () => {
+			const json = { choices: [{ message: { content: "<think>ran out of budget mid-thought, never closed" } }] };
+			expect(() => parseOpenAiCompatibleResponse(200, json)).toThrow(/only returned its reasoning/);
+		});
+
+		it("throws a specific, actionable error when the whole reply was reasoning and nothing else", () => {
+			const json = { choices: [{ message: { content: "<think>thinking only</think>" } }] };
+			expect(() => parseOpenAiCompatibleResponse(200, json)).toThrow(/only returned its reasoning/);
+		});
+	});
 });

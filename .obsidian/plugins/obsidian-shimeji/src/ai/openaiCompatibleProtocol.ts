@@ -26,7 +26,12 @@ export interface OpenAiCompatibleRequest {
 	body: string;
 }
 
-const MAX_TOKENS = 1024;
+/** A reasoning model (DeepSeek-R1, QwQ, Qwen3 in thinking mode, etc. — common among local/free
+ * OpenAI-compatible backends) spends a real chunk of this budget on its <think> block before ever
+ * reaching the answer; 1024 left it starved, cut off mid-thought with no answer at all in the
+ * common case. Anthropic's own MAX_TOKENS (anthropicProtocol.ts) stays smaller deliberately —
+ * extended thinking is never requested there, so a Claude reply has no such budget to share. */
+const MAX_TOKENS = 4096;
 
 /** A URL typed by hand is exactly the kind of place a stray trailing slash creeps in — trimmed so
  * "http://localhost:11434/v1" and "http://localhost:11434/v1/" both resolve to the same endpoint. */
@@ -51,6 +56,26 @@ export function buildOpenAiCompatibleRequest(settings: OpenAiCompatibleSettings,
 }
 
 /**
+ * Strips a reasoning model's own <think>...</think> block from its reply. Unlike Anthropic's
+ * Messages API — which returns thinking as its own typed content block that
+ * parseAnthropicResponse already filters out by type, never mixed into the reply text — the
+ * OpenAI-compatible `/chat/completions` shape has no such separation: DeepSeek-R1, QwQ, Qwen3 in
+ * thinking mode and similar models (common among local/free backends) just emit the reasoning
+ * inline, ahead of the real answer, in the one `content` string. Left unstripped, this is the
+ * model's raw scratch-work landing verbatim in the chat bubble as if it were the reply.
+ *
+ * A block that never closes (the model was cut off mid-thought, before ever reaching `</think>`
+ * or a real answer — see MAX_TOKENS above) is stripped through to the end of the string too,
+ * rather than left dangling raw: there is no real answer left to preserve either way.
+ */
+function stripThinking(content: string): string {
+	return content
+		.replace(/<think>[\s\S]*?<\/think>/gi, "")
+		.replace(/<think>[\s\S]*$/i, "")
+		.trim();
+}
+
+/**
  * Turns an OpenAI-compatible JSON response body into the assistant's reply text, or throws a
  * clear, specific `Error`. Takes the HTTP status alongside the body deliberately, the same reason
  * parseAnthropicResponse does: an error response here is real, useful JSON (a model name that
@@ -69,5 +94,7 @@ export function parseOpenAiCompatibleResponse(status: number, json: unknown): st
 	const message = first && typeof first === "object" ? (first as Record<string, unknown>).message : undefined;
 	const content = message && typeof message === "object" ? (message as Record<string, unknown>).content : undefined;
 	if (typeof content !== "string" || !content) throw new Error("Unexpected response shape from the local model server (no message content).");
-	return content;
+	const reply = stripThinking(content);
+	if (!reply) throw new Error("The model only returned its reasoning, with no final answer — it may need a larger token budget to finish thinking.");
+	return reply;
 }
