@@ -148,9 +148,12 @@ export class ChatBubble extends Component {
 	private history: TimelineEntry[] = [];
 	private sending = false;
 	private notice?: string;
-	/** A pasted image waiting to go out with the next sent message — see handlePaste(). Cleared the
-	 * moment send() actually attaches it to a pushed entry, same as the text input's own value. */
-	private pendingImage?: ChatImage;
+	/** Pasted images waiting to go out with the next sent message — see handlePaste(). More than one
+	 * paste before sending accumulates here rather than each replacing the last, matching what a
+	 * user turn's own `images` field already supported at the wire-protocol level even before this
+	 * buffer could hold more than one. Cleared the moment send() actually attaches it to a pushed
+	 * entry, same as the text input's own value. */
+	private pendingImages: ChatImage[] = [];
 	private pendingImagePreviewEl?: HTMLElement;
 	/** Bumped on every renderMessages() call so an older, still-in-flight one (markdown rendering
 	 * is async) can tell it has been superseded and stop touching the DOM — the same "a later call
@@ -290,37 +293,45 @@ export class ChatBubble extends Component {
 			// re-prefixed for the latter — see anthropicProtocol.ts/openaiCompatibleProtocol.ts).
 			const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
 			if (!base64) return;
-			this.pendingImage = { base64, mimeType: file.type || "image/png" };
+			this.pendingImages.push({ base64, mimeType: file.type || "image/png" });
 			this.updatePendingImagePreview();
 		};
 		reader.readAsDataURL(file);
 	}
 
+	/** Renders one removable thumbnail chip per pending image — see styles.css's own comment on
+	 * .shimeji-room-chat-pending-image for why the container's `display` is never baked in as
+	 * `none`: this class's usual el.style.display = "none"/"" toggle (matching every other
+	 * show/hide in this codebase) only works when the CSS class itself declares the *visible*
+	 * resting state, not the hidden one. */
 	private updatePendingImagePreview(): void {
 		const el = this.pendingImagePreviewEl;
 		if (!el) return;
 		el.empty();
-		if (!this.pendingImage) {
+		if (this.pendingImages.length === 0) {
 			el.style.display = "none";
 			return;
 		}
 		el.style.display = "";
-		el.createEl("img", { attr: { src: `data:${this.pendingImage.mimeType};base64,${this.pendingImage.base64}` } });
-		const removeBtn = el.createEl("button", { text: "×", attr: { "aria-label": "Remove attached image" } });
-		removeBtn.onclick = () => {
-			this.pendingImage = undefined;
-			this.updatePendingImagePreview();
-		};
+		this.pendingImages.forEach((image, index) => {
+			const chip = el.createDiv({ cls: "shimeji-room-chat-pending-image-chip" });
+			chip.createEl("img", { attr: { src: `data:${image.mimeType};base64,${image.base64}` } });
+			const removeBtn = chip.createEl("button", { text: "×", attr: { "aria-label": "Remove attached image" } });
+			removeBtn.onclick = () => {
+				this.pendingImages.splice(index, 1);
+				this.updatePendingImagePreview();
+			};
+		});
 	}
 
 	private async send(): Promise<void> {
 		if (!this.inputEl || !this.mascot || this.sending) return;
 		const text = this.inputEl.value.trim();
-		if (!text && !this.pendingImage) return;
+		if (!text && this.pendingImages.length === 0) return;
 		this.notice = undefined;
 		this.inputEl.value = "";
-		const images = this.pendingImage ? [this.pendingImage] : undefined;
-		this.pendingImage = undefined;
+		const images = this.pendingImages.length > 0 ? this.pendingImages : undefined;
+		this.pendingImages = [];
 		this.updatePendingImagePreview();
 		this.history.push({ role: "user", content: text, images });
 		this.sending = true;

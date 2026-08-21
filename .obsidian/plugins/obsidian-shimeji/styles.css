@@ -651,26 +651,37 @@
 	margin: 4px 0 0 auto;
 }
 
-/* The pasted-image chip in the input bar (see ChatBubble.updatePendingImagePreview) — an ordinary
-   flex sibling of the field/button either side of it (.shimeji-room-chat-inputbar is already
-   display:flex), sized to the bar's own fixed height so it never changes the bar's total size.
-   display:none by default; toggled on the moment an image is actually pasted. */
+/* The row of pasted-image chips in the input bar (see ChatBubble.updatePendingImagePreview) — an
+   ordinary flex sibling of the field/button either side of it (.shimeji-room-chat-inputbar is
+   already display:flex), each chip sized to the bar's own fixed height so it never changes the
+   bar's total size. No `display: none` here, deliberately: ChatBubble toggles this element purely
+   from JS (el.style.display = "none"/""), the same convention every other show/hide in this
+   codebase uses (RoomOcclusion's overlay, Mascot's own img/svg swap) — that only works when the
+   class itself declares the *visible* resting state, since clearing an inline style falls back to
+   whatever the class says, not to "hidden". Baking `display: none` in here instead used to make
+   the "" branch a no-op: the row would never actually reveal itself once an image was pasted. */
 .shimeji-room-chat-pending-image {
-	display: none;
+	display: flex;
+	align-items: center;
+	gap: 4px;
 	flex: 0 0 auto;
+	height: 100%;
+}
+
+.shimeji-room-chat-pending-image-chip {
 	position: relative;
 	height: 100%;
 	aspect-ratio: 1;
 }
 
-.shimeji-room-chat-pending-image img {
+.shimeji-room-chat-pending-image-chip img {
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
 	border-radius: 4px;
 }
 
-.shimeji-room-chat-pending-image button {
+.shimeji-room-chat-pending-image-chip button {
 	position: absolute;
 	top: -6px;
 	right: -6px;
