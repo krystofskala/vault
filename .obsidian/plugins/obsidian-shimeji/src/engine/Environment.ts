@@ -23,6 +23,13 @@ export interface Environment {
 	getPlatformRects(): Array<{ rect: Rect; source: LedgeSource; paneRef?: PaneRef }>;
 }
 
+/** How much of the literal bottom of a mobile screen getWorldBottom() reserves for Obsidian
+ * Mobile's own docked toolbar — see that method's own doc comment for why this is a flat
+ * constant rather than a live measurement on mobile. Deliberately generous: erring larger costs
+ * a mascot a little unused floor space above the toolbar, erring smaller risks the exact "landed
+ * behind the toolbar" bug this exists to prevent. */
+const MOBILE_BOTTOM_RESERVED_PX = 64;
+
 /** The real implementation: reads the actual Obsidian window/DOM. */
 export class ObsidianDomEnvironment implements Environment {
 	/**
@@ -78,16 +85,29 @@ export class ObsidianDomEnvironment implements Environment {
 	 * walking/falling mascot would settle there, reading as "fell below the bottom edge" since
 	 * the toolbar draws over it.
 	 *
-	 * Only one signal here, unlike getWorldTop()'s two: there's no bottom-edge equivalent of a
-	 * title bar "merging" into a tab strip (the specific case that made a second, explicit
-	 * chrome-element measurement necessary up top), and `.workspace`'s own bottom edge is the
-	 * same general-purpose signal getWorldTop() already leans on first — Obsidian lays the
-	 * workspace out as a sibling of its surrounding chrome, so this needs no Mobile-specific
-	 * selector (unverifiable from here) to already exclude a genuinely-docked bottom toolbar.
-	 * Defaults to the full viewport height (no exclusion) when `.workspace` can't be found, same
-	 * graceful degradation as getWorldTop()'s own workspaceTop.
+	 * On mobile this is a fixed reserve subtracted from `window.innerHeight`, not a live
+	 * `.workspace`-rect measurement the way getWorldTop() and this method's own desktop path
+	 * both are — that was the first fix here, and it wasn't enough: reports of the mascot still
+	 * ending up below the visible screen kept coming in specifically while scrolling through a
+	 * note, meaning `.workspace`'s own measured bottom edge doesn't reliably stay pinned to where
+	 * the toolbar actually is on Mobile's page the whole time a note is being scrolled — the
+	 * rect this used to read was itself moving. `window.innerHeight` has nothing scrollable about
+	 * it (a note's own content scrolls a descendant element, never the viewport itself), so a
+	 * flat pixel reserve subtracted from it is genuinely pinned to the literal bottom of the
+	 * screen regardless of scroll position, the same way a `position: fixed` element would be.
+	 * MOBILE_BOTTOM_RESERVED_PX is deliberately generous rather than a tight measurement of the
+	 * toolbar's own real height (unmeasurable from here, and it can vary by device/OS) — a
+	 * mascot standing on a little unnecessary dead space above the toolbar costs nothing; landing
+	 * behind the toolbar again is the actual bug this exists to close.
+	 *
+	 * Desktop keeps the original `.workspace`-rect approach: there's no docked bottom chrome to
+	 * exclude there in the first place (this ends up equal to `window.innerHeight` in practice),
+	 * and the reported drift is Mobile-specific, so there's nothing to fix on this path.
 	 */
 	getWorldBottom(): number {
+		if (document.body.classList.contains("is-mobile")) {
+			return Math.max(0, window.innerHeight - MOBILE_BOTTOM_RESERVED_PX);
+		}
 		const containerEl = this.workspace?.containerEl ?? document.querySelector<HTMLElement>(".workspace");
 		const rect = containerEl?.getBoundingClientRect();
 		// A collapsed/not-yet-laid-out rect (height 0) is not a real "the workspace ends here"

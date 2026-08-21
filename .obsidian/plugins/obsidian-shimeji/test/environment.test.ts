@@ -139,4 +139,46 @@ describe("ObsidianDomEnvironment.getWorldBottom", () => {
 			workspaceEl.remove();
 		}
 	});
+
+	// Regression coverage for the follow-up report: the .workspace-rect approach above wasn't
+	// enough on Mobile — the floor kept landing behind the toolbar again specifically while
+	// scrolling through a note, meaning that rect isn't reliably pinned to the toolbar's actual
+	// on-screen position the whole time a note scrolls. On mobile this now ignores the rect
+	// entirely and reserves a flat pixel margin off window.innerHeight instead — a genuinely
+	// viewport-pinned number with nothing scrollable about it.
+	describe("on mobile (document.body has the is-mobile class)", () => {
+		afterEach(() => {
+			document.body.classList.remove("is-mobile");
+		});
+
+		it("reserves a fixed margin off window.innerHeight instead of reading any workspace rect", () => {
+			setInnerHeight(800);
+			document.body.classList.add("is-mobile");
+			// Deliberately a rect that would otherwise be trusted (see the "reads the injected
+			// workspace's..." case above) — proving the mobile path ignores it outright rather than
+			// merely happening to agree with it here.
+			const containerEl = document.createElement("div");
+			containerEl.getBoundingClientRect = () => rectAt(0, 740, 400);
+			const env = new ObsidianDomEnvironment({ containerEl });
+			expect(env.getWorldBottom()).toBe(800 - 64);
+		});
+
+		it("tracks window.innerHeight directly, exactly as it would if it were a position:fixed element", () => {
+			document.body.classList.add("is-mobile");
+			const env = new ObsidianDomEnvironment();
+			setInnerHeight(600);
+			expect(env.getWorldBottom()).toBe(600 - 64);
+			// Simulates the address-bar/keyboard-driven resize this fix exists to survive — no
+			// rect/layout change needed, just the viewport itself changing height.
+			setInnerHeight(500);
+			expect(env.getWorldBottom()).toBe(500 - 64);
+		});
+
+		it("never returns a negative bottom on a viewport shorter than the reserve", () => {
+			setInnerHeight(40);
+			document.body.classList.add("is-mobile");
+			const env = new ObsidianDomEnvironment();
+			expect(env.getWorldBottom()).toBe(0);
+		});
+	});
 });
