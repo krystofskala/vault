@@ -450,14 +450,24 @@
 }
 
 /* A fixed white-and-ink look that deliberately ignores the active theme, so it reads the same in
-   light or dark — the point of the style is that it looks like a comic panel, not like the app. */
+   light or dark — the point of the style is that it looks like a comic panel, not like the app.
+   The font stack is a cross-platform stand-in for one actual font, not a preference-ordered list
+   of different looks: "Comic Sans MS" (bundled on Windows and modern macOS) is the real thing;
+   "Comic Neue" is the open-licensed lookalike some Linux setups carry; "Chalkboard SE" and
+   "Bradley Hand" are Apple's own bundled playful/handwritten system fonts, there specifically for
+   iOS/iPadOS, which has none of the above — without them this used to fall all the way through to
+   the bare `cursive` generic, which different mobile browsers resolve to wildly different (and
+   often joined-script, not comic-print) fonts, reading as a jarring mismatch against desktop
+   rather than the same character speaking. `sans-serif` is the final, guaranteed-present fallback
+   for a platform (stock Android chief among them) with none of the named fonts either — plain and
+   unremarkable beats an unpredictable cursive script that might clash with this look entirely. */
 .shimeji-bubble.shimeji-bubble-comic {
 	background: #ffffff;
 	color: #111111;
 	border: 2.5px solid #111111;
 	border-radius: 16px 18px 20px 14px / 12px 16px 14px 18px;
 	box-shadow: 2px 3px 0 rgba(17, 17, 17, 0.9);
-	font-family: "Comic Sans MS", "Comic Neue", "Segoe Print", cursive, sans-serif;
+	font-family: "Comic Sans MS", "Comic Neue", "Chalkboard SE", "Segoe Print", "Bradley Hand", sans-serif;
 	font-weight: 700;
 	padding: 7px 12px;
 }
@@ -1000,7 +1010,7 @@
    .shimeji-bubble-comic above) — an ordinary Obsidian-styled field/button sitting right under a
    white, ink-outlined, Comic-Sans transcript would clash rather than read as the same object. */
 .shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-field {
-	font-family: "Comic Sans MS", "Comic Neue", "Segoe Print", cursive, sans-serif;
+	font-family: "Comic Sans MS", "Comic Neue", "Chalkboard SE", "Segoe Print", "Bradley Hand", sans-serif;
 	color: #111111;
 }
 
@@ -1018,7 +1028,7 @@
 }
 
 .shimeji-room-chat-inputbar.shimeji-bubble-comic .shimeji-room-chat-inputbar-send {
-	font-family: "Comic Sans MS", "Comic Neue", "Segoe Print", cursive, sans-serif;
+	font-family: "Comic Sans MS", "Comic Neue", "Chalkboard SE", "Segoe Print", "Bradley Hand", sans-serif;
 	font-weight: 700;
 	background: transparent;
 	color: #111111;
