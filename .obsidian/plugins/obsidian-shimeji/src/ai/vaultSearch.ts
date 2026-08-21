@@ -22,6 +22,21 @@ export interface IndexedNote {
 }
 
 /**
+ * Real folder-path matching, not a glob — mirrors Smart Connections' own exclude-folders feature.
+ * An entry matches a file that is *inside* it (a genuine ancestor folder) or that *is* it (a
+ * specific excluded file, not just a folder) — never a same-prefixed sibling: excluding "Journal"
+ * must not also exclude a note named "Journal Club.md" one level up. A trailing slash is trimmed
+ * so "Journal/" and "Journal" behave identically; a blank entry (an empty line in the settings
+ * textarea) never matches anything.
+ */
+export function isExcludedPath(path: string, excludedPaths: readonly string[]): boolean {
+	return excludedPaths.some((entry) => {
+		const normalized = entry.trim().replace(/\/+$/, "");
+		return normalized !== "" && (path === normalized || path.startsWith(`${normalized}/`));
+	});
+}
+
+/**
  * Which files need (re)embedding, and which cached entries no longer correspond to any real
  * file. Pure comparison against whatever the caller already has — no vault access here at all,
  * so a test can hand this two plain arrays/maps and nothing else.

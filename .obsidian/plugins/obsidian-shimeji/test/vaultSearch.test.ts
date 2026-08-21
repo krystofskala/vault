@@ -1,9 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { buildContextBlock, buildRelatedNotesLine, diffIndex, rankRelevant, type IndexedNote } from "../src/ai/vaultSearch";
+import { buildContextBlock, buildRelatedNotesLine, diffIndex, isExcludedPath, rankRelevant, type IndexedNote } from "../src/ai/vaultSearch";
 
 function note(path: string, embedding: number[], excerpt = `content of ${path}`): IndexedNote {
 	return { path, mtime: 0, excerpt, embedding };
 }
+
+describe("isExcludedPath", () => {
+	it("matches a file directly inside an excluded folder", () => {
+		expect(isExcludedPath("Journal/2024.md", ["Journal"])).toBe(true);
+	});
+
+	it("matches a file nested several folders deep under an excluded folder", () => {
+		expect(isExcludedPath("Journal/2024/January/01.md", ["Journal"])).toBe(true);
+	});
+
+	it("does not match an unrelated file", () => {
+		expect(isExcludedPath("Recipes/soup.md", ["Journal"])).toBe(false);
+	});
+
+	it("does not match a same-prefixed sibling that is not actually inside the excluded folder", () => {
+		expect(isExcludedPath("Journal Club/notes.md", ["Journal"])).toBe(false);
+	});
+
+	it("tolerates a trailing slash on the excluded entry", () => {
+		expect(isExcludedPath("Journal/2024.md", ["Journal/"])).toBe(true);
+	});
+
+	it("matches a specific excluded file by exact path, not just a folder", () => {
+		expect(isExcludedPath("Finance/taxes.md", ["Finance/taxes.md"])).toBe(true);
+		expect(isExcludedPath("Finance/budget.md", ["Finance/taxes.md"])).toBe(false);
+	});
+
+	it("ignores a blank entry rather than matching everything", () => {
+		expect(isExcludedPath("anything.md", ["", "   "])).toBe(false);
+	});
+
+	it("matches against any entry in a list of several", () => {
+		expect(isExcludedPath("Finance/taxes.md", ["Journal", "Finance", "Private"])).toBe(true);
+	});
+
+	it("is false for an empty exclusion list", () => {
+		expect(isExcludedPath("anything.md", [])).toBe(false);
+	});
+});
 
 describe("diffIndex", () => {
 	it("marks a file with no index entry at all as stale", () => {

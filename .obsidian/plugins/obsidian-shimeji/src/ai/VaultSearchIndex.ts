@@ -1,6 +1,6 @@
 import type { App, TFile } from "obsidian";
 import type { Embedder } from "./embeddings";
-import { diffIndex, rankRelevant, type IndexedNote } from "./vaultSearch";
+import { diffIndex, isExcludedPath, rankRelevant, type IndexedNote } from "./vaultSearch";
 
 /** How much of a note's own text gets embedded and, unmodified, shown to the chat model as
  * retrieved context — one slice serving both purposes rather than tracking two separately
@@ -42,16 +42,30 @@ export class VaultSearchIndex {
 		/** A function rather than a plain string: it reads `manifest.dir`, which main.ts only has
 		 * once the plugin has actually finished loading. */
 		private dataFolder: () => string,
+		/** Read live, the same "thunk into current settings" shape `dataFolder` above already
+		 * uses — so editing the excluded-paths list in settings takes effect on the very next
+		 * rebuild()/scheduleReembed() without this class needing to be reconstructed. Defaults to
+		 * "nothing excluded" for callers (tests) that don't care about this feature at all. */
+		private excludedPaths: () => readonly string[] = () => [],
 	) {}
 
 	private indexPath(): string {
 		return `${this.dataFolder()}/${INDEX_FILE_NAME}`;
 	}
 
+	/** Every markdown file minus whatever the user has excluded (see isExcludedPath) — the single
+	 * shared notion of "eligible to be indexed" that rebuild(), scheduleReembed(), and status()'s
+	 * own totalCount all need to agree on, so an excluded note is never counted as "not yet
+	 * indexed" in the settings status line. */
+	private eligibleFiles(): TFile[] {
+		const excluded = this.excludedPaths();
+		return this.app.vault.getMarkdownFiles().filter((f) => !isExcludedPath(f.path, excluded));
+	}
+
 	/** For the settings screen's status line — never throws, never triggers a load itself, so
 	 * rendering settings can't accidentally kick off IO. */
 	status(): VaultSearchStatus {
-		return { indexedCount: this.index.size, totalCount: this.app.vault.getMarkdownFiles().length, indexing: this.indexing };
+		return { indexedCount: this.index.size, totalCount: this.eligibleFiles().length, indexing: this.indexing };
 	}
 
 	private async ensureLoaded(): Promise<void> {
@@ -74,14 +88,18 @@ export class VaultSearchIndex {
 	}
 
 	/** Full scan: embeds whatever is new or changed since the cache was last written, drops
-	 * entries for notes that no longer exist. Safe to call repeatedly — diffIndex only re-embeds
-	 * what actually needs it, so a second call right after the first does almost nothing. */
+	 * entries for notes that no longer exist *or that have since been excluded* — diffIndex's own
+	 * "pruned" is just "an index entry whose path isn't in the file list I was given," and
+	 * eligibleFiles() already leaves an excluded path out of that list, so a path newly added to
+	 * the exclusion setting is purged here on the very next rebuild with no extra logic needed.
+	 * Safe to call repeatedly — diffIndex only re-embeds what actually needs it, so a second call
+	 * right after the first does almost nothing. */
 	async rebuild(): Promise<void> {
 		await this.ensureLoaded();
 		if (this.indexing) return;
 		this.indexing = true;
 		try {
-			const files = this.app.vault.getMarkdownFiles();
+			const files = this.eligibleFiles();
 			const { stale, pruned } = diffIndex(
 				files.map((f) => ({ path: f.path, mtime: f.stat.mtime })),
 				this.index,
@@ -99,8 +117,12 @@ export class VaultSearchIndex {
 		}
 	}
 
+	/** The single enforcement point for exclusion on the incremental path: both rebuild()'s batch
+	 * loop and scheduleReembed()'s debounced callback funnel through here, so a caller can never
+	 * forget the check by calling this directly instead of going through eligibleFiles() first —
+	 * scheduleReembed() in particular has no filtering of its own, relying entirely on this. */
 	private async embedOne(file: TFile | undefined): Promise<void> {
-		if (!file) return;
+		if (!file || isExcludedPath(file.path, this.excludedPaths())) return;
 		const content = await this.app.vault.cachedRead(file);
 		const excerpt = content.length > EXCERPT_CHAR_BUDGET ? `${content.slice(0, EXCERPT_CHAR_BUDGET)}…` : content;
 		if (!excerpt.trim()) return; // an empty note has nothing to search for or to show

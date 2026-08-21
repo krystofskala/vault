@@ -959,12 +959,19 @@ separate server, no extra API key, nothing about the search step itself leaves t
 downloads once over the network the first time it's actually used (tens of MB) and is cached
 afterward.
 
-Turning it on indexes every markdown note: each one gets embedded and cached, keyed by its own
-modification time, so a note that hasn't changed since it was last indexed is never re-embedded.
-Editing, creating, deleting, or renaming a note updates the index incrementally in the background
-(the same "wait for edits to settle" debounce the rest of the plugin already uses for vault
-reactions) — **Rebuild index** in settings forces a full pass, useful right after turning the
-feature on for the first time, and its status line shows how many notes are indexed so far.
+Turning it on indexes every markdown note **except whatever's listed under "Never search these
+paths"** — one folder or file per line, matched the same real folder-prefix way [Smart
+Connections](https://github.com/brianpetro/obsidian-smart-connections)' own exclude-folders
+setting works: excluding a folder excludes everything inside it. Empty by default, so nothing is
+held back until a path is actually opted out — useful for a journal, financial notes, anything the
+AI should never see even indirectly through a retrieved excerpt. Each remaining note gets embedded
+and cached, keyed by its own modification time, so a note that hasn't changed since it was last
+indexed is never re-embedded, and a path added to the exclusion list afterward is dropped from the
+cache on the next rebuild even though the note itself still exists. Editing, creating, deleting, or
+renaming a note updates the index incrementally in the background (the same "wait for edits to
+settle" debounce the rest of the plugin already uses for vault reactions) — **Rebuild index** in
+settings forces a full pass, useful right after turning the feature on for the first time (or after
+changing the exclusion list), and its status line shows how many notes are indexed so far.
 
 Sending a chat message embeds it the same way and finds the **Notes per message** most similar
 already-indexed notes, splicing their content into that message's context before it goes to

@@ -1012,6 +1012,7 @@ export default class ShimejiPlugin extends Plugin {
 				this.app,
 				new LocalEmbedder((fileName) => this.app.vault.adapter.getResourcePath(`${this.roomFolder()}/onnx-wasm/${fileName}`)),
 				() => this.roomFolder(),
+				() => this.settings.vaultSearchExcludedPaths,
 			);
 		else this.vaultSearchIndex = undefined;
 	}

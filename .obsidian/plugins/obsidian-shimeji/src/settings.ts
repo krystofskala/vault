@@ -199,6 +199,12 @@ export interface ShimejiSettings {
 	/** How many notes' excerpts get spliced into a chat message's context — see
 	 * ai/vaultSearch.ts's rankRelevant. */
 	vaultSearchTopK: number;
+	/** Folder (or specific file) paths never embedded/searched — a journal, financial notes,
+	 * anything the user would rather the AI never sees, even indirectly through a retrieved
+	 * excerpt. Empty by default: nothing is excluded until the user opts a path out. Matched by
+	 * ai/vaultSearch.ts's own isExcludedPath, the same real folder-prefix semantics Smart
+	 * Connections' own exclude-folders setting uses. */
+	vaultSearchExcludedPaths: string[];
 	/** Off by default, and only takes effect when vaultSearchEnabled above is also on — this reuses
 	 * the same local index rather than building a second one. When on, a mascot on the active pane
 	 * mentions related notes it noticed once edits to the active note settle, the same
@@ -260,6 +266,7 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	activeNoteContextEnabled: false,
 	vaultSearchEnabled: false,
 	vaultSearchTopK: 4,
+	vaultSearchExcludedPaths: [],
 	relatedNoteSuggestionsEnabled: false,
 	noteEditsEnabled: false,
 };
@@ -1136,6 +1143,23 @@ export class ShimejiSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 						}),
 					);
+
+				new Setting(containerEl)
+					.setName("Never search these paths")
+					.setDesc(
+						"One folder or file path per line — a journal, financial notes, anything the AI should never see, even indirectly through a retrieved excerpt. A folder excludes everything inside it. Takes effect on the next index rebuild below.",
+					)
+					.addTextArea((text) => {
+						text.inputEl.rows = 3;
+						text.setPlaceholder("Journal\nFinance/taxes.md");
+						text.setValue(this.plugin.settings.vaultSearchExcludedPaths.join("\n")).onChange(async (value) => {
+							this.plugin.settings.vaultSearchExcludedPaths = value
+								.split("\n")
+								.map((line) => line.trim())
+								.filter((line) => line !== "");
+							await this.plugin.saveSettings();
+						});
+					});
 
 				const status = this.plugin.vaultSearchIndex?.status();
 				const statusText = !this.plugin.settings.vaultSearchEnabled
