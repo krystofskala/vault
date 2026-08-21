@@ -472,6 +472,23 @@
 	bottom: -7px;
 }
 
+/* Selecting text inside any bubble (an ambient remark, or the chat transcript below) otherwise
+   falls back to the browser's own default selection colour rather than Obsidian's — nothing about
+   this floating layer sits inside a container Obsidian's own app.css happens to theme selection
+   for. `::selection` cascades to plain descendant text with no rule of its own, so this one
+   declaration covers every message row inside .shimeji-bubble-chat-messages too, keeping the
+   chat's own input field (styled to match, see .shimeji-room-chat-inputbar-field::selection) and
+   its transcript showing the same highlight colour rather than two different ones side by side.
+   Comic mode gets the same fixed colour its own version of that input rule already uses, for the
+   same "ignores the active theme everywhere in this look" reason. */
+.shimeji-bubble::selection {
+	background: var(--text-selection);
+}
+
+.shimeji-bubble.shimeji-bubble-comic::selection {
+	background: rgba(17, 17, 17, 0.25);
+}
+
 @keyframes shimeji-bubble-in {
 	from { opacity: 0; transform: translateY(3px); }
 	to { opacity: 1; transform: none; }
@@ -918,6 +935,14 @@
 	appearance: none !important;
 	-webkit-appearance: none !important;
 	color-scheme: light !important;
+	/* `color: inherit` above makes the caret's own default (currentColor) whatever text color this
+	   bubble happens to be using, which at 12px/1 line can read as barely there. A solid accent
+	   color makes it unmistakable regardless of theme, the same reason Obsidian uses it for every
+	   other "this is interactive, look here" control (buttons, checkboxes, sliders). Comic mode
+	   deliberately isn't given this override — its own fixed near-black text (see below) already
+	   has plenty of contrast against comic mode's fixed white, and an accent-coloured caret would
+	   be one un-ink-like color breaking an otherwise strictly black-and-white comic-panel look. */
+	caret-color: var(--interactive-accent) !important;
 }
 
 .shimeji-room-chat-inputbar .shimeji-room-chat-inputbar-field:focus,

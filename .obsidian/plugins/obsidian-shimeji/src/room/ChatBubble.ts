@@ -451,17 +451,19 @@ export class ChatBubble extends Component {
 	 * remark bubble already disappears once its mascot is gone.
 	 *
 	 * `roomRect` is the room picture's own box (RoomView.layout().rect); `paneRect` is the whole
-	 * pane around it (RoomView.paneRect()). The transcript is sized to match roomRect's own
-	 * height, sitting exactly TAIL_HEIGHT above it — shrinking only if paneRect doesn't leave that
-	 * much room, never growing past what the picture itself is tall, and never climbing higher than
-	 * TOGGLE_RESERVED_PX below paneRect's own top edge, so a short room picture in a tall pane
-	 * can't let the transcript grow tall enough to bury the toggle button that opened it. The tail
-	 * itself needs no position math at all any more: it is a CSS child of the transcript (see
-	 * build() and styles.css), hanging off its parent's own bottom border, so there is no separate
-	 * gap left for it to sit in — the space between transcript and room picture is exactly the
-	 * tail's own height, filled edge to edge, and the two move as one element by construction rather
-	 * than by two independently-computed positions agreeing. The input bar takes a thin strip
-	 * directly below the picture the same way the transcript does above it.
+	 * pane around it (RoomView.paneRect()). The transcript's bottom sits exactly TAIL_HEIGHT above
+	 * roomRect's own top edge, and its top fills the rest of the pane upward from there, stopping
+	 * only at TOGGLE_RESERVED_PX below paneRect's own top edge — a tall pane gets a tall transcript
+	 * regardless of how short the room picture itself is, rather than one capped to the picture's
+	 * own height, so a chat docked in a tall sidebar actually uses that height instead of leaving
+	 * most of it as dead space above a small fixed-size bubble. TOGGLE_RESERVED_PX is what still
+	 * keeps a short pane's transcript from climbing high enough to bury the toggle button that
+	 * opened it. The tail itself needs no position math at all any more: it is a CSS child of the
+	 * transcript (see build() and styles.css), hanging off its parent's own bottom border, so there
+	 * is no separate gap left for it to sit in — the space between transcript and room picture is
+	 * exactly the tail's own height, filled edge to edge, and the two move as one element by
+	 * construction rather than by two independently-computed positions agreeing. The input bar
+	 * takes a thin strip directly below the picture the same way the transcript does above it.
 	 */
 	update(residentMascot: Mascot | undefined, paneRect: Rect | undefined, roomRect: Rect | undefined): void {
 		if (!this.isOpen) return;
@@ -496,9 +498,8 @@ export class ChatBubble extends Component {
 		// numbers. That pixel is what the CSS-positioned tail hangs its own top from, so landing on
 		// it exactly is what keeps the tail visually flush against both the transcript above it and
 		// the room picture below it, with nothing in between.
-		const roomHeight = roomRect.bottom - roomRect.top;
 		const bottom = Math.round(roomRect.top - TAIL_HEIGHT);
-		const top = Math.round(Math.max(paneRect.top + TOGGLE_RESERVED_PX, roomRect.top - TAIL_HEIGHT - roomHeight));
+		const top = Math.round(paneRect.top + TOGGLE_RESERVED_PX);
 		const transcriptHeight = bottom - top;
 		if (transcriptHeight < MIN_VISIBLE) {
 			transcript.style.visibility = "hidden";
