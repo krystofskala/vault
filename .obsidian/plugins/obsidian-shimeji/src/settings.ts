@@ -272,6 +272,14 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 };
 
 export class ShimejiSettingTab extends PluginSettingTab {
+	/** Survives across `display()` calls (the instance itself does not get recreated) so a section
+	 * the user opened or closed by hand stays that way across the frequent full re-renders the rest
+	 * of this class does after nearly every setting change — see `section()` below. Keyed by title
+	 * rather than by position: titles across the whole settings page are all distinct (verified by
+	 * hand across every `section()`/`renderBackendEntry()` call site), so this needs no separate ID
+	 * scheme, and it naturally follows a backend entry if the list above it is reordered. */
+	private sectionOpenState = new Map<string, boolean>();
+
 	constructor(app: App, private plugin: ShimejiPlugin) {
 		super(app, plugin);
 	}
@@ -290,7 +298,11 @@ export class ShimejiSettingTab extends PluginSettingTab {
 	 */
 	private section(containerEl: HTMLElement, title: string, defaultOpen: boolean, render: (body: HTMLElement) => void): void {
 		const details = containerEl.createEl("details", { cls: "shimeji-section" });
-		if (defaultOpen) details.setAttr("open", "");
+		const open = this.sectionOpenState.get(title) ?? defaultOpen;
+		if (open) details.setAttr("open", "");
+		// Fires on every user toggle (and is harmless if it also fires on the initial state above) —
+		// this is the only thing keeping sectionOpenState in sync with what's actually on screen.
+		details.addEventListener("toggle", () => this.sectionOpenState.set(title, details.open));
 		details.createEl("summary", { cls: "shimeji-section-title", text: title });
 		render(details.createDiv({ cls: "shimeji-section-body" }));
 	}
