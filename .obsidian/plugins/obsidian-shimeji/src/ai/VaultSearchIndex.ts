@@ -1,11 +1,14 @@
 import type { App, TFile } from "obsidian";
 import type { Embedder } from "./embeddings";
-import { diffIndex, isExcludedPath, rankRelevant, type IndexedNote } from "./vaultSearch";
+import { chunkNote, diffIndex, isExcludedPath, rankRelevant, type IndexedChunk, type IndexedNote } from "./vaultSearch";
 
-/** How much of a note's own text gets embedded and, unmodified, shown to the chat model as
+/** How much of *one chunk's* own text gets embedded and, unmodified, shown to the chat model as
  * retrieved context — one slice serving both purposes rather than tracking two separately
- * truncated copies of the same note. Generous enough to be a genuinely useful chunk of context
- * (a few paragraphs), short enough that a large vault's cache file stays a reasonable size. */
+ * truncated copies of the same chunk. Generous enough to be a genuinely useful chunk of context
+ * (a few paragraphs), short enough that a large vault's cache file stays a reasonable size. Kept
+ * at chunk granularity rather than raised now that a whole note is split into several of these:
+ * a single heading-delimited section running past this budget is rare, and this is the same
+ * "a few paragraphs is plenty of context" ceiling that made sense per-note before chunking too. */
 const EXCERPT_CHAR_BUDGET = 1500;
 /** How many notes to embed before yielding back to the event loop with a bare setTimeout(0), so
  * a full rebuild over a large vault reads as "working in the background" rather than freezing
@@ -74,11 +77,16 @@ export class VaultSearchIndex {
 		const path = this.indexPath();
 		if (!(await this.app.vault.adapter.exists(path))) return;
 		try {
-			const raw = JSON.parse(await this.app.vault.adapter.read(path)) as IndexedNote[];
-			this.index = new Map(raw.map((n) => [n.path, n]));
+			const raw = JSON.parse(await this.app.vault.adapter.read(path)) as unknown;
+			// A pre-chunking cache file (this feature's own IndexedNote shape before chunkNote
+			// existed) has no `chunks` array on each entry — treated exactly like a corrupt/foreign
+			// file below, since it's the same "start over" situation: nothing in it is wrong, it's
+			// just the wrong shape, and it's a regenerable performance cache, not real user data.
+			if (!Array.isArray(raw) || raw.some((n) => !Array.isArray((n as { chunks?: unknown }).chunks))) throw new Error("stale cache shape");
+			this.index = new Map((raw as IndexedNote[]).map((n) => [n.path, n]));
 		} catch {
-			// A corrupt or foreign-format cache file is worth starting over from, not crashing on —
-			// the next rebuild() regenerates it from scratch regardless.
+			// A corrupt, foreign-format, or pre-chunking cache file is worth starting over from,
+			// not crashing on — the next rebuild() regenerates it from scratch regardless.
 			this.index = new Map();
 		}
 	}
@@ -117,17 +125,47 @@ export class VaultSearchIndex {
 		}
 	}
 
+	/** Builds the excerpt actually embedded (and later shown as retrieved context) for one chunk —
+	 * the heading text folded in ahead of the body when there is one, since a heading like "Budget
+	 * constraints" is genuinely informative for the embedding, not just a label to reattach
+	 * afterward, then capped at EXCERPT_CHAR_BUDGET the same as a whole note was before chunking. */
+	private excerptFor(chunk: { heading?: string; content: string }): string {
+		const full = chunk.heading ? `${chunk.heading}\n${chunk.content}` : chunk.content;
+		return full.length > EXCERPT_CHAR_BUDGET ? `${full.slice(0, EXCERPT_CHAR_BUDGET)}…` : full;
+	}
+
 	/** The single enforcement point for exclusion on the incremental path: both rebuild()'s batch
 	 * loop and scheduleReembed()'s debounced callback funnel through here, so a caller can never
 	 * forget the check by calling this directly instead of going through eligibleFiles() first —
-	 * scheduleReembed() in particular has no filtering of its own, relying entirely on this. */
+	 * scheduleReembed() in particular has no filtering of its own, relying entirely on this.
+	 *
+	 * Replaces the note's entire chunk list wholesale rather than patching it — see IndexedNote's
+	 * own doc comment for why that's what makes a heading added/removed/reordered since the last
+	 * index never leave a stale orphaned chunk behind. Chunks are embedded concurrently
+	 * (Promise.all), the same concurrency this method's own callers already use across *different*
+	 * notes in one rebuild() batch — embedder.embed() already has to tolerate that today. */
 	private async embedOne(file: TFile | undefined): Promise<void> {
 		if (!file || isExcludedPath(file.path, this.excludedPaths())) return;
 		const content = await this.app.vault.cachedRead(file);
-		const excerpt = content.length > EXCERPT_CHAR_BUDGET ? `${content.slice(0, EXCERPT_CHAR_BUDGET)}…` : content;
-		if (!excerpt.trim()) return; // an empty note has nothing to search for or to show
-		const embedding = await this.embedder.embed(excerpt);
-		this.index.set(file.path, { path: file.path, mtime: file.stat.mtime, excerpt, embedding });
+		const noteChunks = chunkNote(content);
+		const chunks = (
+			await Promise.all(
+				noteChunks.map(async (chunk): Promise<IndexedChunk | undefined> => {
+					const excerpt = this.excerptFor(chunk);
+					if (!excerpt.trim()) return undefined; // an empty section has nothing to search for or show
+					const embedding = await this.embedder.embed(excerpt);
+					return { path: file.path, heading: chunk.heading, excerpt, embedding };
+				}),
+			)
+		).filter((c): c is IndexedChunk => c !== undefined);
+		if (chunks.length === 0) {
+			// An empty note (or one whose only content is now-excluded/whitespace) has nothing to
+			// search for — dropped rather than kept as a record with zero chunks, the same "nothing
+			// to show" reasoning the old whole-note path already applied to a blank note.
+			this.index.delete(file.path);
+			return;
+		}
+		this.index.set(file.path, { path: file.path, mtime: file.stat.mtime, chunks });
 	}
 
 	/** Called from main.ts's existing `vault.on("modify"/"create")` listeners. A stale timer for
@@ -164,13 +202,22 @@ export class VaultSearchIndex {
 		});
 	}
 
-	/** Embeds `query` and returns the topK most relevant already-indexed notes. An empty array
-	 * (never a throw) when the index has nothing in it yet — main.ts's chat wrapper is meant to
-	 * fail soft into "no extra context" rather than break the chat over this. */
-	async search(query: string, topK: number): Promise<IndexedNote[]> {
+	/** Embeds `query` and returns the topK most relevant already-indexed chunks, ranked across
+	 * every note's chunks together — not topK *notes*, so two genuinely relevant sections of the
+	 * same long note can both surface instead of one whole-note match crowding out everything
+	 * else. More than one result can therefore share a `path`; main.ts's related-note-suggestions
+	 * caller in particular needs to deduplicate down to distinct notes before it does anything
+	 * that treats each result as its own suggestion (buildRelatedNotesLine's own doc comment
+	 * explains why) — the chat-context caller doesn't, since a second section from the same note
+	 * showing up as its own labelled excerpt is exactly the point.
+	 *
+	 * An empty array (never a throw) when the index has nothing in it yet — main.ts's chat wrapper
+	 * is meant to fail soft into "no extra context" rather than break the chat over this. */
+	async search(query: string, topK: number): Promise<IndexedChunk[]> {
 		await this.ensureLoaded();
 		if (this.index.size === 0) return [];
 		const queryEmbedding = await this.embedder.embed(query);
-		return rankRelevant(queryEmbedding, [...this.index.values()], topK);
+		const chunks = [...this.index.values()].flatMap((note) => note.chunks);
+		return rankRelevant(queryEmbedding, chunks, topK);
 	}
 }

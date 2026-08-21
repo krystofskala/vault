@@ -1837,7 +1837,11 @@ export default class ShimejiPlugin extends Plugin {
 			console.warn("[obsidian-shimeji] related-note search failed", e);
 			return;
 		}
-		const related = results.filter((r) => r.path !== file.path).map((r) => r.path);
+		// Deduplicated to distinct notes: search() now ranks chunks, not whole notes, so more than
+		// one of the top results can legitimately share a path when two of that note's own
+		// sections both matched — buildRelatedNotesLine's own doc comment explains why that must
+		// never read as the same note mentioned twice.
+		const related = [...new Set(results.filter((r) => r.path !== file.path).map((r) => r.path))];
 		if (related.length === 0) return;
 		const key = [...related].sort().join("|");
 		if (this.lastRelatedNotesShown.get(file.path) === key) return; // same suggestion as last time — nothing new to say

@@ -964,21 +964,28 @@ paths"** — one folder or file per line, matched the same real folder-prefix wa
 Connections](https://github.com/brianpetro/obsidian-smart-connections)' own exclude-folders
 setting works: excluding a folder excludes everything inside it. Empty by default, so nothing is
 held back until a path is actually opted out — useful for a journal, financial notes, anything the
-AI should never see even indirectly through a retrieved excerpt. Each remaining note gets embedded
-and cached, keyed by its own modification time, so a note that hasn't changed since it was last
-indexed is never re-embedded, and a path added to the exclusion list afterward is dropped from the
-cache on the next rebuild even though the note itself still exists. Editing, creating, deleting, or
-renaming a note updates the index incrementally in the background (the same "wait for edits to
-settle" debounce the rest of the plugin already uses for vault reactions) — **Rebuild index** in
-settings forces a full pass, useful right after turning the feature on for the first time (or after
-changing the exclusion list), and its status line shows how many notes are indexed so far.
+AI should never see even indirectly through a retrieved excerpt. Each remaining note is split at
+its own headings — every `#` through `######` starts a new chunk, and whatever comes before the
+first heading (or the note's whole text, if it has no headings at all) is its own chunk too — and
+each of those chunks is embedded and cached separately, rather than the note as one single
+embedding. That's what lets one specific section of an otherwise-unrelated long note actually
+surface in a search, instead of a whole-note embedding averaging that section away into "this note
+is generally about a lot of things." Whichever chunks come from one note share that note's own
+modification time, so a note that hasn't changed since it was last indexed is never re-embedded,
+and a path added to the exclusion list afterward is dropped from the cache on the next rebuild even
+though the note itself still exists. Editing, creating, deleting, or renaming a note updates the
+index incrementally in the background (the same "wait for edits to settle" debounce the rest of the
+plugin already uses for vault reactions) — **Rebuild index** in settings forces a full pass, useful
+right after turning the feature on for the first time (or after changing the exclusion list), and
+its status line shows how many notes are indexed so far.
 
-Sending a chat message embeds it the same way and finds the **Notes per message** most similar
-already-indexed notes, splicing their content into that message's context before it goes to
-whichever backend actually answers it. This is the one important caveat: the search itself is
-local, but the notes it finds are only as private as that backend — a note retrieved this way goes
-out over the network exactly like anything typed into the chat by hand, for any backend that isn't
-itself fully local.
+Sending a chat message embeds it the same way and finds the **Notes per message** most relevant
+already-indexed chunks — not notes; two different sections of the same note can both show up if
+both are genuinely relevant, each labelled with its own heading — splicing their content into that
+message's context before it goes to whichever backend actually answers it. This is the one
+important caveat: the search itself is local, but the notes it finds are only as private as that
+backend — a note retrieved this way goes out over the network exactly like anything typed into the
+chat by hand, for any backend that isn't itself fully local.
 
 Desktop only: the model is a real (if small) machine-learning workload, heavier than this plugin
 otherwise asks of a phone, in keeping with the wizard's own desktop-only treatment below.
