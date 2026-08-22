@@ -647,6 +647,49 @@ describe("ActionRunner", () => {
 		runner.tick(env, 0.04, []);
 		expect(mascot.shownImages.at(-1)).toBe("resolved:/near.png");
 	});
+
+	// Reproduction for a live bug report: a Ceiling-bordered Move (ClimbCeiling) given multiple
+	// animation options via the wizard's "Custom animations" feature (AnimationOptionsModal /
+	// animationOptions.ts's randomVariantConditions — the exact cascading-threshold condition
+	// shape used there) was reported as never showing either custom option when the mascot
+	// actually climbed. Uses one shared, unseeded Random across every trial — exactly like
+	// production: main.ts constructs exactly one `new Random()` per mascot and threads it through
+	// PackDriver/RuntimeContext for that mascot's whole lifetime, never a fresh one per push. An
+	// earlier version of this test re-seeded `new Random(1)` fresh inside envFor() on every trial,
+	// which deterministically replayed the same first draw 200 times — a flaw in the test, not a
+	// reproduction of the real bug; fixed here before trusting the result either way.
+	it("a Ceiling-bordered Move with two randomVariantConditions-style animation options can show either one at push time", () => {
+		const pack: MascotPack = {
+			...NOOP_PACK,
+			actions: new Map([
+				[
+					"ClimbCeiling",
+					action({
+						name: "ClimbCeiling",
+						type: "Move",
+						borderType: "Ceiling",
+						animations: [
+							{ condition: parseCondition("#{Math.random() < 0.5}"), hotspots: [], poses: [{ image: "/optionA.png", anchor: { x: 0, y: 0 }, durationMs: 100000, velocity: { x: -10, y: 0 } }] },
+							{ condition: undefined, hotspots: [], poses: [{ image: "/optionB.png", anchor: { x: 0, y: 0 }, durationMs: 100000, velocity: { x: -10, y: 0 } }] },
+						],
+					}),
+				],
+			]),
+		};
+
+		const sharedRng = new Random(12345);
+		const seen = new Set<string>();
+		for (let trial = 0; trial < 200 && seen.size < 2; trial++) {
+			const runner = new ActionRunner(pack);
+			const mascot = makeFakeMascot();
+			const ctx = createRuntimeContext(mascot.physics, { viewportWidth: 1000, viewportHeight: 1000, pointer: AMBIENT, totalMascotCount: 1 }, 0, sharedRng);
+			const env: PushEnv = { mascot: mascot as unknown as Mascot, ctx, ambient: AMBIENT, config: DEFAULT_ENGINE_CONFIG };
+			runner.start("ClimbCeiling", env, { TargetX: "-100" });
+			runner.tick(env, 0.02, [{ kind: "ceiling" as const, y: 0, x1: -1000, x2: 1000, source: "window" as const }]);
+			seen.add(mascot.shownImages.at(-1) ?? "(none)");
+		}
+		expect(seen).toEqual(new Set(["resolved:/optionA.png", "resolved:/optionB.png"]));
+	});
 });
 
 describe("BehaviorAI", () => {
