@@ -2,6 +2,8 @@ import { App, Modal, Notice, Setting } from "obsidian";
 import type ShimejiPlugin from "../main";
 import { listPackImages } from "../shimeji/PackLoader";
 import type { CustomActionSpec, CustomPoseSpec } from "../shimeji/customContent";
+import { decodeVaultImage, packImagePath, pixelsToPngBytes, writePackImage } from "../sprites/imageIo";
+import { flipAnchorHorizontal, flipHorizontal } from "../sprites/pixels";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
 import { buildReplacementActionSpec, findReferenceVelocity, poseDefToCustomPoseSpec, randomVariantConditions } from "./animationOptions";
 import { imagesUsedByActions, imagesUsedByPoseLists, imagesWorthSlicing } from "./imageCandidates";
@@ -128,6 +130,14 @@ export class AnimationOptionsModal extends Modal {
 		box.createEl("p", { cls: "setting-item-description", text: poses.length === 1 ? "1 frame" : `${poses.length} frames` });
 
 		const row = new Setting(box).addButton((b) => b.setButtonText(poses.length > 0 ? "Replace…" : "Slice from a sheet…").onClick(() => this.openSlicerForOption(index)));
+		if (poses.length > 0) {
+			row.addButton((b) =>
+				b
+					.setButtonText("Flip ↔")
+					.setTooltip("Mirror every frame in this option left-right, in place — for when the art faces the wrong way, without re-slicing from scratch.")
+					.onClick(() => void this.flipOption(index)),
+			);
+		}
 		if (this.options.length > 1) {
 			row.addButton((b) =>
 				b
@@ -193,6 +203,41 @@ export class AnimationOptionsModal extends Modal {
 				}).open();
 			},
 		}).open();
+	}
+
+	/**
+	 * Mirrors every frame in an already-fitted option left-right, in place — the quick fix for "the
+	 * art faces the wrong way" that doesn't require re-slicing and re-fitting the whole sequence
+	 * from scratch via Replace…. Writes each flipped frame as a brand-new image (writePackImage
+	 * never overwrites) rather than mutating the original file: the same source image can
+	 * legitimately be reused by another pose or option, and flipping it in place would silently
+	 * mirror that other usage too. Velocity/duration are left untouched, matching PoseFitCanvas's
+	 * own flip buttons elsewhere in the wizard — flipping the art never implies a movement-direction
+	 * change on its own, the two are always set independently.
+	 */
+	private async flipOption(index: number): Promise<void> {
+		if (!this.imgDir) return;
+		const imgDir = this.imgDir;
+		const poses = this.options[index];
+		if (!poses || poses.length === 0) return;
+		try {
+			const flipped: CustomPoseSpec[] = [];
+			for (const pose of poses) {
+				const decoded = await decodeVaultImage(this.app, packImagePath(imgDir, pose.image));
+				if (!decoded) throw new Error(`couldn't read "${pose.image}" as an image`);
+				const bytes = await pixelsToPngBytes(flipHorizontal(decoded.pixels));
+				const baseName = pose.image.replace(/^[/\\]+/, "").replace(/\.[a-z0-9]+$/i, "");
+				const newImage = await writePackImage(this.app, imgDir, `${baseName}-flipped`, bytes);
+				if (!this.packImages.includes(newImage)) this.packImages = [...this.packImages, newImage];
+				const anchor = flipAnchorHorizontal({ x: pose.anchorX, y: pose.anchorY }, decoded.width);
+				flipped.push({ ...pose, image: newImage, anchorX: anchor.x, anchorY: anchor.y });
+			}
+			this.options[index] = flipped;
+			this.render();
+		} catch (e) {
+			console.error("[obsidian-shimeji] could not flip that animation option", e);
+			new Notice("Couldn't flip that option — see the console for details.");
+		}
 	}
 
 	private async save(): Promise<void> {
