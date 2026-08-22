@@ -169,6 +169,13 @@ export default class ShimejiPlugin extends Plugin {
 	/** Which pack (or null for the placeholder) each live mascot is currently wearing. A
 	 * WeakMap so a removed mascot's entry is simply dropped once nothing else references it. */
 	private mascotPackId = new WeakMap<Mascot, string | null>();
+	/** Each mascot's own PRNG stream, created once and reused across every attachActivePack call
+	 * for that mascot rather than handed a fresh `new Random()` every time — see attachActivePack's
+	 * own comment for why: applyCustomContent() re-attaches every live mascot's driver after any
+	 * edit in the custom-content editor, and a fresh Random there reset whichever animation-option
+	 * condition (e.g. a wizard-authored `Math.random() < 0.5`) was mid-stream, discarding real
+	 * accumulated randomness for a brand-new one every single save. */
+	private mascotRng = new WeakMap<Mascot, Random>();
 	/** The real (Obsidian-specific) pane mutation implementation — see ObsidianPaneActions for
 	 * why resizing/throwing lean on undocumented internals more than anything else this plugin
 	 * does. */
@@ -1757,11 +1764,22 @@ export default class ShimejiPlugin extends Plugin {
 		return valid[Math.floor(Math.random() * valid.length)];
 	}
 
+	/** Called on first spawn, on a genuine character switch, *and* every time applyCustomContent()
+	 * re-attaches every live mascot after an unrelated custom-content save — so a fresh
+	 * `new Random()` here doesn't just mean "this one mascot's future rolls differ from what they
+	 * would have been," it means editing anything in the wizard, for any pack, resets every live
+	 * mascot's whole PRNG stream on every save. mascotRng makes the stream itself outlive the
+	 * driver: created once per mascot, reused on every subsequent re-attach. */
 	private attachActivePack(mascot: Mascot, packId: string | null): void {
 		this.mascotPackId.set(mascot, packId);
 		const pack = packId ? this.availablePacks.find((p) => p.id === packId) : undefined;
 		if (pack) {
-			mascot.attachDriver(new PackDriver(pack, this.engineConfig, new Random(), this.paneActionsGate));
+			let rng = this.mascotRng.get(mascot);
+			if (!rng) {
+				rng = new Random();
+				this.mascotRng.set(mascot, rng);
+			}
+			mascot.attachDriver(new PackDriver(pack, this.engineConfig, rng, this.paneActionsGate));
 			mascot.setDisabledBehaviors(new Set(this.settings.disabledBehaviors[pack.id] ?? []));
 		} else {
 			mascot.detachDriver();
