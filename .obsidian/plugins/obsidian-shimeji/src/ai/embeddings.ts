@@ -1,4 +1,5 @@
-import { env, pipeline, type FeatureExtractionPipeline } from "@huggingface/transformers";
+import { requestUrl } from "obsidian";
+import type { FeatureExtractionPipeline } from "@huggingface/transformers";
 
 /**
  * Local, in-browser semantic embeddings — the only file in this plugin that touches
@@ -24,33 +25,54 @@ import { env, pipeline, type FeatureExtractionPipeline } from "@huggingface/tran
  * device to request at all in that branch. Forcing WASM here couldn't fix that by itself; see
  * esbuild.config.mjs's `define` for what actually corrects the misdetection.
  *
- * Getting a legal device to request still isn't the whole story: once ONNX actually tries to load
- * the WASM runtime itself (not the embedding model — the small engine that runs it), its default
- * path resolution is relative to `import.meta.url`, which this project's CJS bundle output hollows
- * out to an empty object (esbuild's standard shim for `import.meta` under a format that has no
- * real one) — so the unconfigured default silently resolves to a nonsense path. `LocalEmbedder`'s
- * constructor points `env.backends.onnx.wasm.wasmPaths` at the two files esbuild.config.mjs copies
- * into this plugin's own folder for exactly this reason, sidestepping that resolution entirely.
+ * Both `@huggingface/transformers` itself and the ONNX WASM runtime it needs are loaded lazily,
+ * on the first real `embed()` call:
  *
- * NOT independently verifiable from this environment: fetching the model itself requires
- * reaching huggingface.co, which this development sandbox's network policy blocks outright (a
- * proxy-level 403, confirmed via its own status endpoint — not a bug in this code). The pipeline
- * construction and call shape below is exercised as far as the network boundary (confirmed to
- * reach and correctly form the request before being blocked), but the actual download, WASM
- * loading, and real embedding output need verifying live, in a real Obsidian install with normal
- * internet access.
+ * - The library's own JS is a dynamic `import()` (see loadTransformers below), not a top-level
+ *   one. This does *not* shrink main.js — esbuild's own `format: "cjs"`/single-`outfile` build
+ *   (see esbuild.config.mjs) can't code-split a dynamic import into a separately-fetched chunk
+ *   the way an ESM build with `splitting: true` could, so the library's JS still ends up baked
+ *   into the same main.js either way (confirmed by measuring: converting this to a dynamic
+ *   import grew main.js slightly, from wrapper overhead, not shrank it). What it *does* still
+ *   buy: the library's own module-level setup (backends/onnx.js's own initialization, its
+ *   Node-vs-browser environment check) only actually runs the first time vault search is used,
+ *   not unconditionally at Obsidian's own plugin-load time for every single install regardless
+ *   of whether anyone ever turns the feature on. Real code-splitting would need switching this
+ *   plugin's whole build to ESM output, which Obsidian's plugin loader may not support the same
+ *   way — a bigger, separate decision, not bundled into this change.
+ * - The WASM runtime binary (not the embedding model — the small engine that runs it) used to
+ *   ship as a file committed into this plugin's own folder, resolved via a local resource path.
+ *   That only worked in this dev vault, where the file happens to already be sitting on disk —
+ *   Obsidian's plugin installer only ever auto-fetches main.js/manifest.json/styles.css from a
+ *   release, never an extra folder a plugin happens to also produce, so a real community-plugin
+ *   install would have no such file and vault search would fail outright the first time anyone
+ *   used it. `ensureCached` below fetches it from the CDN and caches it into the plugin's own
+ *   folder instead, the same "downloads once, cached after" shape the embedding model's own
+ *   weights already use (env.allowRemoteModels below) — stated plainly in the Vault search
+ *   settings copy so neither download is mistaken for a bug.
+ *
+ * NOT independently verifiable from this environment: fetching either the model or the WASM
+ * runtime requires reaching the open internet, which this development sandbox's network policy
+ * blocks outright. The pipeline construction and fetch shape below are exercised as far as the
+ * network boundary; the actual downloads, WASM loading, and real embedding output need
+ * verifying live, in a real Obsidian install with normal internet access.
  */
 const MODEL_NAME = "Xenova/all-MiniLM-L6-v2";
-/** Must match the filenames esbuild.config.mjs actually copies — see that file's own comment for
- * why only this one (plain, non-jsep/jspi/webgpu) variant ships. */
+/** Must match the filenames the onnxruntime-web CDN build actually serves — see
+ * ONNXRUNTIME_WEB_VERSION below for why only this one (plain, non-jsep/jspi/webgpu) variant is
+ * fetched. */
 const WASM_RUNTIME_FILE = "ort-wasm-simd-threaded.wasm";
 const WASM_LOADER_FILE = "ort-wasm-simd-threaded.mjs";
+/** Pinned to the exact onnxruntime-web version `@huggingface/transformers` currently resolves to
+ * (see package-lock.json) — the WASM binary and the JS glue code driving it have to be the same
+ * build, so this needs bumping by hand if that dependency version ever changes. A drift here
+ * fails loudly (the model simply won't load, no silent wrong-answer risk) rather than quietly,
+ * so it surfaces on the very next live check rather than shipping unnoticed. */
+const ONNXRUNTIME_WEB_VERSION = "1.26.0-dev.20260416-b7804b056c";
 
-// Explicit rather than left to the library's own environment auto-detection, so behavior is the
-// same regardless of how Obsidian's Electron renderer gets classified: always fetch from the
-// Hub, never go looking for local model files first.
-env.allowLocalModels = false;
-env.allowRemoteModels = true;
+function cdnUrl(fileName: string): string {
+	return `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ONNXRUNTIME_WEB_VERSION}/dist/${fileName}`;
+}
 
 export interface Embedder {
 	/** A normalized embedding vector for `text` — two calls' outputs are directly comparable by
@@ -58,42 +80,76 @@ export interface Embedder {
 	embed(text: string): Promise<number[]>;
 }
 
-/** Loaded once, reused for every call after — the model load itself is what's slow (and, on
- * first use ever, network-dependent), not any individual embedding. */
-let pipelinePromise: Promise<FeatureExtractionPipeline> | undefined;
+/** The small set of file-IO primitives LocalEmbedder needs from the real vault, injected rather
+ * than this file importing `App`/`vault.adapter` directly — the same "thunk into what only
+ * main.ts has" shape VaultSearchIndex's own constructor already uses for its dataFolder/
+ * excludedPaths parameters. Keeps this file just as free of any other Obsidian-specific type as
+ * it already is. */
+export interface WasmAssetStore {
+	exists(fileName: string): Promise<boolean>;
+	write(fileName: string, data: ArrayBuffer): Promise<void>;
+	resourceUrl(fileName: string): string;
+}
 
-function getPipeline(): Promise<FeatureExtractionPipeline> {
-	if (!pipelinePromise) pipelinePromise = pipeline("feature-extraction", MODEL_NAME, { device: "wasm" });
-	return pipelinePromise;
+let modulePromise: Promise<typeof import("@huggingface/transformers")> | undefined;
+
+/** Loaded once, reused for every LocalEmbedder instance and every call after — see this file's
+ * own top comment for why this is a dynamic import rather than a static one. */
+function loadTransformers(): Promise<typeof import("@huggingface/transformers")> {
+	modulePromise ??= import("@huggingface/transformers");
+	return modulePromise;
 }
 
 export class LocalEmbedder implements Embedder {
-	/**
-	 * `resourceUrl` turns a filename living in this plugin's own folder into something Chromium
-	 * will actually fetch — main.ts passes `(name) => this.app.vault.adapter.getResourcePath(...)`,
-	 * the exact same mechanism every pack sprite and room picture already resolves through. Set
-	 * here, in the constructor, rather than lazily inside getPipeline(): `env` is the library's own
-	 * module-level config singleton, so this only needs to happen once, and unconditionally, before
-	 * the first embed() call reaches getPipeline() — which is guaranteed, since embed() can't run
-	 * before this object exists.
-	 */
-	constructor(resourceUrl: (fileName: string) => string) {
-		// `env.backends.onnx.wasm` is typed `Partial<...>` (onnxruntime-common's own Env type isn't
-		// guaranteed populated) and separately `readonly` (can't be replaced with a fresh object,
-		// only mutated) — but importing anything from this package always runs backends/onnx.js's
-		// own module-level setup first, which unconditionally leaves a real object here in every
-		// version this plugin has ever seen. A thrown guard satisfies the type honestly, without
-		// asserting past a case that would mean this dependency changed shape under us.
-		const onnxWasm = env.backends.onnx.wasm;
-		if (!onnxWasm) throw new Error("onnxruntime-web's env.wasm was never initialized (unexpected — see LocalEmbedder's constructor).");
-		onnxWasm.wasmPaths = {
-			wasm: resourceUrl(WASM_RUNTIME_FILE),
-			mjs: resourceUrl(WASM_LOADER_FILE),
-		};
+	/** Loaded once, reused for every call after — the model load itself is what's slow (and, on
+	 * first use ever, network-dependent), not any individual embedding. */
+	private pipelinePromise?: Promise<FeatureExtractionPipeline>;
+
+	constructor(private assets: WasmAssetStore) {}
+
+	/** Fetches `fileName` from the CDN and caches it into the plugin's own folder the first time
+	 * it's needed; every call after just resolves the already-cached copy. See this file's own
+	 * top comment for why this replaced a file this plugin used to ship directly. */
+	private async ensureCached(fileName: string): Promise<string> {
+		if (!(await this.assets.exists(fileName))) {
+			const response = await requestUrl({ url: cdnUrl(fileName), throw: false });
+			if (response.status !== 200) {
+				throw new Error(`Couldn't download ${fileName} (HTTP ${response.status}) — vault search needs network access the first time it runs.`);
+			}
+			await this.assets.write(fileName, response.arrayBuffer);
+		}
+		return this.assets.resourceUrl(fileName);
+	}
+
+	private getPipeline(): Promise<FeatureExtractionPipeline> {
+		if (!this.pipelinePromise) {
+			this.pipelinePromise = (async () => {
+				const { env, pipeline } = await loadTransformers();
+				// Explicit rather than left to the library's own environment auto-detection, so
+				// behavior is the same regardless of how Obsidian's Electron renderer gets
+				// classified: always fetch the embedding model from the Hub, never go looking for
+				// local model files first.
+				env.allowLocalModels = false;
+				env.allowRemoteModels = true;
+				// `env.backends.onnx.wasm` is typed `Partial<...>` (onnxruntime-common's own Env
+				// type isn't guaranteed populated) and separately `readonly` (can't be replaced
+				// with a fresh object, only mutated) — but importing anything from this package
+				// always runs backends/onnx.js's own module-level setup first, which
+				// unconditionally leaves a real object here in every version this plugin has ever
+				// seen. A thrown guard satisfies the type honestly, without asserting past a case
+				// that would mean this dependency changed shape under us.
+				const onnxWasm = env.backends.onnx.wasm;
+				if (!onnxWasm) throw new Error("onnxruntime-web's env.wasm was never initialized (unexpected — see LocalEmbedder's getPipeline).");
+				const [wasm, mjs] = await Promise.all([this.ensureCached(WASM_RUNTIME_FILE), this.ensureCached(WASM_LOADER_FILE)]);
+				onnxWasm.wasmPaths = { wasm, mjs };
+				return pipeline("feature-extraction", MODEL_NAME, { device: "wasm" });
+			})();
+		}
+		return this.pipelinePromise;
 	}
 
 	async embed(text: string): Promise<number[]> {
-		const extractor = await getPipeline();
+		const extractor = await this.getPipeline();
 		// Mean-pooled + normalized is the standard way to turn a sentence-transformer's
 		// per-token output into one fixed-size vector for the whole input.
 		const output = await extractor(text, { pooling: "mean", normalize: true });

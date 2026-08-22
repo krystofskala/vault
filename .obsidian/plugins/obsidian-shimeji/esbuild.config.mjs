@@ -1,31 +1,8 @@
 import esbuild from "esbuild";
 import process from "process";
-import { copyFileSync, mkdirSync } from "fs";
 import builtins from "builtin-modules";
 
 const production = process.argv[2] === "production";
-
-/**
- * The actual ONNX WASM runtime binary + its loader, copied straight out of onnxruntime-web's own
- * npm package into this plugin's own folder, so it ships with the plugin instead of needing a
- * separate network fetch for it (unlike the embedding model's weights, which really do only need
- * fetching once real usage begins — see README's Vault search section). Two reasons this can't
- * just be left to the library's own default resolution, both explained in the `define` comment
- * below: this project's CJS output hollows out the `import.meta.url` this library would otherwise
- * resolve those files relative to, and even if it didn't, `onnxruntime-web`'s own dist/ folder
- * where they actually live is never itself part of what ships in an installed Obsidian plugin.
- * ai/embeddings.ts points `env.backends.onnx.wasm.wasmPaths` at wherever this lands.
- *
- * Only the plain default (non-jsep/non-jspi/non-webgpu) build is copied, matching
- * ai/embeddings.ts's own forced `device: "wasm"` request, which never asks for webgpu/webnn —
- * the other three variants exist for those and are 15-25MB each, not worth shipping unused.
- */
-const WASM_SRC_DIR = "node_modules/onnxruntime-web/dist";
-const WASM_OUT_DIR = "onnx-wasm";
-const WASM_FILES = ["ort-wasm-simd-threaded.wasm", "ort-wasm-simd-threaded.mjs"];
-
-mkdirSync(WASM_OUT_DIR, { recursive: true });
-for (const file of WASM_FILES) copyFileSync(`${WASM_SRC_DIR}/${file}`, `${WASM_OUT_DIR}/${file}`);
 
 const context = await esbuild.context({
 	banner: {

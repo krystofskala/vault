@@ -1010,7 +1010,19 @@ export default class ShimejiPlugin extends Plugin {
 		if (this.settings.vaultSearchEnabled)
 			this.vaultSearchIndex ??= new VaultSearchIndex(
 				this.app,
-				new LocalEmbedder((fileName) => this.app.vault.adapter.getResourcePath(`${this.roomFolder()}/onnx-wasm/${fileName}`)),
+				new LocalEmbedder({
+					exists: (fileName) => this.app.vault.adapter.exists(this.onnxWasmPath(fileName)),
+					write: async (fileName, data) => {
+						// mkdir before writeBinary, same "the parent has to already exist" guard
+						// imageIo.ts's own binary writes already use — onnx-wasm/ never exists yet
+						// on a fresh install, since nothing ships it any more (see embeddings.ts).
+						if (!(await this.app.vault.adapter.exists(this.roomFolder()))) await this.app.vault.adapter.mkdir(this.roomFolder());
+						const dir = `${this.roomFolder()}/onnx-wasm`;
+						if (!(await this.app.vault.adapter.exists(dir))) await this.app.vault.adapter.mkdir(dir);
+						await this.app.vault.adapter.writeBinary(this.onnxWasmPath(fileName), data);
+					},
+					resourceUrl: (fileName) => this.app.vault.adapter.getResourcePath(this.onnxWasmPath(fileName)),
+				}),
 				() => this.roomFolder(),
 				() => this.settings.vaultSearchExcludedPaths,
 			);
@@ -1156,6 +1168,12 @@ export default class ShimejiPlugin extends Plugin {
 	/** The plugin's own folder, which is where a room's picture goes. */
 	roomFolder(): string {
 		return this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+	}
+
+	/** Where vault search's own cached ONNX WASM runtime files live — see LocalEmbedder's own
+	 * ensureCached, which fetches them here from the CDN on first use. */
+	private onnxWasmPath(fileName: string): string {
+		return `${this.roomFolder()}/onnx-wasm/${fileName}`;
 	}
 
 	/** Which of a room's accepted filenames actually exists — used to load it, to report it in
