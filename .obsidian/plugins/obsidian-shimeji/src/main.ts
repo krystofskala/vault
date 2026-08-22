@@ -771,6 +771,7 @@ export default class ShimejiPlugin extends Plugin {
 			}
 		} catch (err) {
 			console.error("[obsidian-shimeji] failed to scan pack folder", err);
+			new Notice(`Shimeji: couldn't scan "${this.settings.packsFolder}" — check the pack folder path in settings (see the console for details).`);
 			this.basePacks = [];
 		}
 
