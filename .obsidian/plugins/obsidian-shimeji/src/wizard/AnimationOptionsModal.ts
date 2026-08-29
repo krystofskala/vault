@@ -1,23 +1,32 @@
 import { App, Modal, Notice, Setting } from "obsidian";
+import type { Mood } from "../engine/mood";
 import type ShimejiPlugin from "../main";
 import { listPackImages } from "../shimeji/PackLoader";
 import type { CustomActionSpec, CustomPoseSpec } from "../shimeji/customContent";
 import { decodeVaultImage, packImagePath, pixelsToPngBytes, writePackImage } from "../sprites/imageIo";
 import { flipAnchorHorizontal, flipHorizontal } from "../sprites/pixels";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
-import { buildReplacementActionSpec, findReferenceVelocity, poseDefToCustomPoseSpec, randomVariantConditions } from "./animationOptions";
+import { buildReplacementActionSpec, findReferenceVelocity, poseDefToCustomPoseSpec } from "./animationOptions";
 import { imagesUsedByActions, imagesUsedByPoseLists, imagesWorthSlicing } from "./imageCandidates";
 import { PoseSequenceFitModal } from "./PoseSequenceFitModal";
 
-/** True only if every condition in `spec` matches what randomVariantConditions would itself have
- * generated for that position — i.e. this spec was (or could have been) built by this modal, so
- * overwriting its conditions on save loses nothing a person actually authored by hand. A custom
- * action of the same name built some other way (e.g. hand-tuned facing-direction variants in
- * the advanced editor) fails this check, and the caller warns before letting the random-options
- * save path silently replace that hand-authored logic. */
+const MOODS: Mood[] = ["happy", "normal", "bored", "angry"];
+
+/** One option as this modal edits it — poses and its (possibly empty) mood restriction kept
+ * together, since they're always edited, reordered, and removed as a unit. See
+ * AnimationVariant.moods in types.ts for what an empty list means (any mood). */
+interface AnimationOption {
+	poses: CustomPoseSpec[];
+	moods: Mood[];
+}
+
+/** True only if every variant in `spec` is flagged isRandomOption — i.e. this spec was (or could
+ * have been) built by this modal, so replacing it on save loses nothing a person actually authored
+ * by hand. A custom action of the same name built some other way (e.g. hand-tuned
+ * facing-direction variants in the advanced editor) fails this check, and the caller warns before
+ * letting the random-options save path silently replace that hand-authored logic. */
 function looksGenerated(spec: CustomActionSpec): boolean {
-	const expected = randomVariantConditions(spec.animations.length).map((c) => c ?? "");
-	return spec.animations.every((variant, i) => variant.condition === expected[i]);
+	return spec.animations.length > 0 && spec.animations.every((variant) => variant.isRandomOption);
 }
 
 /**
@@ -39,7 +48,7 @@ function looksGenerated(spec: CustomActionSpec): boolean {
  * from; only the write path needed to move.
  */
 export class AnimationOptionsModal extends Modal {
-	private options: CustomPoseSpec[][] = [];
+	private options: AnimationOption[] = [];
 	private packImages: string[] = [];
 	private imgDir?: string;
 	private hasExistingOverride = false;
@@ -64,7 +73,7 @@ export class AnimationOptionsModal extends Modal {
 		const existingSpec = this.plugin.settings.customContent[this.packId]?.actions.find((a) => a.name.trim() === this.actionName);
 		if (existingSpec && existingSpec.animations.length > 0) {
 			this.hasExistingOverride = true;
-			this.options = existingSpec.animations.map((v) => v.poses);
+			this.options = existingSpec.animations.map((v) => ({ poses: v.poses, moods: v.moods ?? [] }));
 			if (!looksGenerated(existingSpec)) {
 				new Notice(
 					`"${this.actionName}" already has a hand-authored custom animation with its own conditions. Saving here replaces those with randomized options.`,
@@ -73,7 +82,7 @@ export class AnimationOptionsModal extends Modal {
 			}
 		} else {
 			const def = pack?.actions.get(this.actionName);
-			this.options = def && def.animations.length > 0 ? [def.animations[0].poses.map(poseDefToCustomPoseSpec)] : [[]];
+			this.options = def && def.animations.length > 0 ? [{ poses: def.animations[0].poses.map(poseDefToCustomPoseSpec), moods: [] }] : [{ poses: [], moods: [] }];
 		}
 		this.render();
 	}
@@ -91,11 +100,11 @@ export class AnimationOptionsModal extends Modal {
 			cls: "setting-item-description",
 			text:
 				this.options.length > 1
-					? `Every time "${this.actionName}" starts, one of these ${this.options.length} options is picked at random, each equally likely.`
+					? `One of these ${this.options.length} options is picked at random, each equally likely (unless restricted by mood below) — then held for a while before it's eligible to switch again, so it doesn't flicker between options.`
 					: `Right now "${this.actionName}" always plays the same animation. Add another option below to have it pick a random one each time — handy for higher-frame-rate sprites that don't fit the standard pose slots.`,
 		});
 
-		this.options.forEach((poses, i) => this.renderOptionRow(contentEl, poses, i));
+		this.options.forEach((opt, i) => this.renderOptionRow(contentEl, opt, i));
 
 		new Setting(contentEl).addButton((b) =>
 			b
@@ -122,15 +131,15 @@ export class AnimationOptionsModal extends Modal {
 		}
 	}
 
-	private renderOptionRow(containerEl: HTMLElement, poses: CustomPoseSpec[], index: number): void {
+	private renderOptionRow(containerEl: HTMLElement, option: AnimationOption, index: number): void {
 		const box = containerEl.createDiv({ cls: "shimeji-cc-box" });
 		const header = box.createDiv({ cls: "shimeji-cc-pose-header" });
 		header.createEl("strong", { text: `Option ${index + 1}` });
-		for (const pose of poses) this.updateThumb(header.createEl("img", { cls: "shimeji-cc-thumb" }), pose.image);
-		box.createEl("p", { cls: "setting-item-description", text: poses.length === 1 ? "1 frame" : `${poses.length} frames` });
+		for (const pose of option.poses) this.updateThumb(header.createEl("img", { cls: "shimeji-cc-thumb" }), pose.image);
+		box.createEl("p", { cls: "setting-item-description", text: option.poses.length === 1 ? "1 frame" : `${option.poses.length} frames` });
 
-		const row = new Setting(box).addButton((b) => b.setButtonText(poses.length > 0 ? "Replace…" : "Slice from a sheet…").onClick(() => this.openSlicerForOption(index)));
-		if (poses.length > 0) {
+		const row = new Setting(box).addButton((b) => b.setButtonText(option.poses.length > 0 ? "Replace…" : "Slice from a sheet…").onClick(() => this.openSlicerForOption(index)));
+		if (option.poses.length > 0) {
 			row.addButton((b) =>
 				b
 					.setButtonText("Flip ↔")
@@ -149,6 +158,31 @@ export class AnimationOptionsModal extends Modal {
 					}),
 			);
 		}
+
+		// Mood-scoping only means anything once there's more than one option to choose between —
+		// and only if the mascot even has a mood to check (see engine/mood.ts: mood is always
+		// "normal" while the setting is off, so a restriction would just silently starve).
+		if (this.options.length > 1 && this.plugin.settings.moodEnabled) this.renderMoodPicker(box, option);
+	}
+
+	/** A row of toggle chips, one per Mood — clicking one adds/removes it from this option's
+	 * restriction list. All off (the default) means "any mood", matching how an omitted/empty
+	 * `moods` field behaves at runtime (see ActionRunner.moodEligible). */
+	private renderMoodPicker(box: HTMLElement, option: AnimationOption): void {
+		const setting = new Setting(box).setName("Only in mood").setDesc("Leave all off to allow this option in any mood.");
+		for (const mood of MOODS) {
+			setting.addButton((b) => {
+				b.setButtonText(mood[0].toUpperCase() + mood.slice(1))
+					.setTooltip(`Only pick this option while ${mood}`)
+					.onClick(() => {
+						const i = option.moods.indexOf(mood);
+						if (i === -1) option.moods.push(mood);
+						else option.moods.splice(i, 1);
+						this.render();
+					});
+				b.buttonEl.toggleClass("shimeji-mood-chip-active", option.moods.includes(mood));
+			});
+		}
 	}
 
 	private updateThumb(img: HTMLImageElement, path: string): void {
@@ -165,7 +199,7 @@ export class AnimationOptionsModal extends Modal {
 	 * imagesWorthSlicing's own doc comment. */
 	private slicerCandidates(keep?: string): string[] {
 		const used = imagesUsedByActions(this.plugin.settings.customContent[this.packId]?.actions ?? []);
-		for (const img of imagesUsedByPoseLists(this.options)) used.add(img);
+		for (const img of imagesUsedByPoseLists(this.options.map((o) => o.poses))) used.add(img);
 		return imagesWorthSlicing(this.packImages, used, keep);
 	}
 
@@ -173,7 +207,7 @@ export class AnimationOptionsModal extends Modal {
 		if (!this.imgDir) return;
 		const imgDir = this.imgDir;
 		const standardDef = this.plugin.availablePacks.find((p) => p.id === this.packId)?.actions.get(this.actionName);
-		const initialImage = this.options[index]?.[0]?.image || this.packImages[0] || "";
+		const initialImage = this.options[index]?.poses[0]?.image || this.packImages[0] || "";
 		new SpriteSheetModal(this.app, {
 			imgDir,
 			images: this.slicerCandidates(initialImage),
@@ -195,9 +229,9 @@ export class AnimationOptionsModal extends Modal {
 					// A fresh slice's own poses are always velocity 0,0 (posesFromPlan's neutral
 					// default); this is what keeps replacing Walk's art from also silently turning
 					// Walk into a held-in-place animation, by carrying its real speed forward instead.
-					referenceVelocity: findReferenceVelocity(standardDef, ...this.options),
+					referenceVelocity: findReferenceVelocity(standardDef, ...this.options.map((o) => o.poses)),
 					onDone: (finetuned) => {
-						this.options[index] = finetuned;
+						this.options[index] = { poses: finetuned, moods: this.options[index]?.moods ?? [] };
 						this.render();
 					},
 				}).open();
@@ -218,11 +252,11 @@ export class AnimationOptionsModal extends Modal {
 	private async flipOption(index: number): Promise<void> {
 		if (!this.imgDir) return;
 		const imgDir = this.imgDir;
-		const poses = this.options[index];
-		if (!poses || poses.length === 0) return;
+		const option = this.options[index];
+		if (!option || option.poses.length === 0) return;
 		try {
 			const flipped: CustomPoseSpec[] = [];
-			for (const pose of poses) {
+			for (const pose of option.poses) {
 				const decoded = await decodeVaultImage(this.app, packImagePath(imgDir, pose.image));
 				if (!decoded) throw new Error(`couldn't read "${pose.image}" as an image`);
 				const bytes = await pixelsToPngBytes(flipHorizontal(decoded.pixels));
@@ -232,7 +266,7 @@ export class AnimationOptionsModal extends Modal {
 				const anchor = flipAnchorHorizontal({ x: pose.anchorX, y: pose.anchorY }, decoded.width);
 				flipped.push({ ...pose, image: newImage, anchorX: anchor.x, anchorY: anchor.y });
 			}
-			this.options[index] = flipped;
+			this.options[index] = { poses: flipped, moods: option.moods };
 			this.render();
 		} catch (e) {
 			console.error("[obsidian-shimeji] could not flip that animation option", e);
@@ -246,13 +280,17 @@ export class AnimationOptionsModal extends Modal {
 			new Notice("Couldn't find that action anymore — try reopening from the checklist.");
 			return;
 		}
-		const validOptions = this.options.filter((poses) => poses.length > 0);
+		const validOptions = this.options.filter((o) => o.poses.length > 0);
 		if (validOptions.length === 0) {
 			new Notice("Add at least one option first.");
 			return;
 		}
 
-		const spec = buildReplacementActionSpec(def, validOptions);
+		const spec = buildReplacementActionSpec(
+			def,
+			validOptions.map((o) => o.poses),
+			validOptions.map((o) => o.moods),
+		);
 		await this.onSave(spec);
 		new Notice(`Saved ${validOptions.length} animation option(s) for "${this.actionName}".`);
 		this.close();

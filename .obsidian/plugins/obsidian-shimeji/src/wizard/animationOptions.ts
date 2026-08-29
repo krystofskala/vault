@@ -1,3 +1,4 @@
+import type { Mood } from "../engine/mood";
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "../shimeji/constants";
 import { newSpecId, type CustomActionSpec, type CustomAnimationVariantSpec, type CustomPoseSpec } from "../shimeji/customContent";
 import type { ActionDef, PoseDef } from "../shimeji/types";
@@ -5,37 +6,26 @@ import { IE_ONLY_ACTION_NAMES } from "./deriveRequiredPoses";
 
 /**
  * Lets a custom action have several alternative animations ("options") — e.g. two or three
- * different Walk cycles cut from a richer game sprite sheet — that get picked between at random,
- * equally likely, instead of a single fixed sequence. This is generated `CustomActionSpec` data
- * (one `CustomAnimationVariantSpec` per option) flowing through the existing
- * `CustomContentBuilder`/`mergeCustomContent` pipeline unchanged, so it needs no changes to
- * `ActionRunner` or the expression engine: `ActionRunner.chooseAnimationVariant` already
- * re-evaluates an action's Animation conditions fresh every single time the action starts (never
- * cached), and `Math.random()` is already a real, supported call inside a condition
- * (`RuntimeContext.ts`'s `call()`) — both verified directly against source before writing this,
- * not assumed.
+ * different Walk cycles cut from a richer game sprite sheet, or a calm vs. an angry take on the
+ * same action gated by mood — that `ActionRunner` picks between itself instead of playing a
+ * single fixed sequence. This is generated `CustomActionSpec` data (one
+ * `CustomAnimationVariantSpec` per option, each flagged `isRandomOption: true`) flowing through
+ * the existing `CustomContentBuilder`/`mergeCustomContent` pipeline unchanged.
+ *
+ * An earlier version of this feature encoded the random pick as a generated
+ * `Math.random() < p` condition string, relying on `ActionRunner`'s ordinary per-tick condition
+ * walk to realize it (a cascading threshold, since the walk stops at the first passing variant —
+ * see git history for the exact math, `randomVariantConditions`, if it's ever useful again). That
+ * turned out to be the wrong mechanism: live per-tick re-evaluation is correct for a hand-authored
+ * *live* condition (the real pack's SitAndLookAtMouse switches look-direction as the cursor
+ * crosses a threshold), but it means a pure "pick one of N equally likely options" pool gets
+ * re-rolled every single tick — reported live as a two-option wall-grab (1 frame each) flickering
+ * between them constantly, never settling on either, and even a multi-frame Move re-rolling at the
+ * start of every fresh cycle. `isRandomOption` now tells `ActionRunner` to take these variants
+ * down a completely different path (see `ActionRunner.pickRandomOption`) with its own sticky,
+ * timer-held choice and optional per-option mood scoping (`moods`), so the generated data here no
+ * longer needs a condition string at all.
  */
-
-/**
- * `ActionRunner.chooseAnimationVariant` picks the *first* variant whose condition passes, falling
- * back to the first variant if none do. Giving each of N options its own independent
- * `Math.random() < 1/N` condition would therefore NOT make them equally likely: option 2 is only
- * even rolled if option 1's roll already failed, so naive independent conditions produce a
- * geometrically-decreasing bias toward earlier options. The fix is a cascading threshold — option
- * i (0-indexed) needs `Math.random() < 1/(count-i)` so that, *conditioned on being reached*, it
- * has exactly a 1/(remaining options) chance. That multiplies out to a flat 1/count for every
- * option: P(0)=1/count, P(1)=(1-1/count)*1/(count-1)=1/count, and so on. The last option is left
- * unconditional (no Animation Condition at all) as the guaranteed fallback.
- */
-export function randomVariantConditions(count: number): (string | undefined)[] {
-	if (count <= 0) return [];
-	const conditions: (string | undefined)[] = [];
-	for (let i = 0; i < count - 1; i++) {
-		conditions.push(`#{Math.random() < ${1 / (count - i)}}`);
-	}
-	conditions.push(undefined);
-	return conditions;
-}
 
 /**
  * Reverses CustomContentBuilder's buildPose, to seed "Option 1" from an action's current
@@ -62,16 +52,19 @@ export function poseDefToCustomPoseSpec(pose: PoseDef): CustomPoseSpec {
  * (standard or already-custom — either way its type/borderType/loop/params/embeddedName are the
  * settled values a replacement must carry forward, since mergeCustomContent replaces an action
  * wholesale by name rather than patching individual fields) and the complete list of animation
- * options the user wants (each just its poses — this function generates the cascaded random
- * conditions, so callers can't accidentally build a non-uniform set by hand). Always rebuilds from
- * scratch, the same full-replacement approach the rest of the custom-content system already uses.
+ * options the user wants (each just its poses, each flagged isRandomOption so ActionRunner picks
+ * among them itself rather than needing a hand-built condition — see this file's own doc comment).
+ * `optionMoods[i]`, if given and non-empty, restricts option i to those moods; omit or leave an
+ * entry empty for "any mood". Always rebuilds from scratch, the same full-replacement approach the
+ * rest of the custom-content system already uses.
  */
-export function buildReplacementActionSpec(existingDef: ActionDef, optionPoseSequences: CustomPoseSpec[][]): CustomActionSpec {
-	const conditions = randomVariantConditions(optionPoseSequences.length);
+export function buildReplacementActionSpec(existingDef: ActionDef, optionPoseSequences: CustomPoseSpec[][], optionMoods?: (Mood[] | undefined)[]): CustomActionSpec {
 	const animations: CustomAnimationVariantSpec[] = optionPoseSequences.map((poses, i) => ({
 		id: newSpecId(),
-		condition: conditions[i] ?? "",
+		condition: "",
 		poses,
+		isRandomOption: true,
+		moods: optionMoods?.[i]?.length ? optionMoods[i] : undefined,
 	}));
 	return {
 		id: newSpecId(),

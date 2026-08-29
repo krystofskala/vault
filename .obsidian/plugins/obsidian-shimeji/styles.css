@@ -87,6 +87,17 @@
 	display: none;
 }
 
+/* AnimationOptionsModal's per-option mood toggle chips — active state only; the unpressed look is
+   Obsidian's own default button styling. */
+.shimeji-mood-chip-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.shimeji-mood-chip-active:hover {
+	background: var(--interactive-accent-hover);
+}
+
 /* RewriteSelectionModal — the editor right-click "ask the mascot" commands. Reuses the
    .shimeji-bubble-chat-edit* classes from the room chat's own note-edit card for the proposed
    rewrite itself (same "proposed change with Apply/Discard" shape, same look), since both already

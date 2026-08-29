@@ -1,7 +1,9 @@
 import { findCeilingAt } from "../engine/Ledges";
 import type { Mascot } from "../engine/Mascot";
+import type { Mood } from "../engine/mood";
 import { applyGravityAndLand, findClingableWall } from "../engine/nativeBehaviors";
 import type { PaneActions, ResizeAxis, SidebarMode, ThrownWindowHandle } from "../engine/PaneActions";
+import { Random } from "../engine/Random";
 import type { EngineConfig, Ledge, MascotPhysics, PaneRef, Rect } from "../engine/types";
 import { SHIMEJI_TICK_MS, SHIMEJI_TICKS_PER_SEC } from "./constants";
 import { evaluate, evaluateCondition, parseParamValue, withLocals, type ExprContext, type ExprValue } from "./Expression";
@@ -221,12 +223,30 @@ function parseSidebarMode(raw: string): SidebarMode | undefined {
  * per-tick float drift while climbing can't spuriously read as having lost the wall. */
 const LOST_GROUND_REACH = 8;
 
+/** How long a randomly-picked animation option (see the wizard's AnimationOptionsModal) stays
+ * locked in before it becomes eligible to be re-rolled — real elapsed time the action is actually
+ * running, not tick count or pose-cycle length. Exists because the plain per-tick condition walk
+ * (chooseAnimationVariant's ordinary path, correct for a hand-authored *live* condition like the
+ * real pack's SitAndLookAtMouse) re-evaluates every tick: fine for a condition tracking live state,
+ * wrong for a pure "pick one of N equally likely options" pool, where it meant a 1-frame Stay-type
+ * option (Grab, Sit) never settled on either pick for longer than a single tick, and even a
+ * multi-frame Move (Run) re-rolled at the start of every fresh cycle — both reported live as
+ * "keeps switching, never finishes." Randomized rather than fixed so many mascots/actions don't
+ * all reroll in visible lockstep. See pickRandomOption. */
+const RANDOM_OPTION_HOLD_MIN_MS = 8000;
+const RANDOM_OPTION_HOLD_MAX_MS = 16000;
+
 export class ActionRunner {
 	private stack: Frame[] = [];
 	private lostGroundFlag = false;
 	private lastLeafWasMove = false;
+	/** Sticky picks for random-option action pools, keyed by action name — see pickRandomOption for
+	 * why this has to live on the runner (long-lived, one per mascot) rather than the per-push
+	 * Frame (recreated every pushAction, which would otherwise reset the pick on every fresh Move
+	 * cycle). */
+	private randomOptionHolds = new Map<string, { variant: AnimationVariant; remainingMs: number }>();
 
-	constructor(private pack: MascotPack) {}
+	constructor(private pack: MascotPack, private rng: Random = new Random()) {}
 
 	get isRunning(): boolean {
 		return this.stack.length > 0;
@@ -270,7 +290,7 @@ export class ActionRunner {
 
 		const locals = resolveLocals(overrides, env.ctx);
 		const ctxWithLocals = withLocals(env.ctx, locals);
-		const poses = this.chooseAnimation(def, ctxWithLocals);
+		const poses = this.chooseAnimation(def, ctxWithLocals, env.mascot.mood ?? "normal");
 		const parent = this.stack[this.stack.length - 1];
 		const frame: Frame = {
 			action: def,
@@ -380,16 +400,70 @@ export class ActionRunner {
 
 	/** The Animation block currently in effect — the first whose condition passes, else the first
 	 * declared. Shared by pose selection and hotspot refresh so both always describe the same
-	 * variant; real ActionBase drives both from one `getAnimation()` for exactly that reason. */
-	private chooseAnimationVariant(def: ActionDef, ctx: ExprContext): AnimationVariant | undefined {
+	 * variant; real ActionBase drives both from one `getAnimation()` for exactly that reason.
+	 * Random-option pools (see isRandomOptionPool) skip this live condition walk entirely — they
+	 * have their own sticky, mood-aware pick, since a plain Math.random()-flavored condition
+	 * re-evaluated every tick never settles on one choice long enough to be seen. */
+	private chooseAnimationVariant(def: ActionDef, ctx: ExprContext, mood: Mood): AnimationVariant | undefined {
+		if (this.isRandomOptionPool(def)) return this.pickRandomOption(def, mood);
 		for (const variant of def.animations) {
 			if (evaluateCondition(variant.condition, ctx)) return variant;
 		}
 		return def.animations[0];
 	}
 
-	private chooseAnimation(def: ActionDef, ctx: ExprContext): PoseDef[] {
-		return this.chooseAnimationVariant(def, ctx)?.poses ?? [];
+	private chooseAnimation(def: ActionDef, ctx: ExprContext, mood: Mood): PoseDef[] {
+		return this.chooseAnimationVariant(def, ctx, mood)?.poses ?? [];
+	}
+
+	/** True only when *every* variant of this action was authored as an interchangeable random
+	 * "option" (see the wizard's AnimationOptionsModal / animationOptions.ts's
+	 * buildReplacementActionSpec) rather than a hand-authored live condition. All-or-nothing per
+	 * action: buildReplacementActionSpec always replaces an action's whole animation list at once,
+	 * so a real mix never happens in practice — and treating a partially-flagged action as "not a
+	 * pool" is the safer default if it ever did. */
+	private isRandomOptionPool(def: ActionDef): boolean {
+		return def.animations.length > 1 && def.animations.every((v) => v.isRandomOption);
+	}
+
+	/** Which of an action's random-option variants are allowed in the mascot's current mood — a
+	 * variant with no `moods` (or an empty list) is always eligible. Never empty: if mood-filtering
+	 * would leave nothing standing (e.g. the mascot's mood matches none of the currently-defined
+	 * options) the whole pool is used instead, so there's always something to show. */
+	private moodEligible(def: ActionDef, mood: Mood): AnimationVariant[] {
+		const eligible = def.animations.filter((v) => !v.moods || v.moods.length === 0 || v.moods.includes(mood));
+		return eligible.length > 0 ? eligible : def.animations;
+	}
+
+	/**
+	 * Sticky pick among an action's random-option variants — see RANDOM_OPTION_HOLD_MIN_MS for why
+	 * this exists instead of a plain fresh random draw every time it's consulted. Holds are keyed
+	 * by action name and live on the runner itself, not the per-push Frame, specifically so a Move
+	 * re-pushed on every fresh cycle (e.g. Run) still reuses the same pick instead of rerolling at
+	 * the start of each one — Frame is recreated on every pushAction (see the Frame literal there),
+	 * which would otherwise reset any per-push state immediately. A mood change can still knock out
+	 * the locked pick early: `pool.includes(held.variant)` re-checks eligibility on every call, so
+	 * a variant that has just stopped being mood-eligible is dropped immediately rather than
+	 * finishing out its timer.
+	 */
+	private pickRandomOption(def: ActionDef, mood: Mood): AnimationVariant {
+		const pool = this.moodEligible(def, mood);
+		const held = this.randomOptionHolds.get(def.name);
+		if (held && held.remainingMs > 0 && pool.includes(held.variant)) return held.variant;
+		const variant = this.rng.pick(pool);
+		this.randomOptionHolds.set(def.name, { variant, remainingMs: this.rng.range(RANDOM_OPTION_HOLD_MIN_MS, RANDOM_OPTION_HOLD_MAX_MS) });
+		return variant;
+	}
+
+	/** Ticks down whichever random-option hold the current leaf frame's action owns, exactly once
+	 * per simulation tick — a dedicated, single call site (see tick()) rather than decrementing
+	 * inside pickRandomOption itself, because that gets consulted up to twice a tick for a
+	 * Stay/Animate-family frame (refreshHotspots, then the tick handler's own currentPoses call)
+	 * and both calls must return the same answer. */
+	private advanceRandomOptionHold(def: ActionDef, dt: number): void {
+		if (!this.isRandomOptionPool(def)) return;
+		const held = this.randomOptionHolds.get(def.name);
+		if (held) held.remainingMs -= dt * 1000;
 	}
 
 	/** Real ActionBase.getAnimation() re-walks the Animation list fresh every single tick
@@ -404,7 +478,7 @@ export class ActionRunner {
 	 * gives us for free. tickMove deliberately keeps its own frame.poses fixed from push time
 	 * instead of using this — see its own comment for why. */
 	private currentPoses(frame: Frame, env: PushEnv): PoseDef[] {
-		return this.chooseAnimation(frame.action, this.frameCtx(frame, env));
+		return this.chooseAnimation(frame.action, this.frameCtx(frame, env), env.mascot.mood ?? "normal");
 	}
 
 	/** Advances one frame. Returns true once the whole action tree has completed. */
@@ -418,6 +492,11 @@ export class ActionRunner {
 			// accumulated history — so a mascot stops being findable the moment it moves on to an
 			// action that doesn't declare one.
 			this.broadcastAffordance(frame, env);
+			// Must run before refreshHotspots/tickFrame below, both of which may consult the same
+			// action's random-option hold this same tick and need to see it already up to date —
+			// see advanceRandomOptionHold's own comment for why the decrement can't just live
+			// inside chooseAnimationVariant.
+			this.advanceRandomOptionHold(frame.action, dt);
 			// Real ActionBase.tick() also calls refreshHotspots() every tick, publishing the
 			// *currently effective* Animation's hotspots — so which regions are clickable follows
 			// whichever animation variant the action's own conditions select right now.
@@ -468,7 +547,7 @@ export class ActionRunner {
 	}
 
 	private refreshHotspots(frame: Frame, env: PushEnv): void {
-		const variant = this.chooseAnimationVariant(frame.action, this.frameCtx(frame, env));
+		const variant = this.chooseAnimationVariant(frame.action, this.frameCtx(frame, env), env.mascot.mood ?? "normal");
 		env.mascot.hotspots = variant ? variant.hotspots : [];
 	}
 

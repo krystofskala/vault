@@ -1,3 +1,4 @@
+import type { Mood } from "../engine/mood";
 import type { ActionType, BorderType } from "./types";
 
 /**
@@ -29,9 +30,19 @@ export function newPoseSpec(): CustomPoseSpec {
 export interface CustomAnimationVariantSpec {
 	id: string;
 	/** Raw "#{...}"/"${...}" text; empty means "always" (matches an <Animation> with no
-	 * Condition attribute). Only meaningful when an action has more than one variant. */
+	 * Condition attribute). Only meaningful when an action has more than one variant, and ignored
+	 * entirely when isRandomOption is set below — ActionRunner never evaluates it for those. */
 	condition: string;
 	poses: CustomPoseSpec[];
+	/** Set on every variant produced by the wizard's "random options" flow (AnimationOptionsModal's
+	 * Save, or CharacterEditorModal's "Make equally likely" button) — see AnimationVariant's own
+	 * field of the same name in types.ts for what this actually changes at runtime. Hand-editing a
+	 * variant's condition text afterward clears this back to false (see CharacterEditorModal),
+	 * since that's a clear signal the author wants to hand-tune it instead. */
+	isRandomOption?: boolean;
+	/** Optional mood restriction (see engine/mood.ts) — unset or empty means "eligible in any
+	 * mood". Only meaningful alongside isRandomOption; ignored otherwise. */
+	moods?: Mood[];
 }
 
 export function newAnimationVariantSpec(): CustomAnimationVariantSpec {

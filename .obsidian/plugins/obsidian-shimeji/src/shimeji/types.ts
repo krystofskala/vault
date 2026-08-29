@@ -1,3 +1,4 @@
+import type { Mood } from "../engine/mood";
 import type { Node as ExprNode } from "./Expression";
 
 export type ActionType = "Stay" | "Move" | "Animate" | "Sequence" | "Select" | "Embedded";
@@ -42,6 +43,16 @@ export interface AnimationVariant {
 	condition?: ExprNode;
 	poses: PoseDef[];
 	hotspots: HotspotDef[];
+	/** Set on every variant produced by the wizard's "random options" flow (AnimationOptionsModal's
+	 * Save, or CharacterEditorModal's "Make equally likely" button) — marks this whole action's
+	 * animations as an interchangeable random pool that ActionRunner picks between with its own
+	 * sticky, timer-held choice (see ActionRunner.isRandomOptionPool/pickRandomOption), instead of
+	 * walking `condition` live every tick the way a hand-authored live condition (the real pack's
+	 * SitAndLookAtMouse) needs to. */
+	isRandomOption?: boolean;
+	/** Optional mood restriction (see engine/mood.ts) — unset or empty means "eligible in any
+	 * mood". Only meaningful alongside isRandomOption; ignored otherwise. */
+	moods?: Mood[];
 }
 
 export interface ActionRefDef {

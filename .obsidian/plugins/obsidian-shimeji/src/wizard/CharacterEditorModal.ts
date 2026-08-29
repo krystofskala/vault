@@ -23,7 +23,7 @@ import { RemoveBackgroundModal } from "../sprites/RemoveBackgroundModal";
 import { SpriteSheetModal } from "../sprites/SpriteSheetModal";
 import { AnimationOptionsModal } from "./AnimationOptionsModal";
 import { describeActionHint } from "./actionHints";
-import { deriveAnimatedActions, findReferenceVelocity, randomVariantConditions, type AnimatedActionChecklist } from "./animationOptions";
+import { deriveAnimatedActions, findReferenceVelocity, type AnimatedActionChecklist } from "./animationOptions";
 import { deriveRequiredPoses, type PoseChecklist, type PoseChecklistEntry } from "./deriveRequiredPoses";
 import { imagesUsedByActions, imagesWorthSlicing } from "./imageCandidates";
 import { PoseFitCanvas } from "./PoseFitCanvas";
@@ -868,8 +868,9 @@ export class CharacterEditorModal extends Modal {
 	private renderAnimationsEditor(container: HTMLElement, spec: CustomActionSpec): void {
 		container.createEl("h4", { text: "Poses" });
 		container.createEl("p", {
-			text:
-				spec.animations.length > 1
+			text: spec.animations.length > 1 && spec.animations.every((v) => v.isRandomOption)
+				? `${spec.animations.length} equally likely options: one is picked at random and held for a while before it's eligible to switch again.`
+				: spec.animations.length > 1
 					? "Multiple variants: the first whose condition passes when this action starts is used for its whole run."
 					: 'Add another variant below if the poses should differ by condition (e.g. facing direction) — most actions only need one.',
 			cls: "setting-item-description",
@@ -887,6 +888,11 @@ export class CharacterEditorModal extends Modal {
 							.setValue(variant.condition)
 							.onChange((v) => {
 								variant.condition = v;
+								// Hand-editing the condition is a clear signal the author wants to
+								// hand-tune this variant, not have ActionRunner keep treating it as
+								// one of an interchangeable random pool — see isRandomOption's own
+								// field comment in customContent.ts.
+								variant.isRandomOption = false;
 								hint.setText(conditionError(v) ?? "");
 							}),
 					)
@@ -909,12 +915,14 @@ export class CharacterEditorModal extends Modal {
 		);
 		if (spec.animations.length > 1) {
 			addRow
-				.setDesc("2+ variants: set each condition by hand, or fill them in for you, equally likely at random.")
+				.setDesc("2+ variants: set each condition by hand, or make them equally likely at random.")
 				.addButton((b) =>
 					b.setButtonText("Make equally likely").onClick(() => {
-						const conditions = randomVariantConditions(spec.animations.length);
-						spec.animations.forEach((v, i) => (v.condition = conditions[i] ?? ""));
-						new Notice("Set — each variant now has an equal, random chance of being picked when this action starts.");
+						spec.animations.forEach((v) => {
+							v.condition = "";
+							v.isRandomOption = true;
+						});
+						new Notice("Set — each variant now has an equal, random chance of being picked, held for a while before switching again.");
 						this.render();
 					}),
 				);

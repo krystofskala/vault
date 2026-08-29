@@ -3,6 +3,7 @@ import { ActionRunner, type PushEnv } from "../src/shimeji/ActionRunner";
 import { BehaviorAI } from "../src/shimeji/BehaviorAI";
 import { createRuntimeContext } from "../src/shimeji/RuntimeContext";
 import { parseCondition } from "../src/shimeji/Expression";
+import type { Mood } from "../src/engine/mood";
 import { Random } from "../src/engine/Random";
 import { DEFAULT_ENGINE_CONFIG } from "../src/engine/types";
 import type { MascotPhysics } from "../src/engine/types";
@@ -15,6 +16,7 @@ function makeFakeMascot() {
 	return {
 		physics: { x: 0, y: 0, vx: 0, vy: 0, facing: 1 as 1 | -1, grounded: false },
 		stateElapsedMs: 0,
+		mood: "normal" as Mood,
 		shownImages: [] as string[],
 		bredOffsets: [] as Array<{ x: number; y: number; bornBehaviorName?: string }>,
 		setVisualImage(src: string) {
@@ -648,47 +650,142 @@ describe("ActionRunner", () => {
 		expect(mascot.shownImages.at(-1)).toBe("resolved:/near.png");
 	});
 
-	// Reproduction for a live bug report: a Ceiling-bordered Move (ClimbCeiling) given multiple
-	// animation options via the wizard's "Custom animations" feature (AnimationOptionsModal /
-	// animationOptions.ts's randomVariantConditions — the exact cascading-threshold condition
-	// shape used there) was reported as never showing either custom option when the mascot
-	// actually climbed. Uses one shared, unseeded Random across every trial — exactly like
-	// production: main.ts constructs exactly one `new Random()` per mascot and threads it through
-	// PackDriver/RuntimeContext for that mascot's whole lifetime, never a fresh one per push. An
-	// earlier version of this test re-seeded `new Random(1)` fresh inside envFor() on every trial,
-	// which deterministically replayed the same first draw 200 times — a flaw in the test, not a
-	// reproduction of the real bug; fixed here before trusting the result either way.
-	it("a Ceiling-bordered Move with two randomVariantConditions-style animation options can show either one at push time", () => {
-		const pack: MascotPack = {
-			...NOOP_PACK,
-			actions: new Map([
-				[
-					"ClimbCeiling",
-					action({
-						name: "ClimbCeiling",
-						type: "Move",
-						borderType: "Ceiling",
-						animations: [
-							{ condition: parseCondition("#{Math.random() < 0.5}"), hotspots: [], poses: [{ image: "/optionA.png", anchor: { x: 0, y: 0 }, durationMs: 100000, velocity: { x: -10, y: 0 } }] },
-							{ condition: undefined, hotspots: [], poses: [{ image: "/optionB.png", anchor: { x: 0, y: 0 }, durationMs: 100000, velocity: { x: -10, y: 0 } }] },
-						],
-					}),
-				],
-			]),
-		};
+	// Reproduction + regression coverage for a live bug report: a wizard-authored action with
+	// multiple animation options (AnimationOptionsModal, isRandomOption:true variants) was
+	// switching between options every single tick instead of ever finishing one — worst for
+	// 1-frame Stay-type options (Grab, Sit, a wall-grab pair) where every tick's re-roll is
+	// immediately visible, but a Move (Run) also re-rolled at the start of every fresh cycle, which
+	// read as "keeps switching" even though it wasn't literally per-frame. Root cause: tickHold
+	// re-derives its current pose set every tick (see ActionRunner.currentPoses's own comment on
+	// why — legitimate for a hand-authored live condition like SitAndLookAtMouse), and the
+	// generated `Math.random() < p` conditions this feature used to write got re-evaluated right
+	// along with it. Fixed by giving isRandomOption pools their own sticky, timer-held pick (see
+	// ActionRunner.pickRandomOption) instead of a live condition at all.
+	describe("random-option animation pools (isRandomOption)", () => {
+		const twoStayOptions: ActionDef = action({
+			name: "Grab",
+			type: "Stay",
+			animations: [
+				{ condition: undefined, hotspots: [], poses: [{ image: "/optionA.png", anchor: { x: 0, y: 0 }, durationMs: 100 }], isRandomOption: true },
+				{ condition: undefined, hotspots: [], poses: [{ image: "/optionB.png", anchor: { x: 0, y: 0 }, durationMs: 100 }], isRandomOption: true },
+			],
+		});
 
-		const sharedRng = new Random(12345);
-		const seen = new Set<string>();
-		for (let trial = 0; trial < 200 && seen.size < 2; trial++) {
-			const runner = new ActionRunner(pack);
+		it("a Stay-type action with two 1-frame options holds one pick across many ticks instead of flickering every tick", () => {
+			const pack: MascotPack = { ...NOOP_PACK, actions: new Map([["Grab", twoStayOptions]]) };
+			const runner = new ActionRunner(pack, new Random(7));
 			const mascot = makeFakeMascot();
-			const ctx = createRuntimeContext(mascot.physics, { viewportWidth: 1000, viewportHeight: 1000, pointer: AMBIENT, totalMascotCount: 1 }, 0, sharedRng);
-			const env: PushEnv = { mascot: mascot as unknown as Mascot, ctx, ambient: AMBIENT, config: DEFAULT_ENGINE_CONFIG };
-			runner.start("ClimbCeiling", env, { TargetX: "-100" });
-			runner.tick(env, 0.02, [{ kind: "ceiling" as const, y: 0, x1: -1000, x2: 1000, source: "window" as const }]);
-			seen.add(mascot.shownImages.at(-1) ?? "(none)");
-		}
-		expect(seen).toEqual(new Set(["resolved:/optionA.png", "resolved:/optionB.png"]));
+			const env = envFor(pack, mascot);
+			runner.start("Grab", env);
+
+			for (let i = 0; i < 50; i++) runner.tick(env, 0.02, []); // 1s total — well inside the hold window
+
+			expect(new Set(mascot.shownImages).size).toBe(1);
+		});
+
+		it("many independent mascots each pick a random option — both eventually seen", () => {
+			const pack: MascotPack = { ...NOOP_PACK, actions: new Map([["Grab", twoStayOptions]]) };
+			const seen = new Set<string>();
+			for (let seed = 0; seed < 60 && seen.size < 2; seed++) {
+				const runner = new ActionRunner(pack, new Random(seed));
+				const mascot = makeFakeMascot();
+				const env = envFor(pack, mascot);
+				runner.start("Grab", env);
+				runner.tick(env, 0.02, []);
+				seen.add(mascot.shownImages.at(-1) ?? "(none)");
+			}
+			expect(seen).toEqual(new Set(["resolved:/optionA.png", "resolved:/optionB.png"]));
+		});
+
+		it("a random-option hold eventually expires, allowing a different pick after enough real time has passed", () => {
+			const pack: MascotPack = { ...NOOP_PACK, actions: new Map([["Grab", twoStayOptions]]) };
+			let seenDifferent = false;
+			for (let seed = 0; seed < 30 && !seenDifferent; seed++) {
+				const runner = new ActionRunner(pack, new Random(seed));
+				const mascot = makeFakeMascot();
+				const env = envFor(pack, mascot);
+				runner.start("Grab", env);
+				runner.tick(env, 0.02, []);
+				const first = mascot.shownImages.at(-1);
+				runner.tick(env, 20, []); // one big jump, well past the 16s max hold
+				if (mascot.shownImages.at(-1) !== first) seenDifferent = true;
+			}
+			expect(seenDifferent).toBe(true);
+		});
+
+		it("a Move-type action's random pick stays put across many fresh pushes, not just one cycle", () => {
+			const pack: MascotPack = {
+				...NOOP_PACK,
+				actions: new Map([
+					[
+						"Run",
+						action({
+							name: "Run",
+							type: "Move",
+							animations: [
+								{ condition: undefined, hotspots: [], poses: [{ image: "/optionA.png", anchor: { x: 0, y: 0 }, durationMs: 50, velocity: { x: 0, y: 0 } }], isRandomOption: true },
+								{ condition: undefined, hotspots: [], poses: [{ image: "/optionB.png", anchor: { x: 0, y: 0 }, durationMs: 50, velocity: { x: 0, y: 0 } }], isRandomOption: true },
+							],
+						}),
+					],
+				]),
+			};
+			const runner = new ActionRunner(pack, new Random(3));
+			const mascot = makeFakeMascot();
+			const env = envFor(pack, mascot);
+
+			const picks = new Set<string>();
+			// Each start() is a fresh push (start() resets the stack) — mirroring one mascot's Run
+			// getting re-selected by the behavior graph over and over, the exact "switches after
+			// every cycle" complaint.
+			for (let i = 0; i < 20; i++) {
+				runner.start("Run", env);
+				runner.tick(env, 0.01, []);
+				picks.add(mascot.shownImages.at(-1) ?? "(none)");
+			}
+			expect(picks.size).toBe(1);
+		});
+
+		it("mood-restricted options are excluded until the mascot's mood matches", () => {
+			const pack: MascotPack = {
+				...NOOP_PACK,
+				actions: new Map([
+					[
+						"Stance",
+						action({
+							name: "Stance",
+							type: "Stay",
+							animations: [
+								{ condition: undefined, hotspots: [], poses: [{ image: "/calm.png", anchor: { x: 0, y: 0 }, durationMs: 100 }], isRandomOption: true },
+								{ condition: undefined, hotspots: [], poses: [{ image: "/angry.png", anchor: { x: 0, y: 0 }, durationMs: 100 }], isRandomOption: true, moods: ["angry"] },
+							],
+						}),
+					],
+				]),
+			};
+
+			for (let seed = 0; seed < 30; seed++) {
+				const runner = new ActionRunner(pack, new Random(seed));
+				const mascot = makeFakeMascot();
+				mascot.mood = "normal";
+				const env = envFor(pack, mascot);
+				runner.start("Stance", env);
+				runner.tick(env, 0.02, []);
+				expect(mascot.shownImages.at(-1)).toBe("resolved:/calm.png");
+			}
+
+			const seenAngry = new Set<string>();
+			for (let seed = 0; seed < 30 && seenAngry.size === 0; seed++) {
+				const runner = new ActionRunner(pack, new Random(seed + 1000));
+				const mascot = makeFakeMascot();
+				mascot.mood = "angry";
+				const env = envFor(pack, mascot);
+				runner.start("Stance", env);
+				runner.tick(env, 0.02, []);
+				if (mascot.shownImages.at(-1) === "resolved:/angry.png") seenAngry.add("yes");
+			}
+			expect(seenAngry.size).toBe(1);
+		});
 	});
 });
 

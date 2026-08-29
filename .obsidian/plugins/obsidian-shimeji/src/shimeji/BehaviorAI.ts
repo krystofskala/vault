@@ -766,7 +766,7 @@ export class BehaviorAI {
 	}
 
 	constructor(private pack: MascotPack, private rng: Random) {
-		this.runner = new ActionRunner(pack);
+		this.runner = new ActionRunner(pack, rng);
 		this.warnIfIncomplete();
 	}
 
