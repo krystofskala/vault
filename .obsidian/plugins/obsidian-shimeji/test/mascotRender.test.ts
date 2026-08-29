@@ -54,7 +54,7 @@ describe("Mascot renderer", () => {
 		const mascot = new Mascot(makeDeps(), 100, 200);
 		mascot.render();
 		const { x, y } = parseTranslate(mascot.el.style.transform);
-		// Placeholder anchor is (width/2, height): left = x - anchor.x*scale, top = y - anchor.y*scale.
+		// Placeholder anchor is (width/2, height): left = x - anchor.x, top = y - anchor.y.
 		expect(x).toBeCloseTo(100 - PLACEHOLDER_WIDTH / 2);
 		expect(y).toBeCloseTo(200 - PLACEHOLDER_HEIGHT);
 	});
@@ -121,14 +121,36 @@ describe("Mascot renderer", () => {
 		expect(after.y).toBeGreaterThan(before.y);
 	});
 
-	it("scale multiplies both the translate offset and the transform's own scale() factor", () => {
+	it("scale changes the transform's scale() factor but not the translate offset — the anchor is the pivot", () => {
+		// Regression test: an earlier version multiplied the translate offset by scale too, on the
+		// mistaken assumption that scale() already pivoted on the anchor — it didn't (no
+		// transform-origin was set on `el` at all, so it defaulted to the box's own center), which
+		// visibly sank a shrunk mascot below the floor line and floated an enlarged one above it.
 		const mascot = new Mascot(makeDeps(), 100, 200);
 		mascot.scale = 2;
 		mascot.render();
 		expect(mascot.el.style.transform).toContain("scale(2)");
 		const { x, y } = parseTranslate(mascot.el.style.transform);
-		expect(x).toBeCloseTo(100 - (PLACEHOLDER_WIDTH / 2) * 2);
-		expect(y).toBeCloseTo(200 - PLACEHOLDER_HEIGHT * 2);
+		expect(x).toBeCloseTo(100 - PLACEHOLDER_WIDTH / 2);
+		expect(y).toBeCloseTo(200 - PLACEHOLDER_HEIGHT);
+	});
+
+	it("the anchor's own screen position stays glued to physics x/y at every scale, not just scale=1", () => {
+		// The actual on-screen invariant the live bug report broke. transformOrigin pins scale()'s
+		// pivot to the anchor point, so — regardless of scale — the anchor itself never moves:
+		// left/top position it at exactly (physics.x, physics.y), and scaling around that same
+		// point can't shift it.
+		const anchorX = PLACEHOLDER_WIDTH / 2;
+		const anchorY = PLACEHOLDER_HEIGHT;
+		for (const scale of [0.5, 1, 1.5, 2]) {
+			const mascot = new Mascot(makeDeps(), 100, 200);
+			mascot.scale = scale;
+			mascot.render();
+			expect(mascot.el.style.transformOrigin).toBe(`${anchorX}px ${anchorY}px`);
+			const { x, y } = parseTranslate(mascot.el.style.transform);
+			expect(x + anchorX).toBeCloseTo(100);
+			expect(y + anchorY).toBeCloseTo(200);
+		}
 	});
 
 	it("dragEnabled=false suppresses the pointerdown drag-start handler", () => {

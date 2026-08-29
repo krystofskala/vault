@@ -819,8 +819,17 @@ export class Mascot {
 		// Stage), so a viewport-space physics.y has to lose that offset exactly once, here, where
 		// it stops being physics and becomes a DOM offset. Everything else — physics, ledges,
 		// drag/pointer positions — stays in plain viewport coordinates.
-		const left = this.physics.x - anchor.x * this.scale;
-		const top = this.physics.y - (this.deps.getWorldTop?.() ?? 0) - anchor.y * this.scale;
+		const left = this.physics.x - anchor.x;
+		const top = this.physics.y - (this.deps.getWorldTop?.() ?? 0) - anchor.y;
+		// transformOrigin pins the size scale() below to the anchor point, so the anchor's own
+		// screen position stays exactly (left + anchor.x, top + anchor.y) — i.e. exactly physics.x/y
+		// — at every scale. Without this (previously: no transform-origin on `el` at all, so it
+		// defaulted to the box's own 50%/50% center, while `left`/`top` above wrongly multiplied
+		// anchor.x/y by scale as if the pivot already were the anchor) the anchor visibly drifts
+		// with scale: shrinking a mascot sank its feet below the floor line, enlarging it lifted
+		// them above it — reported live, since the drift is proportional to half the sprite's own
+		// size and easily tens of pixels at the settings screen's 0.5-2x range.
+		this.el.style.transformOrigin = `${anchor.x}px ${anchor.y}px`;
 		this.el.style.transform = `translate3d(${left}px, ${top}px, 0) scale(${this.scale})`;
 		this.inner.style.transformOrigin = `${anchor.x}px ${anchor.y}px`;
 		// facing=1 means "facing/moving right" by convention; real Shimeji-ee artwork is
