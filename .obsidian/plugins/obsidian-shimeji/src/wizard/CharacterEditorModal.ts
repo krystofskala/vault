@@ -41,12 +41,22 @@ const SHIMEJI_TICK_HINT = "Same units as actions.xml: 25 ticks ≈ 1 second.";
  * plain Sequence in the real pack, not Type="Embedded"). */
 const EMBEDDED_CLASSES: Array<[string, string]> = [
 	["Fall", "Apply gravity (plus this action's own Gravity/RegistanceX/RegistanceY params) until landing."],
-	["Breed", "Spawn one independent sibling mascot (params BornX, BornY, BornBehavior), then play this action's own poses once."],
+	["Breed", "Spawn one independent sibling mascot (params BornX, BornY, BornBehavior, BornTransient, BornCount), then play this action's own poses once."],
 	["Regist", "Hold/cycle this action's own poses in place with no physics at all — for a struggle/resist animation."],
 	["Look", "Instantly face a direction (param LookRight = true/false), or face the cursor if omitted."],
 	["Jump", "Instantly set an arc velocity toward a target (params TargetX, TargetY), then fall under gravity."],
 	["Offset", "Instantly nudge position by (params X, Y). No pose is shown."],
 	["Dragged", "Completes instantly every tick — use for a single lean-pose step inside a Sequence (like the real Pinched), not as a whole top-level action."],
+	["SelfDestruct", "Play this action's own poses once, then remove the mascot entirely — the usual way to end a one-shot effect like a fired projectile."],
+	["Thrown", "Falling physics for the moment right after being released from a drag — same gravity mechanics as Fall. Mostly relevant to the required Thrown behavior every pack has."],
+	["ChaseMouse", "Walk/dash toward the cursor. Used by the required ChaseMouse behavior and the \"Follow the mouse\" command."],
+	["Mute", "Stop sound: a named Sound param stops just that file's clips, omitted stops everything currently playing."],
+	["ScanMove", "Walk toward whichever other mascot is broadcasting the given Affordance, turning to face it, then optionally start a named Behaviour on both mascots on arrival (params Affordance, Behaviour, TargetBehaviour, TargetLook) — how a projectile can home in on another mascot."],
+	["ScanInteract", "Like ScanMove, but stays in place: re-scans for the target every tick and fires on the last frame of its own animation instead of on arrival."],
+	["BreedMove", "An ordinary Move that also breeds on an interval for as long as it runs (params BornX, BornY, BornBehavior, BornInterval) — for effects that spawn repeatedly while moving, like a trail."],
+	["BreedJump", "Like BreedMove, but over Jump's own physics instead of Move's."],
+	["WalkWithIE", "An ordinary Floor Move that also resizes whichever pane the mascot is touching, by however far it just walked — the invented stand-in for \"carrying a window along while walking.\""],
+	["ThrowIE", "Holds one pose in place while carrying out the invented window-throw physics on whichever pane was grabbed (params InitialVX, InitialVY, Gravity)."],
 ];
 
 function cloneJson<T>(value: T): T {
