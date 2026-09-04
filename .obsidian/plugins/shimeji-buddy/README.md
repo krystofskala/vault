@@ -345,10 +345,7 @@ independent things to configure:
   of clone silhouettes pop in), **Transformation Jutsu** (a smoke puff and a
   sparkle-glam flourish), and **Shuriken Jutsu** (throws a shuriken at
   wherever your pointer last was). Each is individually enable/weight-able.
-  "Roam style" picks anywhere-on-screen or patrolling the live boundaries of
-  the sidebar(s)/main editor area - on the edges, the buddy rotates so its
-  feet face the boundary it's walking, like a bug crawling around a picture
-  frame.
+  The "Roam" toggle turns idle roaming on/off entirely.
 - **Reacts to what you do** - opening/creating/deleting/renaming/editing a
   note, the search pane opening, being poked, falling asleep, and any
   Obsidian command you name (see below) - each with the built-in placeholder

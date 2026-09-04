@@ -419,16 +419,12 @@ export class ShimejiSettingTab extends PluginSettingTab {
 				});
 
 				new Setting(body)
-					.setName("Roam style")
-					.setDesc("Whether the buddy occasionally moves to a new spot on its own instead of just idling in place, and how.")
-					.addDropdown((d) => {
-						d.addOption("off", "Off - stay in place");
-						d.addOption("anywhere", "Anywhere on screen");
-						d.addOption("edges", "Along window edges");
-						d.setValue(!s.wanderEnabled ? "off" : s.roamStickToEdges ? "edges" : "anywhere");
-						d.onChange(async (value) => {
-							s.wanderEnabled = value !== "off";
-							s.roamStickToEdges = value === "edges";
+					.setName("Roam")
+					.setDesc("Whether the buddy occasionally moves to a new spot on its own instead of just idling in place.")
+					.addToggle((t) => {
+						t.setValue(s.wanderEnabled);
+						t.onChange(async (value) => {
+							s.wanderEnabled = value;
 							await this.plugin.saveSettings();
 						});
 					});
@@ -527,7 +523,7 @@ export class ShimejiSettingTab extends PluginSettingTab {
 								cls: "setting-item-description",
 								text:
 									"What the builtin placeholder can do on its own while idle - gaits it roams with (only " +
-									"offered while \"Roam style\" above isn't Off) and one-off poses it plays in place. " +
+									"offered while \"Roam\" above is on) and one-off poses it plays in place. " +
 									"Toggle any of these off, or raise/lower a weight to make it more or less likely " +
 									"relative to the others (weight 2 is twice as likely as weight 1).",
 							});

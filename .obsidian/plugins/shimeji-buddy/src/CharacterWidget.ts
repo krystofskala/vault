@@ -215,29 +215,6 @@ const PLACEHOLDER_DURATIONS: Record<BuiltinPose, number> = {
 	angry: 0,
 };
 
-/**
- * The workspace's major regions, outermost-in: the left sidebar, the main
- * editor area, and the right sidebar (whichever of these are currently open
- * - a collapsed/closed sidebar is skipped). Uses the documented
- * workspace.leftSplit/rootSplit/rightSplit rather than guessing at
- * internal CSS class names, which aren't part of the public API and can
- * change between Obsidian versions. Queried fresh each time, so it always
- * reflects the current layout without needing to watch for changes.
- */
-function getWorkspaceRegions(app: App): DOMRect[] {
-	const rects: DOMRect[] = [];
-	const splits = [app.workspace.leftSplit, app.workspace.rootSplit, app.workspace.rightSplit];
-	for (const split of splits) {
-		if (!split) continue;
-		if ((split as { collapsed?: boolean }).collapsed) continue;
-		const el = (split as { containerEl?: HTMLElement }).containerEl;
-		if (!el || !el.isConnected) continue;
-		const r = el.getBoundingClientRect();
-		if (r.width > 40 && r.height > 40) rects.push(r);
-	}
-	return rects;
-}
-
 /** Which side of a patrolled region's perimeter a point currently falls on - used to orient the character so its feet face that edge. */
 type PerimeterSide = "top" | "right" | "bottom" | "left";
 
@@ -331,11 +308,6 @@ export class CharacterWidget {
 
 	/** Forces click-through regardless of the user's own setting - e.g. mobile edit-view lockout. */
 	private autoClickThrough = false;
-
-	/** State for "stick to window edges" roaming - which workspace region is being patrolled and how far around its perimeter. */
-	private patrolRegionIndex = 0;
-	private perimeterT = Math.random();
-	private perimeterDirection: 1 | -1 = 1;
 
 	/** Last pointer position on screen, tracked for the shuriken jutsu to throw toward. */
 	private lastPointerX = window.innerWidth / 2;
@@ -991,8 +963,8 @@ export class CharacterWidget {
 			// automatic fallback for idle roaming - a character only needs its
 			// four gait clips built to roam convincingly, without also having
 			// to hand-build a dedicated idle-roam animation. Still only offered
-			// while "Roam style" itself isn't Off, same as every other roaming
-			// path, and can be turned off per-character too.
+			// while "Roam" itself is on, same as every other roaming path, and
+			// can be turned off per-character too.
 			const bm = this.pack.basicMovement;
 			if (
 				this.settings.wanderEnabled &&
@@ -1152,61 +1124,17 @@ export class CharacterWidget {
 		this.visualEl.style.transform = deg ? `rotate(${deg}deg)` : "";
 	}
 
-	/** Anywhere on screen by default, or patrolling the sidebar/main-area boundaries when "stick to edges" is on. */
+	/** Picks a random spot anywhere on screen for the buddy to wander to next. */
 	private pickWanderDestination(
 		rect: DOMRect
 	): { newRight: number; newBottom: number; edgeSide: PerimeterSide | null } {
 		const margin = 8;
-
-		if (this.settings.roamStickToEdges) {
-			const regions = getWorkspaceRegions(this.app);
-			if (regions.length > 0) {
-				if (this.patrolRegionIndex >= regions.length || Math.random() < 0.2) {
-					this.patrolRegionIndex = Math.floor(Math.random() * regions.length);
-				}
-				if (Math.random() < 0.15) this.perimeterDirection = this.perimeterDirection === 1 ? -1 : 1;
-				this.perimeterT += this.perimeterDirection * (0.05 + Math.random() * 0.1);
-
-				const point = pointOnRegionPerimeter(
-					regions[this.patrolRegionIndex],
-					rect.width,
-					rect.height,
-					this.perimeterT,
-					margin
-				);
-				if (point) {
-					const dest = this.clampDestination(
-						window.innerWidth - point.left - rect.width,
-						window.innerHeight - point.top - rect.height,
-						rect,
-						margin
-					);
-					return { ...dest, edgeSide: point.side };
-				}
-			}
-			// No usable region (e.g. window too small) - fall through to free roam this tick.
-		}
-
 		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
 		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
 		return {
 			newRight: margin + Math.random() * (maxRight - margin),
 			newBottom: margin + Math.random() * (maxBottom - margin),
 			edgeSide: null,
-		};
-	}
-
-	private clampDestination(
-		right: number,
-		bottom: number,
-		rect: DOMRect,
-		margin: number
-	): { newRight: number; newBottom: number } {
-		const maxRight = Math.max(margin, window.innerWidth - rect.width - margin);
-		const maxBottom = Math.max(margin, window.innerHeight - rect.height - margin);
-		return {
-			newRight: Math.min(Math.max(right, margin), maxRight),
-			newBottom: Math.min(Math.max(bottom, margin), maxBottom),
 		};
 	}
 

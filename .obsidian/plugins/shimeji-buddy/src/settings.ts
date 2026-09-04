@@ -327,8 +327,6 @@ export interface ShimejiSettings {
 	reactToRename: boolean;
 	reactToSearch: boolean;
 	wanderEnabled: boolean;
-	/** Roam by patrolling the sidebar/main-editor-area boundaries instead of picking anywhere on screen. */
-	roamStickToEdges: boolean;
 	/** Builtin-placeholder-only: per-behavior enable/weight for idle gaits and one-off poses (workouts, jutsus). */
 	builtinBehaviors: Record<BuiltinBehaviorId, BuiltinBehaviorSetting>;
 	/** px/sec - the walking pace, used by the builtin "walk" gait and every destination-based MovementBehavior tween (Move to edge/center/corner, "Move in", etc). */
@@ -373,7 +371,6 @@ export const DEFAULT_SETTINGS: ShimejiSettings = {
 	reactToRename: true,
 	reactToSearch: true,
 	wanderEnabled: true,
-	roamStickToEdges: false,
 	builtinBehaviors: DEFAULT_BUILTIN_BEHAVIORS,
 	walkSpeedPxPerSec: 200,
 	runSpeedPxPerSec: 440,
