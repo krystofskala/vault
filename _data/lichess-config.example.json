@@ -1,0 +1,6 @@
+{
+	"username": "tvuj-lichess-nick",
+	"token": "",
+	"gamesPerFetch": 50,
+	"maxFetchRounds": 4
+}

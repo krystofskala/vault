@@ -1,0 +1,2 @@
+# Obsahuje Lichess API token - nikdy necommitovat
+_data/lichess-config.json
