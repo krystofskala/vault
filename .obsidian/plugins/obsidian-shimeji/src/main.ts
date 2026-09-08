@@ -1,4 +1,5 @@
-import { Events, type EventRef, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
+import { Events, type EventRef, FileSystemAdapter, MarkdownView, Menu, Notice, Platform, Plugin, TFile } from "obsidian";
+import type * as Transformers from "@huggingface/transformers";
 import { AiBackendChain } from "./ai/AiBackendChain";
 import { buildActiveNoteBlock } from "./ai/activeNoteContext";
 import type { AiBackend } from "./ai/backends";
@@ -1030,6 +1031,7 @@ export default class ShimejiPlugin extends Plugin {
 						await this.app.vault.adapter.writeBinary(this.onnxWasmPath(fileName), data);
 					},
 					resourceUrl: (fileName) => this.app.vault.adapter.getResourcePath(this.onnxWasmPath(fileName)),
+					loadTransformersModule: () => this.loadVaultSearchRuntime(),
 				}),
 				() => this.roomFolder(),
 				() => this.settings.vaultSearchExcludedPaths,
@@ -1182,6 +1184,19 @@ export default class ShimejiPlugin extends Plugin {
 	 * ensureCached, which fetches them here from the CDN on first use. */
 	private onnxWasmPath(fileName: string): string {
 		return `${this.roomFolder()}/onnx-wasm/${fileName}`;
+	}
+
+	/** Absolute on-disk path to `vault-search.js` — the separately-bundled file that actually
+	 * contains `@huggingface/transformers` (see esbuild.config.mjs and embeddings.ts's own top
+	 * comment for why this has to be loaded this way, rather than main.ts's own bundle just
+	 * importing the package by name). A dynamic `import()` of a real filesystem path, not a
+	 * package specifier, needs a real on-disk vault; the only caller (applyVaultSearchEnabled)
+	 * already gates on Platform.isMobile, so the adapter is always a FileSystemAdapter here. */
+	private loadVaultSearchRuntime(): Promise<typeof Transformers> {
+		if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
+			throw new Error("Vault search needs a real on-disk vault to load its runtime.");
+		}
+		return import(`${this.app.vault.adapter.getBasePath()}/${this.roomFolder()}/vault-search.js`);
 	}
 
 	/** Which of a room's accepted filenames actually exists — used to load it, to report it in

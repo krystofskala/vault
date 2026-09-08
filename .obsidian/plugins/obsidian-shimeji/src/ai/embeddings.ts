@@ -1,4 +1,5 @@
 import { requestUrl } from "obsidian";
+import type * as Transformers from "@huggingface/transformers";
 import type { FeatureExtractionPipeline } from "@huggingface/transformers";
 
 /**
@@ -28,18 +29,22 @@ import type { FeatureExtractionPipeline } from "@huggingface/transformers";
  * Both `@huggingface/transformers` itself and the ONNX WASM runtime it needs are loaded lazily,
  * on the first real `embed()` call:
  *
- * - The library's own JS is a dynamic `import()` (see loadTransformers below), not a top-level
- *   one. This does *not* shrink main.js — esbuild's own `format: "cjs"`/single-`outfile` build
- *   (see esbuild.config.mjs) can't code-split a dynamic import into a separately-fetched chunk
- *   the way an ESM build with `splitting: true` could, so the library's JS still ends up baked
- *   into the same main.js either way (confirmed by measuring: converting this to a dynamic
- *   import grew main.js slightly, from wrapper overhead, not shrank it). What it *does* still
- *   buy: the library's own module-level setup (backends/onnx.js's own initialization, its
- *   Node-vs-browser environment check) only actually runs the first time vault search is used,
- *   not unconditionally at Obsidian's own plugin-load time for every single install regardless
- *   of whether anyone ever turns the feature on. Real code-splitting would need switching this
- *   plugin's whole build to ESM output, which Obsidian's plugin loader may not support the same
- *   way — a bigger, separate decision, not bundled into this change.
+ * - The library's own JS used to be a dynamic `import()` of the bare package name — which reads
+ *   as lazy, but isn't: esbuild's own `format: "cjs"`/single-`outfile` build (see
+ *   esbuild.config.mjs) can't code-split a dynamic import into a separately-fetched chunk the way
+ *   an ESM build with `splitting: true` could, so a bare-name dynamic import still ends up baked
+ *   into main.js's own bundle regardless (confirmed by measuring: main.js didn't shrink from
+ *   converting a static import to a dynamic one). `loadTransformers` below instead loads
+ *   `vaultSearchRuntime`'s own separately-bundled output file (`vault-search.js`, built as its own
+ *   esbuild entry point — see esbuild.config.mjs) via a dynamic `import()` of that file's absolute
+ *   on-disk path, supplied by main.ts's `loadTransformersModule`. A runtime-computed path (not a
+ *   string literal) is exactly what esbuild can't resolve at build time, so main.js's own build
+ *   has nothing to inline any more — confirmed by measuring the same way: `@huggingface/
+ *   transformers` (over half this plugin's total code) no longer appears in main.js's bundle at
+ *   all. The library's own module-level setup (backends/onnx.js's own initialization, its
+ *   Node-vs-browser environment check) now only actually runs the first time vault search is
+ *   used, not unconditionally at Obsidian's own plugin-load time for every single install
+ *   regardless of whether anyone ever turns the feature on.
  * - The WASM runtime binary (not the embedding model — the small engine that runs it) used to
  *   ship as a file committed into this plugin's own folder, resolved via a local resource path.
  *   That only worked in this dev vault, where the file happens to already be sitting on disk —
@@ -89,14 +94,19 @@ export interface WasmAssetStore {
 	exists(fileName: string): Promise<boolean>;
 	write(fileName: string, data: ArrayBuffer): Promise<void>;
 	resourceUrl(fileName: string): string;
+	/** Loads `vault-search.js` — the separately-bundled output that actually contains
+	 * `@huggingface/transformers` (see esbuild.config.mjs and vaultSearchRuntime.ts) — via a
+	 * dynamic `import()` of its absolute on-disk path. Only main.ts can build that path (it needs
+	 * `manifest.dir` plus the real vault filesystem root), so it owns doing the import itself
+	 * rather than just handing this file a path string to import on its own. */
+	loadTransformersModule(): Promise<typeof Transformers>;
 }
 
-let modulePromise: Promise<typeof import("@huggingface/transformers")> | undefined;
+let modulePromise: Promise<typeof Transformers> | undefined;
 
-/** Loaded once, reused for every LocalEmbedder instance and every call after — see this file's
- * own top comment for why this is a dynamic import rather than a static one. */
-function loadTransformers(): Promise<typeof import("@huggingface/transformers")> {
-	modulePromise ??= import("@huggingface/transformers");
+/** Loaded once, reused for every LocalEmbedder instance and every call after. */
+function loadTransformers(assets: WasmAssetStore): Promise<typeof Transformers> {
+	modulePromise ??= assets.loadTransformersModule();
 	return modulePromise;
 }
 
@@ -124,7 +134,7 @@ export class LocalEmbedder implements Embedder {
 	private getPipeline(): Promise<FeatureExtractionPipeline> {
 		if (!this.pipelinePromise) {
 			this.pipelinePromise = (async () => {
-				const { env, pipeline } = await loadTransformers();
+				const { env, pipeline } = await loadTransformers(this.assets);
 				// Explicit rather than left to the library's own environment auto-detection, so
 				// behavior is the same regardless of how Obsidian's Electron renderer gets
 				// classified: always fetch the embedding model from the Hub, never go looking for
