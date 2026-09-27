@@ -1,15 +1,34 @@
-"""API Gateway placeholder — endpoints se doplní podle docs/openapi.yaml."""
+"""API Gateway — endpointy podle docs/openapi.yaml se přidávají postupně,
+zatím jde o provisioning flow + minimální WS realtime hub."""
 
-import os
+from __future__ import annotations
 
-from fastapi import FastAPI
+import asyncio
+
+from fastapi import FastAPI, WebSocket
+
+from app.db import init_db
+from app.realtime import redis_listener, websocket_endpoint
+from app.routes.provisioning import jobs_router, tracks_router
 
 app = FastAPI(title="Vault API", version="0.1.0")
+app.include_router(tracks_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:////data/db/vault.db")
-MEDIA_ROOT = os.environ.get("MEDIA_ROOT", "/data/media")
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    init_db()
+    asyncio.create_task(redis_listener())
 
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.websocket("/ws")
+async def ws_route(websocket: WebSocket, user_id: str = "demo-user") -> None:
+    # TODO: nahradit `user_id` query parametrem ověřením device JWT z
+    # `?token=`, viz docs/asyncapi.yaml.
+    await websocket_endpoint(websocket, user_id)

@@ -1,0 +1,29 @@
+"""Publikování WS eventů (viz docs/asyncapi.yaml) přes Redis pub/sub.
+
+Tvar zpráv je 1:1 s `components.messages` v asyncapi.yaml, aby realtime hub
+(app/realtime.py) mohl payload jen přeposlat na WS bez další transformace.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from app.redis_bus import get_redis, user_events_channel
+
+
+async def publish_event(user_id: str, event_type: str, payload: dict[str, Any]) -> None:
+    message = json.dumps({"type": event_type, "payload": payload})
+    await get_redis().publish(user_events_channel(user_id), message)
+
+
+async def publish_job_progress(
+    user_id: str, job_id: str, status: str, pct: int | None = None
+) -> None:
+    await publish_event(user_id, "job.progress", {"jobId": job_id, "status": status, "pct": pct})
+
+
+async def publish_track_available(user_id: str, recording_id: str, stream_url: str) -> None:
+    await publish_event(
+        user_id, "track.available", {"recordingId": recording_id, "streamUrl": stream_url}
+    )
