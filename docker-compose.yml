@@ -9,6 +9,7 @@ services:
       MEDIA_ROOT: /data/media
       REDIS_URL: redis://redis:6379/0
       MUSICBRAINZ_BASE_URL: https://musicbrainz.org/ws/2
+      MUSICBRAINZ_USER_AGENT: ${MUSICBRAINZ_USER_AGENT:?nastav v .env dle MusicBrainz API etiquette, např. "VaultPersonal/0.1 (tvuj@email)"}
       DEEZER_API_BASE: https://api.deezer.com
       LISTENBRAINZ_BASE_URL: http://listenbrainz:8080
       JWT_SECRET: ${JWT_SECRET:?set a real secret in .env}

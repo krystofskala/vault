@@ -1,8 +1,10 @@
-"""SQLModel entity pro provisioning jádro.
+"""SQLModel entity pro provisioning jádro a katalog (Artist/Release/Recording).
 
-`Recording` je zde jen minimální placeholder (id + title) — plná verze
-s vazbou na Artist/Release přijde spolu s Catalog Service. Provisioning
-logika na jejím obsahu nezávisí, potřebuje jen existující `recording_id`.
+Katalogové entity jsou lokální cache toho, co Catalog Service (app/catalog/)
+zjistí z MusicBrainz/Deezer — `mbid`/`deezer_id` jsou vazby na externí zdroj,
+`id` je náš stabilní lokální identifikátor, na který se váže MediaAsset a
+ProvisioningJob. Provisioning logika sama na obsahu Recording nezávisí,
+potřebuje jen existující `recording_id`.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import enum
 import uuid
 from datetime import datetime
 
+from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
 from app.utils import utcnow
@@ -37,9 +40,44 @@ class ProvisioningJobStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
+class Artist(SQLModel, table=True):
+    id: str = Field(default_factory=new_uuid, primary_key=True)
+    mbid: str | None = Field(default=None, index=True, unique=True)
+    deezer_id: str | None = Field(default=None, index=True)
+    name: str
+    sort_name: str | None = None
+    images: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    external_refs: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class Release(SQLModel, table=True):
+    """Album/EP/singl — odpovídá MusicBrainz release-group (abstraktní seskupení
+    edic), ne konkrétní release. Tracklist se dotahuje z reprezentativní
+    release edice, viz app/catalog/musicbrainz.py."""
+
+    id: str = Field(default_factory=new_uuid, primary_key=True)
+    mbid: str | None = Field(default=None, index=True, unique=True)
+    artist_id: str = Field(foreign_key="artist.id", index=True)
+    title: str
+    release_date: str | None = None  # ISO string; MB má často jen rok nebo rok-měsíc
+    release_type: str = "album"  # album|ep|single|compilation
+    images: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    external_refs: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class Recording(SQLModel, table=True):
     id: str = Field(default_factory=new_uuid, primary_key=True)
+    mbid: str | None = Field(default=None, index=True, unique=True)
+    release_id: str | None = Field(default=None, foreign_key="release.id", index=True)
+    artist_id: str | None = Field(default=None, foreign_key="artist.id", index=True)
     title: str
+    duration_ms: int | None = None
+    isrc: str | None = Field(default=None, index=True)
+    track_number: int | None = None
+    external_refs: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class MediaAsset(SQLModel, table=True):

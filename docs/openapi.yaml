@@ -419,6 +419,11 @@ components:
         isrc: { type: string, nullable: true }
         trackNumber: { type: integer, nullable: true }
         availability: { $ref: "#/components/schemas/Availability" }
+        previewUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: 30s náhled z Deezer (doplňkové metadata, best-effort — nemusí být vyplněno).
 
     SearchResultItem:
       allOf:
