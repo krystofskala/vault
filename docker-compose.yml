@@ -1,0 +1,62 @@
+services:
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/db/vault.db
+      MEDIA_ROOT: /data/media
+      REDIS_URL: redis://redis:6379/0
+      MUSICBRAINZ_BASE_URL: https://musicbrainz.org/ws/2
+      DEEZER_API_BASE: https://api.deezer.com
+      LISTENBRAINZ_BASE_URL: http://listenbrainz:8080
+      JWT_SECRET: ${JWT_SECRET:?set a real secret in .env}
+    volumes:
+      - vault-db:/data/db
+      - media-library:/data/media
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: python -m app.worker
+    environment:
+      DATABASE_URL: sqlite:////data/db/vault.db
+      MEDIA_ROOT: /data/media
+      REDIS_URL: redis://redis:6379/0
+      MUSICBRAINZ_BASE_URL: https://musicbrainz.org/ws/2
+      DEEZER_API_BASE: https://api.deezer.com
+    volumes:
+      - vault-db:/data/db
+      - media-library:/data/media
+    depends_on:
+      - redis
+    restart: unless-stopped
+    # škáluje horizontálně: `docker compose up --scale worker=3`
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  # Volitelné, mimo scope tohoto sketche — vlastní ListenBrainz instance
+  # pro doporučení. Dokud neběží, /recommendations/* endpointy vrací
+  # prázdný výsledek nebo 503.
+  # listenbrainz:
+  #   image: metabrainz/listenbrainz:latest
+  #   ...
+
+  # Reverse proxy pro TLS by měl sedět před `api`, ale doporučeně jen
+  # přes VPN/Tailscale, nikdy jako veřejně vystavený port.
+  # reverse-proxy:
+  #   image: caddy:2-alpine
+  #   ports: ["443:443"]
+  #   depends_on: [api]
+
+volumes:
+  vault-db:
+  media-library:
+  redis-data:

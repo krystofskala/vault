@@ -1,0 +1,218 @@
+asyncapi: 2.6.0
+info:
+  title: Vault Realtime Sync
+  version: "0.1.0"
+  description: >
+    WebSocket kanál pro synchronizaci stavu přehrávání a fronty mezi
+    zařízeními jednoho uživatele, plus notifikace o dokončeném
+    on-demand provisioningu. Doplňuje REST API v `openapi.yaml`.
+
+defaultContentType: application/json
+
+servers:
+  vault:
+    url: wss://vault.local/ws
+    protocol: wss
+    description: >
+      Jedno spojení na zařízení. Token v query stringu (`?token=<device_jwt>`)
+      identifikuje uživatele — kanál je vždy scoped na `user_id`, nikdy
+      cross-user.
+
+channels:
+  /ws:
+    description: Jediný obousměrný kanál; typ zprávy rozlišuje pole `type`.
+    subscribe:
+      summary: Zprávy odeslané serverem klientovi
+      message:
+        oneOf:
+          - $ref: "#/components/messages/PlaybackState"
+          - $ref: "#/components/messages/QueueUpdated"
+          - $ref: "#/components/messages/QueueConflict"
+          - $ref: "#/components/messages/TrackAvailable"
+          - $ref: "#/components/messages/JobProgress"
+    publish:
+      summary: Zprávy odeslané klientem serveru
+      message:
+        oneOf:
+          - $ref: "#/components/messages/PlaybackPlay"
+          - $ref: "#/components/messages/PlaybackPause"
+          - $ref: "#/components/messages/PlaybackSeek"
+          - $ref: "#/components/messages/QueueSet"
+          - $ref: "#/components/messages/DeviceClaimActive"
+
+components:
+  messages:
+    # ---------------------------------------------------------------
+    # Server -> klient
+    # ---------------------------------------------------------------
+    PlaybackState:
+      name: playback.state
+      summary: Plný snapshot přehrávacího stavu (posláno při připojení a po každé změně).
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type: { const: playback.state }
+          payload: { $ref: "#/components/schemas/PlaybackSession" }
+
+    QueueUpdated:
+      name: queue.updated
+      summary: Fronta byla úspěšně změněna — nová verze je závazná pro všechna zařízení.
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type: { const: queue.updated }
+          payload:
+            type: object
+            required: [queue, version]
+            properties:
+              queue:
+                type: array
+                items: { $ref: "#/components/schemas/QueueItem" }
+              version: { type: integer, description: Nová monotonic verze fronty. }
+
+    QueueConflict:
+      name: queue.conflict
+      summary: >
+        Klientův `queue.set` byl odmítnut kvůli zastaralé `expectedVersion`.
+        Server posílá aktuální stav, klient si na něj musí lokálně přepočítat
+        svou změnu a poslat `queue.set` znovu s novou `expectedVersion`.
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type: { const: queue.conflict }
+          payload:
+            type: object
+            required: [reason, currentQueue, currentVersion]
+            properties:
+              reason: { type: string, example: "version_mismatch" }
+              currentQueue:
+                type: array
+                items: { $ref: "#/components/schemas/QueueItem" }
+              currentVersion: { type: integer }
+
+    TrackAvailable:
+      name: track.available
+      summary: Provisioning worker dokončil obstarání skladby, kterou klient sledoval.
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type: { const: track.available }
+          payload:
+            type: object
+            required: [recordingId, streamUrl]
+            properties:
+              recordingId: { type: string, format: uuid }
+              streamUrl: { type: string, format: uri }
+
+    JobProgress:
+      name: job.progress
+      summary: Průběžný stav provisioning jobu (volitelné, pro progress bar v UI).
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type: { const: job.progress }
+          payload:
+            type: object
+            required: [jobId, status]
+            properties:
+              jobId: { type: string, format: uuid }
+              status:
+                type: string
+                enum: [PENDING, RUNNING, SUCCEEDED, FAILED]
+              pct: { type: integer, minimum: 0, maximum: 100, nullable: true }
+
+    # ---------------------------------------------------------------
+    # Klient -> server
+    # ---------------------------------------------------------------
+    PlaybackPlay:
+      name: playback.play
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type: { const: playback.play }
+          payload:
+            type: object
+            required: [recordingId]
+            properties:
+              recordingId: { type: string, format: uuid }
+              positionMs: { type: integer, default: 0 }
+
+    PlaybackPause:
+      name: playback.pause
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type: { const: playback.pause }
+
+    PlaybackSeek:
+      name: playback.seek
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type: { const: playback.seek }
+          payload:
+            type: object
+            required: [positionMs]
+            properties:
+              positionMs: { type: integer }
+
+    QueueSet:
+      name: queue.set
+      summary: >
+        Nahrazuje celou frontu. `expectedVersion` musí odpovídat aktuální
+        serverové verzi, jinak server odpoví `queue.conflict` místo
+        `queue.updated` (optimistic locking — dostatečné pro pár zařízení
+        jednoho uživatele, žádné CRDT).
+      payload:
+        type: object
+        required: [type, payload]
+        properties:
+          type: { const: queue.set }
+          payload:
+            type: object
+            required: [queue, expectedVersion]
+            properties:
+              queue:
+                type: array
+                items: { $ref: "#/components/schemas/QueueItem" }
+              expectedVersion: { type: integer }
+
+    DeviceClaimActive:
+      name: device.claim_active
+      summary: Zařízení se prohlašuje za "active" (jediné, které fyzicky přehrává zvuk).
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type: { const: device.claim_active }
+
+  schemas:
+    QueueItem:
+      type: object
+      required: [recordingId, position]
+      properties:
+        recordingId: { type: string, format: uuid }
+        position: { type: integer }
+
+    PlaybackSession:
+      type: object
+      properties:
+        activeDeviceId: { type: string, format: uuid, nullable: true }
+        currentRecordingId: { type: string, format: uuid, nullable: true }
+        positionMs: { type: integer }
+        isPlaying: { type: boolean }
+        repeatMode: { type: string, enum: [off, one, all] }
+        shuffle: { type: boolean }
+        queue:
+          type: array
+          items: { $ref: "#/components/schemas/QueueItem" }
+        version: { type: integer }
+        updatedAt: { type: string, format: date-time }

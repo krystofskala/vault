@@ -1,0 +1,496 @@
+openapi: 3.1.0
+info:
+  title: Vault API
+  description: >
+    Osobní hudební systém — REST API. Pokrývá globální katalog/vyhledávání
+    (MusicBrainz/Deezer proxy), asynchronní on-demand provisioning chybějících
+    skladeb a doporučení/playlisty (ListenBrainz). Real-time synchronizace
+    přehrávání je popsaná odděleně v `asyncapi.yaml`.
+  version: "0.1.0"
+servers:
+  - url: https://vault.local/api/v1
+    description: Přes reverse proxy / VPN (Tailscale), nikdy veřejně
+security:
+  - bearerAuth: []
+
+tags:
+  - name: catalog
+    description: Globální katalog a vyhledávání (MusicBrainz/Deezer proxy)
+  - name: provisioning
+    description: On-demand obstarání chybějících médií
+  - name: playlists
+    description: Uživatelské a generované playlisty
+  - name: recommendations
+    description: Doporučení generovaná z ListenBrainz
+
+paths:
+  # ---------------------------------------------------------------------
+  # 1. Katalog / vyhledávání
+  # ---------------------------------------------------------------------
+  /catalog/search:
+    get:
+      tags: [catalog]
+      summary: Unifikované vyhledávání napříč lokální DB, MusicBrainz a Deezer
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [artist, release, recording]
+          description: Omezí výsledky na jeden typ entity; bez parametru se hledá napříč všemi.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: Sjednocené výsledky, každá položka nese `availability`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query: { type: string }
+                  total: { type: integer }
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/SearchResultItem" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /catalog/artists/{artistId}:
+    get:
+      tags: [catalog]
+      summary: Detail interpreta
+      parameters:
+        - $ref: "#/components/parameters/ArtistId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artist" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /catalog/artists/{artistId}/discography:
+    get:
+      tags: [catalog]
+      summary: Kompletní diskografie interpreta (cache-first z MusicBrainz)
+      parameters:
+        - $ref: "#/components/parameters/ArtistId"
+        - name: releaseType
+          in: query
+          schema:
+            type: string
+            enum: [album, ep, single, compilation]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  artist: { $ref: "#/components/schemas/Artist" }
+                  releases:
+                    type: array
+                    items: { $ref: "#/components/schemas/Release" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /catalog/releases/{releaseId}:
+    get:
+      tags: [catalog]
+      summary: Detail alba/EP/singlu
+      parameters:
+        - $ref: "#/components/parameters/ReleaseId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Release" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /catalog/releases/{releaseId}/tracks:
+    get:
+      tags: [catalog]
+      summary: Tracklist alba, včetně availability příznaku pro každou skladbu
+      parameters:
+        - $ref: "#/components/parameters/ReleaseId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Recording" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------------
+  # 2. Provisioning — klíčový idempotentní endpoint
+  # ---------------------------------------------------------------------
+  /tracks/{recordingId}/provision:
+    post:
+      tags: [provisioning]
+      summary: >
+        Idempotentní trigger zpřístupnění skladby. Pokud je MediaAsset již
+        AVAILABLE, rovnou vrací stream info. Jinak založí (nebo najde
+        existující) ProvisioningJob a vrátí jeho ID — klient dál poslouchá
+        WS event `track.available`, tento endpoint se nevolá opakovaně v
+        polling smyčce.
+      parameters:
+        - $ref: "#/components/parameters/RecordingId"
+      responses:
+        "200":
+          description: Skladba je již dostupná — přímý stream.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProvisionResult" }
+        "202":
+          description: Skladba chybí, byl založen/nalezen provisioning job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProvisionResult" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Skladbu nelze provisionovat (např. trvale FAILED bez retry politiky).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /jobs/{jobId}:
+    get:
+      tags: [provisioning]
+      summary: Stav provisioning jobu (fallback pro klienty bez aktivního WS)
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProvisioningJob" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /tracks/{recordingId}/stream:
+    get:
+      tags: [provisioning]
+      summary: Stream/redirect na audio soubor. Vyžaduje MediaAsset.status == AVAILABLE.
+      parameters:
+        - $ref: "#/components/parameters/RecordingId"
+      responses:
+        "200":
+          description: Audio stream (range requests podporovány).
+          content:
+            audio/*: {}
+        "302":
+          description: Redirect na signed URL (pokud je storage backend externí).
+        "409":
+          description: Skladba zatím není AVAILABLE — klient měl nejdřív zavolat `/provision`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # ---------------------------------------------------------------------
+  # 3. Doporučení a playlisty
+  # ---------------------------------------------------------------------
+  /playlists:
+    get:
+      tags: [playlists]
+      summary: Seznam playlistů (uživatelských i generovaných)
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [USER, GENERATED_RECOMMENDATION, RADIO]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Playlist" }
+    post:
+      tags: [playlists]
+      summary: Vytvoří nový uživatelský playlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+      responses:
+        "201":
+          description: Vytvořeno
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Playlist" }
+
+  /playlists/{playlistId}:
+    get:
+      tags: [playlists]
+      summary: Detail playlistu včetně položek
+      parameters:
+        - $ref: "#/components/parameters/PlaylistId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaylistDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /playlists/{playlistId}/items:
+    post:
+      tags: [playlists]
+      summary: Přidá skladbu do playlistu (i pokud MediaAsset zatím chybí)
+      parameters:
+        - $ref: "#/components/parameters/PlaylistId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordingId]
+              properties:
+                recordingId: { type: string, format: uuid }
+                position: { type: integer, minimum: 0 }
+      responses:
+        "201":
+          description: Přidáno
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaylistItem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /playlists/{playlistId}/items/{itemId}:
+    delete:
+      tags: [playlists]
+      summary: Odebere položku z playlistu
+      parameters:
+        - $ref: "#/components/parameters/PlaylistId"
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Odebráno }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /recommendations/discover:
+    get:
+      tags: [recommendations]
+      summary: Objevování — obecná doporučení z lokální instance ListenBrainz
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Recording" }
+
+  /recommendations/daily-jams:
+    get:
+      tags: [recommendations]
+      summary: Denní personalizovaný mix (ListenBrainz "daily jams" ekvivalent)
+      responses:
+        "200":
+          description: >
+            Vrací jako plnohodnotný Playlist (kind=GENERATED_RECOMMENDATION),
+            aby klient mohl použít stejné UI jako pro uživatelské playlisty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaylistDetail" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Device-scoped JWT vydaný při párování zařízení.
+
+  parameters:
+    ArtistId:
+      name: artistId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ReleaseId:
+      name: releaseId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RecordingId:
+      name: recordingId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PlaylistId:
+      name: playlistId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Neplatný požadavek
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Chybějící/neplatný token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Zdroj nenalezen
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+
+    Availability:
+      type: string
+      enum: [available, provisionable, unavailable]
+      description: >
+        available = MediaAsset.status==AVAILABLE; provisionable = existuje
+        v katalogu a lze založit provisioning job; unavailable = žádný
+        známý zdroj (čistě metadatová položka bez cesty k obstarání).
+
+    Artist:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        mbid: { type: string, nullable: true }
+        deezerId: { type: string, nullable: true }
+        name: { type: string }
+        sortName: { type: string }
+        images:
+          type: array
+          items: { type: string, format: uri }
+
+    Release:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        mbid: { type: string, nullable: true }
+        artistId: { type: string, format: uuid }
+        title: { type: string }
+        releaseDate: { type: string, format: date, nullable: true }
+        releaseType: { type: string, enum: [album, ep, single, compilation] }
+        images:
+          type: array
+          items: { type: string, format: uri }
+
+    Recording:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        mbid: { type: string, nullable: true }
+        releaseId: { type: string, format: uuid, nullable: true }
+        artistId: { type: string, format: uuid }
+        title: { type: string }
+        durationMs: { type: integer }
+        isrc: { type: string, nullable: true }
+        trackNumber: { type: integer, nullable: true }
+        availability: { $ref: "#/components/schemas/Availability" }
+
+    SearchResultItem:
+      allOf:
+        - type: object
+          properties:
+            entityType: { type: string, enum: [artist, release, recording] }
+        - oneOf:
+            - $ref: "#/components/schemas/Artist"
+            - $ref: "#/components/schemas/Release"
+            - $ref: "#/components/schemas/Recording"
+
+    MediaAsset:
+      type: object
+      properties:
+        recordingId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [MISSING, QUEUED, DOWNLOADING, TRANSCODING, AVAILABLE, FAILED]
+        format: { type: string, nullable: true }
+        bitrateKbps: { type: integer, nullable: true }
+
+    ProvisioningJob:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        recordingId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED]
+        attempts: { type: integer }
+        createdAt: { type: string, format: date-time }
+        errorMessage: { type: string, nullable: true }
+
+    ProvisionResult:
+      type: object
+      required: [recordingId]
+      properties:
+        recordingId: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/MediaAsset/properties/status" }
+        streamUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Vyplněno pouze pokud status==AVAILABLE.
+        job:
+          allOf: [{ $ref: "#/components/schemas/ProvisioningJob" }]
+          nullable: true
+          description: Vyplněno pouze pokud se čeká na obstarání (HTTP 202).
+
+    Playlist:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        kind: { type: string, enum: [USER, GENERATED_RECOMMENDATION, RADIO] }
+        source: { type: string, nullable: true }
+        generatedAt: { type: string, format: date-time, nullable: true }
+        itemCount: { type: integer }
+
+    PlaylistItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        recordingId: { type: string, format: uuid }
+        position: { type: integer }
+        addedAt: { type: string, format: date-time }
+
+    PlaylistDetail:
+      allOf:
+        - $ref: "#/components/schemas/Playlist"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Recording" }
