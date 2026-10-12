@@ -1,0 +1,10 @@
+{
+  "poznamka": "Na lekce se prosím hlaste předem telefonem nebo e-mailem. Podložky půjčíme.",
+  "lekce": [
+    { "den": "Pondělí", "cas": "18:00–19:30", "nazev": "Hathajóga pro začátečníky", "lektor": "Jana" },
+    { "den": "Úterý", "cas": "7:00–8:00", "nazev": "Ranní jóga", "lektor": "Jana" },
+    { "den": "Středa", "cas": "18:00–19:30", "nazev": "Hathajóga pro pokročilé", "lektor": "Jana" },
+    { "den": "Čtvrtek", "cas": "17:00–18:00", "nazev": "Jóga pro seniory", "lektor": "Jana" },
+    { "den": "Sobota", "cas": "9:00–10:30", "nazev": "Víkendová jóga", "lektor": "host" }
+  ]
+}

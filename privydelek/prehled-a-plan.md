@@ -136,6 +136,12 @@ dTest navíc zjistil, že americké služby (Optery, DeleteMe) odstranily v prů
 
 ---
 
+## Značky (rozhodnuto 12. 10.)
+- Jeden byznys: jedna živnost a jedno IČO.
+- **krystofskala.com** = weby a automatizace, osobní značka.
+- **GDPR** = vlastní produktová značka a doména (např. smazmojedata.cz, ověřit dostupnost). Koupit až s hotovým DIY balíčkem.
+- Oblast webů: celá ČR online, osobně Praha a Středočeský kraj.
+
 ## Otevřené otázky (rozpracováno)
 - Hlubší ověření české konkurence, právní stránka plné moci a sazby za weby a automatizace: `gdpr/overeni-konkurence-a-pravo.md`
 - Databáze firem: `gdpr/firmy-v1.md`

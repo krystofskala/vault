@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{nazev}} — {{slogan}}</title>
+<meta name="description" content="{{nazev}}: {{slogan}}. Rozvrh, ceník, aktuality a kontakt.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styl.css">
+</head>
+<body>
+
+<div class="demo-bar">Ukázkový web fiktivního studia. Veškerý obsah si majitel mění sám v jednoduchém editoru.</div>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#">{{nazev}}</a>
+    <nav>
+      <a href="#aktuality">Aktuality</a>
+      <a href="#rozvrh">Rozvrh</a>
+      <a href="#cenik">Ceník</a>
+      <a class="btn small" href="#kontakt">Kontakt</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="kicker">{{slogan}}</p>
+        <h1>{{nazev}}</h1>
+        <div class="lede">{{uvod_html}}</div>
+        <div class="ctas">
+          <a class="btn" href="tel:{{tel_odkaz}}">Zavolat {{telefon}}</a>
+          <a class="btn ghost" href="#rozvrh">Rozvrh lekcí</a>
+        </div>
+      </div>
+      <svg class="leaf" viewBox="0 0 200 200" aria-hidden="true">
+        <circle cx="100" cy="100" r="92" fill="var(--soft)"/>
+        <path d="M100 168c0-52 8-92 46-122-44 6-70 34-78 74 10-24 26-40 46-48-26 18-38 54-38 96z" fill="var(--accent)" opacity=".85"/>
+        <path d="M96 170c-4-30-18-52-44-64 30 2 46 22 52 46" fill="none" stroke="var(--ink)" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+      </svg>
+    </div>
+  </section>
+
+  <section id="aktuality">
+    <div class="wrap">
+      <p class="kicker">Aktuality</p>
+      <h2>Co je u nás nového</h2>
+      <div class="posts">{{aktuality_html}}</div>
+    </div>
+  </section>
+
+  <section id="rozvrh">
+    <div class="wrap">
+      <p class="kicker">Rozvrh</p>
+      <h2>Kdy cvičíme</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Den</th><th>Čas</th><th>Lekce</th><th>Lektor</th></tr></thead>
+          <tbody>{{rozvrh_html}}</tbody>
+        </table>
+      </div>
+      <p class="muted note">{{rozvrh_poznamka}}</p>
+    </div>
+  </section>
+
+  <section id="cenik">
+    <div class="wrap two">
+      <div>
+        <p class="kicker">Ceník</p>
+        <h2>Ceny</h2>
+      </div>
+      <ul class="pricelist">{{cenik_html}}</ul>
+    </div>
+  </section>
+
+  <section id="o-nas">
+    <div class="wrap two">
+      <div>
+        <p class="kicker">O nás</p>
+        <h2>Kdo jsme</h2>
+      </div>
+      <div>{{o_nas_html}}</div>
+    </div>
+  </section>
+
+  <section id="kontakt" class="contact">
+    <div class="wrap two">
+      <div>
+        <p class="kicker">Kontakt</p>
+        <h2>Přijďte se podívat</h2>
+      </div>
+      <address>
+        <p><strong>{{adresa}}</strong><br><a href="{{mapa_odkaz}}">Zobrazit na mapě →</a></p>
+        <p><a href="tel:{{tel_odkaz}}">{{telefon}}</a><br><a href="mailto:{{email}}">{{email}}</a></p>
+        <p>{{socialni_html}}</p>
+      </address>
+    </div>
+  </section>
+</main>
+
+<footer><div class="wrap">© {{rok}} {{nazev}} · Web bez cookies</div></footer>
+</body>
+</html>

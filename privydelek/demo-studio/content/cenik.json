@@ -1,0 +1,8 @@
+{
+  "polozky": [
+    { "nazev": "Jednorázová lekce jógy", "cena": "200 Kč", "popis": "90 minut" },
+    { "nazev": "Permanentka na 10 lekcí", "cena": "1 700 Kč", "popis": "platí 4 měsíce" },
+    { "nazev": "Klasická masáž", "cena": "650 Kč", "popis": "60 minut" },
+    { "nazev": "Dárkový poukaz", "cena": "od 500 Kč", "popis": "na jógu i masáž" }
+  ]
+}

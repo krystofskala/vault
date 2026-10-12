@@ -1,0 +1,64 @@
+# Editor obsahu pro majitele webu (Pages CMS – app.pagescms.org)
+content:
+  - name: aktuality
+    label: Aktuality
+    type: collection
+    path: content/aktuality
+    filename: "{year}-{month}-{day}-{primary}.md"
+    view:
+      fields: [nadpis, datum]
+      primary: nadpis
+      sort: [datum]
+    fields:
+      - { name: nadpis, label: Nadpis, type: string, required: true }
+      - { name: datum, label: Datum, type: date, required: true }
+      - { name: body, label: Text, type: text, description: "Odstavce oddělte prázdným řádkem. **tučně**, [odkaz](https://…)" }
+
+  - name: rozvrh
+    label: Rozvrh
+    type: file
+    path: content/rozvrh.json
+    format: json
+    fields:
+      - name: lekce
+        label: Lekce
+        type: object
+        list: true
+        fields:
+          - { name: den, label: Den, type: select, options: { values: [Pondělí, Úterý, Středa, Čtvrtek, Pátek, Sobota, Neděle] } }
+          - { name: cas, label: Čas, type: string, description: "např. 18:00–19:30" }
+          - { name: nazev, label: Lekce, type: string }
+          - { name: lektor, label: Lektor, type: string }
+      - { name: poznamka, label: Poznámka pod rozvrhem, type: text }
+
+  - name: cenik
+    label: Ceník
+    type: file
+    path: content/cenik.json
+    format: json
+    fields:
+      - name: polozky
+        label: Položky
+        type: object
+        list: true
+        fields:
+          - { name: nazev, label: Název, type: string }
+          - { name: cena, label: Cena, type: string, description: "např. 200 Kč" }
+          - { name: popis, label: Upřesnění, type: string }
+
+  - name: web
+    label: Základní údaje
+    type: file
+    path: content/web.json
+    format: json
+    fields:
+      - { name: nazev, label: Název, type: string }
+      - { name: slogan, label: Podtitulek, type: string }
+      - { name: uvod, label: Úvodní text, type: text }
+      - { name: o_nas, label: O nás, type: text }
+      - { name: adresa, label: Adresa, type: string }
+      - { name: telefon, label: Telefon, type: string }
+      - { name: email, label: E-mail, type: string }
+      - { name: mapa_odkaz, label: Odkaz na mapu, type: string }
+      - { name: instagram, label: Instagram (odkaz), type: string }
+      - { name: facebook, label: Facebook (odkaz), type: string }
