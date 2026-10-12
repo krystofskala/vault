@@ -57,3 +57,14 @@ Dobrý den, jen se připomínám s nabídkou rozboru vašeho webu. Kdyby to teď
 3. Mobil: screenshot, co je rozbité nebo nečitelné.
 4. Obsah: zastaralé informace.
 5. Návrh: co bych udělal, pevná cena, termín.
+
+---
+
+## Námitka: „Na Wixu si to můžu upravit sám“
+
+Odpověď: „U mě taky. Texty, fotky, aktuality, rozvrh a ceník upravíte v jednoduchém editoru, kam se přihlásíte e-mailem. Nepotřebujete žádný účet navíc. Co nejde: přetahovat bloky a měnit rozložení. To udělám já, když budete chtít.“
+
+Technicky: **Pages CMS** (pagescms.org, open source, hostovaný zdarma, dá se i self-hostovat). Klienta pozvu jako *collaborator* e-mailem a nepotřebuje účet na GitHubu. Obsah je v JSON nebo Markdownu v repu a web se po uložení sám přestaví (GitHub Actions).
+Záloha: Sveltia CMS + Cloudflare Worker na přihlášení.
+
+Cenové srovnání pro klienta: Wix Light stojí asi 17 USD/měsíc při roční platbě, tedy kolem 4–5 tis. Kč ročně (aktuální ceny v Kč ověřit na wix.com). Jednorázový web za 8–12 tis. Kč se tak vrátí za 2–3 roky. Volitelný paušál za správu (např. 200–300 Kč/měsíc) je pořád levnější než Wix a pro mě znamená opakovaný příjem.
