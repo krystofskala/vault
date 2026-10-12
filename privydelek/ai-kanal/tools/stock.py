@@ -5,7 +5,7 @@ Bez --people se vyřadí fotky, které mají v tazích lidi."""
 import json, sys, subprocess, urllib.request, urllib.parse
 from pathlib import Path
 
-ENV = Path(__file__).resolve().parent.parent / "drakula" / ".env"
+ENV = Path(__file__).resolve().parent.parent / ".env"
 KEY = next(l.split("=", 1)[1].strip() for l in ENV.read_text().splitlines() if l.startswith("PIXABAY_API_KEY="))
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
 PEOPLE = {"woman", "man", "people", "person", "girl", "boy", "businessman", "businesswoman", "team", "women", "men", "child", "face", "portrait", "worker", "employee"}

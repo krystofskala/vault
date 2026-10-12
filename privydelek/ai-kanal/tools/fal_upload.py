@@ -1,7 +1,7 @@
 """Nahraje soubor do fal CDN a vypíše URL: python fal_upload.py <file>"""
 import json, sys, mimetypes, urllib.request, urllib.error
 from pathlib import Path
-ENV = Path(__file__).resolve().parent.parent / "drakula" / ".env"
+ENV = Path(__file__).resolve().parent.parent / ".env"
 KEY = next(l.split("=", 1)[1].strip() for l in ENV.read_text().splitlines() if l.startswith("FAL_KEY="))
 p = Path(sys.argv[1]); ct = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
 r = urllib.request.Request("https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3", method="POST",

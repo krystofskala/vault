@@ -1,7 +1,7 @@
 """ElevenLabs helper: python el.py models | design <out_dir> | tts <voice_id> <model_id> <text_file> <out_mp3>"""
 import json, sys, base64, urllib.request, urllib.error
 from pathlib import Path
-ENV = Path(__file__).resolve().parent.parent / "drakula" / ".env"
+ENV = Path(__file__).resolve().parent.parent / ".env"
 KEY = next(l.split("=", 1)[1].strip() for l in ENV.read_text().splitlines() if l.startswith("ELEVENLABS_API_KEY="))
 API = "https://api.elevenlabs.io"
 

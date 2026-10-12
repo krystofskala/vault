@@ -1,0 +1,23 @@
+{
+  "title": "Meeting Notes (launch vs lunch)",
+  "background": "17.jpg", "bg_cx": 0.45,
+  "voice": "uq0HIbNZKn11Hs5ifEdd",
+  "beats": [
+    {"id": "ask", "type": "chat", "who": "Jen", "text": "Orbo, send everyone the launch meeting notes.", "orbo": {"gaze": [0.2, -0.9]}},
+    {"id": "done", "type": "line", "text": "[excited] Done! Sent to everyone!", "orbo": {"mood": "happy"}, "sfx": [["send", 1.0]]},
+    {"id": "doc1", "type": "doc", "title": "LUNCH MEETING: NOTES", "bullets": ["Jen has a new thermos.", "It is green.", "Keeps coffee hot for 24 hours.", "Next steps: Jen refills thermos."]},
+    {"id": "launch", "type": "chat", "who": "Jen", "text": "orbo. LAUNCH. not lunch.", "orbo": {"gaze": [0.2, -0.9]}},
+    {"id": "panic", "type": "line", "text": "[panicking] Oh no. Oh no. There's a difference?!", "orbo": {"mood": "panic"}},
+    {"id": "fixing", "type": "line", "text": "[eager] Got it! Fixing!", "orbo": {"mood": "working"}},
+    {"id": "doc2", "type": "doc", "title": "LAUNCH MEETING: NOTES (v2)", "bullets": ["Jen's thermos launches Friday."]},
+    {"id": "dots", "type": "chat", "who": "Jen", "text": "…", "dur": 0.6, "orbo": {"mood": "worried", "gaze": [0.2, -0.9]}},
+    {"id": "toomuch", "type": "line", "text": "[unsure, quietly] ...Too much thermos?", "orbo": {"mood": "small", "gaze": [-0.4, 0.3]}},
+    {"id": "greg", "type": "chat", "who": "Greg (CEO)", "sub": "replied to all", "text": "Great notes. Love the energy. Approved ✓", "orbo": {"gaze": [0.2, -0.9]}, "sfx_default": false, "sfx": [["ding", 0.05]]},
+    {"id": "approved", "type": "line", "text": "[proudly] Approved!", "orbo": {"mood": "proud"}},
+    {"id": "marketing", "type": "chat", "who": "Jen", "text": "why is marketing asking for photos of my thermos", "orbo": {"mood": "proud"}}
+  ],
+  "music": [
+    {"track": "toccata.mp3", "beat": "panic", "offset": 0.15, "start": 0.3, "dur": 3.0, "gain": 0.5, "fade_out": 0.8},
+    {"track": "fluffing.mp3", "beat": "marketing", "offset": 0.1, "start": 0.0, "dur": 2.9, "gain": 0.4, "fade_out": 0.6}
+  ]
+}

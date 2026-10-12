@@ -3,7 +3,7 @@ Klíč čte z ../drakula/.env, nikdy ho nevypisuje."""
 import json, sys, time, urllib.request, urllib.error
 from pathlib import Path
 
-ENV = Path(__file__).resolve().parent.parent / "drakula" / ".env"
+ENV = Path(__file__).resolve().parent.parent / ".env"
 KEY = next(l.split("=", 1)[1].strip() for l in ENV.read_text().splitlines() if l.startswith("FAL_KEY="))
 
 def call(method, url, body=None):
