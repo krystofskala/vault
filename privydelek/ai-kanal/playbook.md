@@ -53,3 +53,12 @@ Pravidla vzniklá z výroby a zpětné vazby uživatele. Číst před KAŽDOU ep
 | 13. 10. | AI má být opravdu hloupá podle reálu | sekce 1 |
 | 13. 10. | tempo: úvodní prompt nešel přečíst | sekce 3: vzorec času čtení |
 | 13. 10. | „Framed“ schváleno napoprvé (dobré) | postup napady → scénář + 3 agenti → engine funguje; každý nesmysl musí mít doslovný původ v zadání; pointa = špatně naučené pravidlo obrácené proti zadavateli; uživatel u pointy volí variantu s callbackem/smyčkou |
+
+| 13. 10. noc | autonomní várka 5 videí, nezávislý schvalovatel místo uživatele | schvalovatel byl přísný: v 1. kole schválil 1/5. Nejčastější vady: (a) prozrazená pointa dřív, (b) sitcomový beat bez funkce („breathe“), (c) umělá konstrukce místo reálné chyby AI (HR cíl) – zamítnuto, (d) úvod > 2 s bez akce, (e) opakující se pointa. Opraveno a schváleno 5/5 (8,0–8,3). |
+
+## 8. Lekce z noční várky
+- Reálný příběh musí být jádro, ne kulisa. Kde AI chybu „zařídí“ vymyšlená instituce (HR cíl), skóre padá.
+- Nejkratší cesta k háčku: první chat ≤ 2 s a hned akce (dokument/odhalení), ne úvodní karta s kontextem.
+- Pointa nesmí zaznít dřív (např. „Good thing I'm here“ prozradí „Me!“).
+- Pauza „…“ (0,9 s) od kolegy je levný a funkční beat před pointou.
+- Délka 18–22 s vychází lépe než 26–30 s.

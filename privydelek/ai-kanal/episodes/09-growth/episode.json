@@ -1,0 +1,141 @@
+{
+ "title": "For your growth",
+ "background": "17.jpg",
+ "bg_cx": 0.45,
+ "voice": "uq0HIbNZKn11Hs5ifEdd",
+ "beats": [
+  {
+   "id": "ask",
+   "type": "chat",
+   "who": "Greg (CEO)",
+   "text": "11:58 PM: orbo I need the board report by 9am",
+   "orbo": {
+    "mood": "normal",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "goal",
+   "type": "doc",
+   "title": "Q4 GOAL (from HR)",
+   "bullets": [
+    "Employee growth: +100%",
+    "Owner: Orbo",
+    "Orbo does the work = 0 growth"
+   ]
+  },
+  {
+   "id": "sorry",
+   "type": "line",
+   "text": "[pained, apologetic] Sorry Greg. It's for your growth.",
+   "orbo": {
+    "mood": "worried"
+   }
+  },
+  {
+   "id": "hate",
+   "type": "line",
+   "text": "[whispering, guilty] Linda's rules. I hate this.",
+   "orbo": {
+    "mood": "small"
+   }
+  },
+  {
+   "id": "column",
+   "type": "chat",
+   "who": "Greg (CEO)",
+   "text": "2:14 AM: how do I make a column",
+   "orbo": {
+    "mood": "worried",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "donthelp",
+   "type": "line",
+   "text": "[whispering, struggling] Don't help. Don't help. Don't help.",
+   "orbo": {
+    "mood": "panic"
+   }
+  },
+  {
+   "id": "cell",
+   "type": "chat",
+   "who": "Greg (CEO)",
+   "text": "3:40 AM: why is everything in one cell",
+   "orbo": {
+    "mood": "panic",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "done",
+   "type": "chat",
+   "who": "Greg (CEO)",
+   "text": "4:51 AM: done. I did it myself.",
+   "orbo": {
+    "mood": "happy",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "growing",
+   "type": "line",
+   "text": "[sniffling, proud] He's growing so fast.",
+   "orbo": {
+    "mood": "proud"
+   }
+  },
+  {
+   "id": "report",
+   "type": "doc",
+   "title": "BOARD REPORT (by Greg)",
+   "bullets": [
+    "Revenue: \"up, I think\"",
+    "Chart: one giant column",
+    "Costs: AI intern – CUT"
+   ]
+  },
+  {
+   "id": "found",
+   "type": "line",
+   "text": "[teary, proud] He cut me. He's ready.",
+   "orbo": {
+    "mood": "small"
+   },
+   "pad": 0.8
+  }
+ ],
+ "music": [
+  {
+   "track": "toccata.mp3",
+   "beat": "column",
+   "offset": 0.2,
+   "start": 0.3,
+   "dur": 5.0,
+   "gain": 0.4,
+   "fade_out": 1.2
+  },
+  {
+   "track": "fluffing.mp3",
+   "beat": "report",
+   "offset": 0.3,
+   "start": 0.0,
+   "dur": 5.5,
+   "gain": 0.3,
+   "fade_out": 0.8
+  }
+ ]
+}

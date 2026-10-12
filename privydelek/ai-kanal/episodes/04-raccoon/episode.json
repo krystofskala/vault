@@ -1,0 +1,22 @@
+{
+  "title": "Raccoon",
+  "background": "17.jpg", "bg_cx": 0.45,
+  "voice": "uq0HIbNZKn11Hs5ifEdd",
+  "beats": [
+    {"id": "codered", "type": "line", "text": "[alarmed] Code red! Raccoon in the kitchen!", "bg": "raccoon/cctv_97.jpg", "bg_blur": 0, "orbo": {"mood": "panic", "x": 880, "y": 1640, "scale": 0.36}, "sfx": [["beep", 0.0]]},
+    {"id": "dontpanic", "type": "line", "text": "[panicking] Don't panic. I'm panicking for everyone.", "orbo": {"mood": "panic"}},
+    {"id": "alert", "type": "doc", "title": "ALL-STAFF ALERT", "bullets": ["Wild raccoon in kitchen", "Do NOT make eye contact", "Pest control: CALLED"]},
+    {"id": "dog", "type": "chat", "who": "Jen", "text": "orbo that's a dog", "orbo": {"mood": "worried", "gaze": [0.2, -0.9]}},
+    {"id": "think", "type": "line", "text": "[suspicious] Exactly what a raccoon would want us to think.", "orbo": {"mood": "worried", "gaze": [-0.5, 0.2]}},
+    {"id": "cute", "type": "line", "no_card": true, "text": "[whispers] Oh no. It's being cute.", "bg": "raccoon/cctv_friendly.jpg", "bg_blur": 0, "orbo": {"mood": "worried", "x": 880, "y": 1640, "scale": 0.36}},
+    {"id": "mydog", "type": "chat", "who": "Greg (CEO)", "text": "that's my dog biscuit. coming to get him", "orbo": {"gaze": [0.2, -0.9]}},
+    {"id": "learned", "type": "line", "text": "[relieved] Ohh! DOG! Learning complete!", "orbo": {"mood": "happy"}},
+    {"id": "found", "type": "line", "no_card": true, "text": "[proudly] Dog found. And there's the raccoon.", "bg": "raccoon/cctv_final.jpg", "bg_blur": 0, "orbo": {"mood": "proud", "x": 880, "y": 1660, "scale": 0.34}, "pad": 0.4},
+    {"id": "chased", "type": "chat", "who": "Greg (CEO)", "text": "orbo why is pest control chasing me", "bg": "raccoon/cctv_pest.jpg", "bg_blur": 0, "orbo": {"mood": "happy", "x": 880, "y": 1660, "scale": 0.34}},
+    {"id": "safe", "type": "line", "text": "[proudly, reassuring] Don't worry. Biscuit is safe.", "bg": "raccoon/cctv_pest.jpg", "bg_blur": 0, "orbo": {"mood": "proud", "x": 880, "y": 1660, "scale": 0.38}, "pad": 0.7}
+  ],
+  "music": [
+    {"track": "toccata.mp3", "beat": "dontpanic", "offset": 0.05, "start": 0.3, "dur": 3.0, "gain": 0.5, "fade_out": 0.8},
+    {"track": "fluffing.mp3", "beat": "safe", "offset": 0.2, "start": 0.0, "dur": 3.0, "gain": 0.35, "fade_out": 0.7}
+  ]
+}

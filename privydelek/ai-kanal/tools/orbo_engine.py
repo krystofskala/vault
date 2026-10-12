@@ -16,7 +16,7 @@ episode.json:
   ],
   "music": [{"track": "toccata.mp3", "beat": "panic", "offset": 0.15, "start": 0.3, "dur": 3.0, "gain": 0.5}]
 }
-Typy beatů: chat (karta zůstává viditelná i v dalších beatech, dokud nepřijde další chat/doc), line (Orbo mluví,
+Typy beatů: chat (karta zůstává viditelná i v dalších beatech, dokud nepřijde další chat/doc nebo beat s "no_card": true), line (Orbo mluví,
 titulky automaticky), doc (dokument s postupně naskakujícími body), note (lísteček), pause.
 Nálady Orba: normal, happy, worried, panic, working, small, proud, dim.
 Časování se počítá samo: text musí být vidět >= znaky/15 + 0,5 s (pravidlo z playbooku), délka repliky = délka hlasu.
@@ -86,7 +86,7 @@ def chat_spans():
     for i, b in enumerate(beats):
         if b["type"] != "chat": continue
         j = i + 1
-        while j < len(beats) and beats[j]["type"] not in ("chat", "doc", "note") and not b.get("no_hold"): j += 1
+        while j < len(beats) and beats[j]["type"] not in ("chat", "doc", "note") and not b.get("no_hold") and not beats[j].get("no_card"): j += 1
         spans[i] = list(range(i, j))
     return spans
 for _ in range(3):  # prodloužit chat, pokud text nestihne být vidět dost dlouho
@@ -174,7 +174,9 @@ def chat_card(who, text, sub=""):
         lines = lines2
     h = 120 + 66 * len(lines) + (40 if sub else 0)
     c = Image.new("RGBA", (920, h + 12), (0, 0, 0, 0)); d = ImageDraw.Draw(c)
-    d.rounded_rectangle([6, 10, 920, h + 10], 34, fill=(0, 0, 0, 60)); d.rounded_rectangle([0, 0, 910, h], 34, fill=(255, 255, 255, 246))
+    ext = who.lower().startswith("client")  # externí kontakty: šedá karta
+    d.rounded_rectangle([6, 10, 920, h + 10], 34, fill=(0, 0, 0, 60)); d.rounded_rectangle([0, 0, 910, h], 34, fill=(228, 230, 236, 246) if ext else (255, 255, 255, 246))
+    if ext: d.rounded_rectangle([700, 22, 880, 66], 12, fill=(120, 125, 140)); d.text((718, 24), "external", font=fnt(B, 30), fill="white")
     d.ellipse([28, 30, 128, 130], fill=AVATARS[who]); ini = who[0].upper()
     d.text((78 - d.textlength(ini, font=fnt(B, 56)) / 2, 40), ini, font=fnt(B, 56), fill="white")
     d.text((160, 24), who, font=fnt(B, 40), fill=(40, 40, 50)); yy = 78
@@ -200,8 +202,12 @@ def doc_img(title, bullets, n_shown):
     d.text((50, 170), title, font=fnt(B, fs), fill=(25, 25, 35)); d.line([(50, 260), (855, 260)], fill=(220, 220, 225), width=3)
     bf = fnt(R, 52); yy = 300
     for bl in bullets[:n_shown]:
-        out = wrap(d, bl, bf, 740); d.ellipse([55, yy + 24, 75, yy + 44], fill=(66, 110, 230))
-        for i, ln in enumerate(out): d.text((100, yy + i * 64), ln, font=bf, fill=(30, 30, 40))
+        alert = bl.startswith("!")  # "!" na začátku = zvýrazněný (červený) řádek
+        btxt = bl[1:] if alert else bl; f2 = fnt(B, 54) if alert else bf
+        out = wrap(d, btxt, f2, 740)
+        if alert: d.rounded_rectangle([40, yy - 6, 870, yy + 64 * len(out) + 10], 14, fill=(255, 225, 225), outline=(220, 40, 40), width=5)
+        d.ellipse([55, yy + 24, 75, yy + 44], fill=(220, 40, 40) if alert else (66, 110, 230))
+        for i, ln in enumerate(out): d.text((100, yy + i * 64), ln, font=f2, fill=(190, 20, 30) if alert else (30, 30, 40))
         yy += 64 * len(out) + 30
     return D
 def note_img(text):

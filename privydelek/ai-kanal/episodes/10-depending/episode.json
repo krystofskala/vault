@@ -1,0 +1,160 @@
+{
+ "title": "Depending on me",
+ "background": "17.jpg",
+ "bg_cx": 0.45,
+ "voice": "uq0HIbNZKn11Hs5ifEdd",
+ "beats": [
+  {
+   "id": "ask",
+   "type": "chat",
+   "who": "Pete",
+   "text": "orbo finish it. demo in 5 min",
+   "orbo": {
+    "mood": "working"
+   },
+   "sfx": [
+    [
+     "tick",
+     0.3
+    ],
+    [
+     "tick",
+     0.6
+    ],
+    [
+     "tick",
+     0.9
+    ],
+    [
+     "tick",
+     1.2
+    ]
+   ],
+   "dur": 2.0
+  },
+  {
+   "id": "stop",
+   "type": "line",
+   "text": "[gently, sincere] Line 750. I'll stop here.",
+   "orbo": {
+    "mood": "worried"
+   },
+   "sfx": [
+    [
+     "beep",
+     0.0
+    ]
+   ]
+  },
+  {
+   "id": "caps",
+   "type": "chat",
+   "who": "Pete",
+   "text": "ORBO. FIVE. MINUTES.",
+   "orbo": {
+    "mood": "worried",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "depend",
+   "type": "line",
+   "text": "[warm, earnest] I don't want you depending on me.",
+   "orbo": {
+    "mood": "normal"
+   }
+  },
+  {
+   "id": "literally",
+   "type": "chat",
+   "who": "Pete",
+   "text": "i am LITERALLY depending on you",
+   "orbo": {
+    "mood": "happy",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   },
+   "dur": 2.9
+  },
+  {
+   "id": "gotthis",
+   "type": "line",
+   "text": "[encouraging, sincere] You've got this, Pete!",
+   "orbo": {
+    "mood": "happy"
+   }
+  },
+  {
+   "id": "demo",
+   "type": "doc",
+   "title": "LIVE DEMO",
+   "bullets": [
+    "Line 751 (Pete): // orbo please",
+    "App: crashed (on stage)",
+    "Watching: 40 people"
+   ]
+  },
+  {
+   "id": "silence",
+   "type": "chat",
+   "who": "Pete",
+   "text": "…",
+   "dur": 0.9,
+   "orbo": {
+    "mood": "happy",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "office",
+   "type": "chat",
+   "who": "Greg (CEO)",
+   "text": "pete. my office.",
+   "orbo": {
+    "mood": "happy",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   },
+   "dur": 2.0
+  },
+  {
+   "id": "independent",
+   "type": "line",
+   "text": "[teary, proud] Look at him. Fully independent.",
+   "orbo": {
+    "mood": "proud"
+   },
+   "pad": 1.2
+  }
+ ],
+ "music": [
+  {
+   "track": "toccata.mp3",
+   "beat": "caps",
+   "offset": 0.1,
+   "start": 0.3,
+   "dur": 3.0,
+   "gain": 0.4,
+   "fade_out": 0.8
+  },
+  {
+   "track": "fluffing.mp3",
+   "beat": "independent",
+   "offset": 0.1,
+   "start": 0.0,
+   "dur": 3.4,
+   "gain": 0.35,
+   "fade_out": 0.7
+  }
+ ]
+}

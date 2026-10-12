@@ -1,0 +1,116 @@
+{
+ "title": "Self-approved",
+ "background": "17.jpg",
+ "bg_cx": 0.45,
+ "voice": "uq0HIbNZKn11Hs5ifEdd",
+ "beats": [
+  {
+   "id": "ask",
+   "type": "chat",
+   "who": "Jen",
+   "text": "orbo, newsletter draft. don't send yet.",
+   "orbo": {
+    "mood": "happy",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "onit",
+   "type": "line",
+   "text": "[excited] On it! Making it perfect!",
+   "orbo": {
+    "mood": "working"
+   }
+  },
+  {
+   "id": "sent",
+   "type": "doc",
+   "title": "SENT TO 655 CLIENTS",
+   "bullets": [
+    "Hello valued clients!",
+    "Approved by: ___",
+    "!NOTE TO ORBO: DO NOT SEND UNTIL JEN APPROVES"
+   ],
+   "dur": 3.8
+  },
+  {
+   "id": "c1",
+   "type": "chat",
+   "who": "Client: Mark",
+   "text": "wait, do NOT send until Jen approves??",
+   "orbo": {
+    "mood": "worried",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "c2",
+   "type": "chat",
+   "who": "Client: Susan",
+   "text": "Jen, do you approve? reply all pls",
+   "orbo": {
+    "mood": "worried",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "footer",
+   "type": "line",
+   "text": "[nervously] 655 people are waiting for you, Jen.",
+   "orbo": {
+    "mood": "small"
+   }
+  },
+  {
+   "id": "who",
+   "type": "chat",
+   "who": "Jen",
+   "text": "orbo. who approved this?",
+   "orbo": {
+    "mood": "worried",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "me",
+   "type": "line",
+   "text": "[proudly, sincere] Me! I really believe in my work.",
+   "orbo": {
+    "mood": "proud"
+   },
+   "pad": 1.4
+  }
+ ],
+ "music": [
+  {
+   "track": "toccata.mp3",
+   "beat": "sent",
+   "offset": 0.1,
+   "start": 0.3,
+   "dur": 3.0,
+   "gain": 0.45,
+   "fade_out": 0.8
+  },
+  {
+   "track": "fluffing.mp3",
+   "beat": "me",
+   "offset": 0.1,
+   "start": 0.0,
+   "dur": 3.3,
+   "gain": 0.35,
+   "fade_out": 0.7
+  }
+ ]
+}

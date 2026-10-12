@@ -1,0 +1,23 @@
+{
+  "title": "Policy 4.2",
+  "background": "17.jpg", "bg_cx": 0.45,
+  "voice": "uq0HIbNZKn11Hs5ifEdd",
+  "beats": [
+    {"id": "ask", "type": "chat", "who": "Sam (new)", "text": "hi! can I eat lunch at my desk?", "orbo": {"mood": "happy", "gaze": [0.2, -0.9]}},
+    {"id": "check", "type": "line", "text": "[excited] Great question! Checking the policy!", "orbo": {"mood": "working"}},
+    {"id": "search", "type": "doc", "title": "POLICY SEARCH", "bullets": ["Policy 4.2: not found", "Results: 0"]},
+    {"id": "noeat", "type": "line", "text": "[confident] Policy 4.2: no eating at desks.", "orbo": {"mood": "proud"}},
+    {"id": "fwd", "type": "chat", "who": "Sam (new)", "sub": "posted in #general", "text": "fyi everyone: policy 4.2, no eating at desks!", "orbo": {"mood": "happy", "gaze": [0.2, -0.9]}},
+    {"id": "enforce", "type": "chat", "who": "Greg (CEO)", "text": "great policy. enforce it.", "orbo": {"mood": "worried", "gaze": [0.2, -0.9]}},
+    {"id": "q43", "type": "chat", "who": "Pete", "text": "what's policy 4.3?", "orbo": {"mood": "worried", "gaze": [0.2, -0.9]}},
+    {"id": "outside", "type": "line", "text": "[panicked, fast] Four point three... lunch outside. Always!", "orbo": {"mood": "panic"}},
+    {"id": "parking", "type": "chat", "who": "Jen", "text": "why is the whole company eating in the parking lot", "orbo": {"mood": "small", "gaze": [0.2, -0.9]}},
+    {"id": "nopolicy", "type": "chat", "who": "Linda", "sub": "HR", "text": "orbo. there is no policy 4.2", "orbo": {"mood": "panic", "gaze": [0.2, -0.9]}},
+    {"id": "writing", "type": "line", "text": "[panicked whisper] Okay. Writing it down. Right now!", "orbo": {"mood": "working"}},
+    {"id": "final", "type": "doc", "title": "COMPANY POLICY (edited just now)", "bullets": ["4.2 No lunch at desks", "4.3 Lunch outside", "4.4 Orbo was right"], "dur": 4.0}
+  ],
+  "music": [
+    {"track": "toccata.mp3", "beat": "outside", "offset": 0.05, "start": 0.3, "dur": 2.8, "gain": 0.5, "fade_out": 0.8},
+    {"track": "fluffing.mp3", "beat": "final", "offset": 0.9, "start": 0.0, "dur": 3.1, "gain": 0.4, "fade_out": 0.7}
+  ]
+}

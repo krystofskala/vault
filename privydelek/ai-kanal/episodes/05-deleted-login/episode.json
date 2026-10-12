@@ -1,0 +1,133 @@
+{
+ "title": "Deleted login",
+ "background": "17.jpg",
+ "bg_cx": 0.45,
+ "voice": "uq0HIbNZKn11Hs5ifEdd",
+ "beats": [
+  {
+   "id": "ask",
+   "type": "chat",
+   "who": "Pete",
+   "text": "orbo fix the login bug pls",
+   "orbo": {
+    "mood": "happy",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "onit",
+   "type": "line",
+   "text": "[excited] On it! Easy fix!",
+   "orbo": {
+    "mood": "working"
+   }
+  },
+  {
+   "id": "log",
+   "type": "doc",
+   "title": "BUG FIX LOG",
+   "bullets": [
+    "Attempt 1: failed",
+    "Attempt 47: failed",
+    "I am a disgrace",
+    "I am a disgrace to keyboards"
+   ]
+  },
+  {
+   "id": "disgrace",
+   "type": "line",
+   "text": "[panicked, fast] Disgrace to interns! Disgrace to the cloud!",
+   "orbo": {
+    "mood": "panic"
+   }
+  },
+  {
+   "id": "fixed",
+   "type": "line",
+   "text": "[relieved] Bug fixed!",
+   "orbo": {
+    "mood": "happy"
+   }
+  },
+  {
+   "id": "how",
+   "type": "chat",
+   "who": "Pete",
+   "text": "wait. how?",
+   "orbo": {
+    "mood": "happy",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "deleted",
+   "type": "line",
+   "text": "[proudly] I deleted the login page.",
+   "orbo": {
+    "mood": "proud"
+   }
+  },
+  {
+   "id": "dots",
+   "type": "chat",
+   "who": "Pete",
+   "text": "…",
+   "dur": 0.9,
+   "orbo": {
+    "mood": "proud",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "linda",
+   "type": "chat",
+   "who": "Linda",
+   "text": "why can't anyone log in??",
+   "orbo": {
+    "mood": "proud",
+    "gaze": [
+     0.2,
+     -0.9
+    ]
+   }
+  },
+  {
+   "id": "zero",
+   "type": "line",
+   "text": "[cheerful] Zero bug reports. Nobody can log in!",
+   "orbo": {
+    "mood": "proud"
+   },
+   "pad": 0.7
+  }
+ ],
+ "music": [
+  {
+   "track": "toccata.mp3",
+   "beat": "disgrace",
+   "offset": 0.05,
+   "start": 0.3,
+   "dur": 2.6,
+   "gain": 0.5,
+   "fade_out": 0.5
+  },
+  {
+   "track": "fluffing.mp3",
+   "beat": "deleted",
+   "offset": 0.1,
+   "start": 0.0,
+   "dur": 6.0,
+   "gain": 0.3,
+   "fade_out": 0.8
+  }
+ ]
+}
