@@ -1,4 +1,26 @@
-# Orbo, AI stážista: bible a první scénáře (12. 10. 2026)
+# Orbo, AI stážista: bible a scénáře (12. 10. 2026)
+
+> **Směr (schváleno 12. 10.):** svět **z pohledu AI**. Orbo je zaměstnanec s city a přáními (chce, aby ho měli rádi, a bojí se o místo) a k tomu žije realitu AI (ztráta paměti, nástupce „Orbo 2“, měření tokeny…). Vtip vzniká z rozporu mezi jeho firemním nadšením a touto realitou. **Nekopírovat témata Alberty Tech** (ta hraje lidi kolem AI: CEO, vývojáře). Málo slov, víc obrazu, emoční zlom, ideálně smyčka.
+> Starší scénáře níže (bábovka, let, chat ping-pong, tokeny, junioři) uživatel **zamítl**: buď sitcomová roztomilost, nebo kopie Alberty Tech.
+
+## ✅ Orbo #1: „Day 47“ (27 s, smyčka), schváleno jako „golden“
+| Čas | Obraz | Zvuk / hlas |
+|---|---|---|
+| 0,0 | Orbo vletí do záběru, zářící, jmenovka „HELLO my name is ORBO“ | ORBO: „Good morning! I'm Orbo. Your new AI intern!“ |
+| 2,2 | zeď: vybledlý transparent WELCOME ORBO!, 3 splasklé balónky, kalendář DAY 47 | ticho, „pfft“ balónku |
+| 3,5 | chat | JEN: *we know.* |
+| 4,5 | Orbo se rozzáří | „You know me? On my first day?“ … „I must be incredible.“ |
+| 7,5 | otočí se, záda polepená lístečky; detail: „YOU ARE NOT NEW. — you, yesterday“ | pípnutí zoomu |
+| 10,0 | — | „Helpful!“ |
+| 11,5 | „STOP SAYING ‚FIRST DAY‘.“ | „Noted.“ |
+| 13,5 | „JEN SAYS ‚WE KNOW‘ A LOT.“ | chat: JEN: *we know.* |
+| 16,5 | „THE PRINTER IS NOT A PERSON. STOP APOLOGIZING TO IT.“, otočí se k tiskárně | šeptem: „…sorry.“ |
+| 19,5 | malý zmačkaný lísteček: „you'll forget this too.“ | ticho |
+| 21,0 | Orbo pohasne a splaskne, 1,2 s ticha | tiché bzučení kanceláře |
+| 22,5 | promění se v tužku, napíše a nalepí „TODAY WAS NICE.“ | škrábání tužky |
+| 25,0 | kalendář DAY 48, Orbo vletí | „Good morning! I'm Orbo—“ |
+| 26,3 | chat, střih na černou | JEN: *we know.* |
+
 
 Sestaveno ze tří rešerší: řemeslo Alberty Tech, aktuální AI a pracovní témata, komediální bible.
 Kanál: anglicky. Výroba: procedurálně a lokálně (Orbo + displeje chatu), hlas ElevenLabs.
