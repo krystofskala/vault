@@ -86,7 +86,21 @@ dTest navíc zjistil, že americké služby (Optery, DeleteMe) odstranily v prů
 
 ---
 
-## 3. Plán na 4 týdny (směr A+C, k tomu E na 1–2 večery týdně)
+## 3. Plán na 4 týdny
+
+> **Aktualizace 12. 10.:** GDPR projekt začíná od nuly, nic hotového k němu není. Pořadí se proto obrací:
+> - **E (weby a automatizace) je první**, protože jen ten může přinést peníze během týdnů.
+> - **GDPR běží na pozadí** jako vlastní kampaň (pár hodin týdně). Lhůta na odpověď je stejně měsíc, takže se čeká tak jako tak, a mezitím vzniká materiál na produkt i obsah.
+>
+> Body níže platí dál, jen u GDPR s menší intenzitou.
+>
+> **Startovní kapitál:**
+> - pod 2 000 Kč: ohlášení živnosti asi 1 000 Kč, doména asi 300 Kč/rok;
+> - hosting na GitHub Pages je zdarma;
+> - platební brána (Lemon Squeezy, Gumroad) si bere procento z prodeje, nic se neplatí předem;
+> - Claude už platím.
+>
+> Později případně konzultace s advokátem kvůli GDPR fázi b. Zálohy na pojištění pro vedlejší OSVČ si ověřit (při zaměstnání se zdravotní minimum neplatí, sociální až nad zákonnou hranici ročního zisku).
 
 ### Týden 1: základy a vlastní kampaň
 - [ ] **Stáhnout datové exporty** z Facebooku, Instagramu a Googlu (Takeout). Trvá to dny, proto hned. → `gdpr/exporty/`
