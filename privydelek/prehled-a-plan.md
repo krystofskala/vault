@@ -136,6 +136,12 @@ dTest navíc zjistil, že americké služby (Optery, DeleteMe) odstranily v prů
 
 ---
 
+## Hodnoty vs. peníze (12. 10.)
+- **GDPR jako open source zdarma**: šablony, seznam firem a návod veřejně na GitHubu, pro všechny.
+- Peníze z GDPR jen dobrovolně: donate (GitHub Sponsors, Buy Me a Coffee), YouTube, granty a spolupráce s neziskovkami, volitelný „hlídač lhůt“ pro pohodlné. Bez paywallu.
+- **Hlavní příjem jsou weby a automatizace pro firmy.** Firma platí za práci, kterou by jinak platila Wixu. Je to férový obchod, ne vykořisťování.
+- Hodnoty i tady: spolkům a neziskovkám sleva, případně jeden web za čtvrtletí zdarma.
+
 ## Značky (rozhodnuto 12. 10.)
 - Jeden byznys: jedna živnost a jedno IČO.
 - **krystofskala.com** = weby a automatizace, osobní značka.
