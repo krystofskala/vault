@@ -27,3 +27,9 @@
 - Nástroje na obraz, video a hlas: rešerše cen a kvality na začátku 1. bloku.
 - Rozpočet na generování (měsíčně).
 - Účty na platformách a jejich API pro automatické publikování.
+
+## Spojení s učením AI (nápad 12. 10.)
+- Bez vlastní tváře a jména: kanál pod značkou, ne pod jménem Kryštof Skala.
+- **Průvodcem je postava.** AI postava (nebo maskot ve stylu Shimeji) komentuje a ukazuje mé skutečné projekty: Opentify, homelab, pluginy, weby. Já dodávám obsah, postava ho prezentuje.
+- Formáty bez tváře: nahrávka obrazovky + hlas postavy, psaný návod nebo newsletter, šablony a starter kity (CLAUDE.md, skills), e-book.
+- Pozor: návody musí ukazovat reálnou práci a vlastní hodnotu, ne šablonovitou AI vatu.
