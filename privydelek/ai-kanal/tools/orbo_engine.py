@@ -43,7 +43,7 @@ ease = lambda x: 0.5 - 0.5 * math.cos(math.pi * min(1, max(0, x)))
 def back_out(x):
     x = min(1, max(0, x)); c = 1.7; return 1 + (c + 1) * (x - 1) ** 3 + c * (x - 1) ** 2
 READ_CPS, READ_PAD = 15.0, 0.5
-need_read = lambda txt: len(txt) / READ_CPS + READ_PAD
+need_read = lambda txt: len(txt.replace("*", "")) / READ_CPS + READ_PAD
 BRANDS = ["apple", "iphone", "google", "gemini", "chatgpt", "openai", "microsoft", "copilot", "slack", "teams", "zoom", "hp ", "amazon", "meta"]
 
 # ---------------------------------------------------------------- TTS (s cache)
@@ -92,7 +92,7 @@ def chat_spans():
 for _ in range(3):  # prodloužit chat, pokud text nestihne být vidět dost dlouho
     for i, idx in chat_spans().items():
         vis = sum(beats[k]["d"] for k in idx); req = need_read(beats[i]["text"])
-        if vis < req and "dur" not in beats[i]: beats[i]["d"] = round(beats[i]["d"] + (req - vis), 3)
+        if vis < req and "dur" not in beats[i] and not beats[i].get("reshow"): beats[i]["d"] = round(beats[i]["d"] + (req - vis), 3)
 t = 0.0
 for b in beats: b["t0"] = t; t += b["d"]
 TOTAL = t; BYID = {b["id"]: b for b in beats}; SPANS = chat_spans()
@@ -151,13 +151,13 @@ def crop916(path, cx=0.5):
     if tw <= w: x = int((w - tw) * cx); im = im.crop((x, 0, x + tw, h))
     return im.resize((W, H), Image.LANCZOS)
 BGS = {}
-def bg(name, cx):
-    if (name, cx) not in BGS:
+def bg(name, cx, blur=4):
+    if (name, cx, blur) not in BGS:
         base = crop916(STOCK / name, cx)
-        BGS[(name, cx)] = (ImageEnhance.Brightness(base.filter(ImageFilter.GaussianBlur(4))).enhance(0.85),
-                           ImageEnhance.Brightness(base.filter(ImageFilter.GaussianBlur(12))).enhance(0.45))
-    return BGS[(name, cx)]
-AVATARS = {}
+        BGS[(name, cx, blur)] = (ImageEnhance.Brightness(base.filter(ImageFilter.GaussianBlur(blur))).enhance(0.85 if blur >= 3 else 1.0),
+                                 ImageEnhance.Brightness(base.filter(ImageFilter.GaussianBlur(12))).enhance(0.45))
+    return BGS[(name, cx, blur)]
+AVATARS = {"Jen": (120, 90, 200), "Greg (CEO)": (220, 120, 40), "Pete": (40, 150, 120), "Linda": (200, 60, 110), "Mark": (60, 120, 210)}  # pevné barvy postav napříč epizodami
 PALETTE = [(120, 90, 200), (220, 120, 40), (40, 150, 120), (200, 60, 110), (60, 120, 210)]
 def wrap(d, text, font, maxw):
     lines, cur = [], ""
@@ -167,7 +167,11 @@ def wrap(d, text, font, maxw):
     lines.append(cur); return lines
 def chat_card(who, text, sub=""):
     if who not in AVATARS: AVATARS[who] = PALETTE[len(AVATARS) % len(PALETTE)]
-    fn = fnt(R, 54); d0 = ImageDraw.Draw(Image.new("RGB", (1, 1))); lines = wrap(d0, text, fn, 680)
+    fn = fnt(R, 54); d0 = ImageDraw.Draw(Image.new("RGB", (1, 1))); lines = wrap(d0, text.replace("*", ""), fn, 680)
+    if "*" in text:  # zachovat značky zvýraznění po zalomení
+        toks = text.split(); k = 0; lines2 = []
+        for ln in lines: n = len(ln.split()); lines2.append(" ".join(toks[k:k + n])); k += n
+        lines = lines2
     h = 120 + 66 * len(lines) + (40 if sub else 0)
     c = Image.new("RGBA", (920, h + 12), (0, 0, 0, 0)); d = ImageDraw.Draw(c)
     d.rounded_rectangle([6, 10, 920, h + 10], 34, fill=(0, 0, 0, 60)); d.rounded_rectangle([0, 0, 910, h], 34, fill=(255, 255, 255, 246))
@@ -175,7 +179,13 @@ def chat_card(who, text, sub=""):
     d.text((78 - d.textlength(ini, font=fnt(B, 56)) / 2, 40), ini, font=fnt(B, 56), fill="white")
     d.text((160, 24), who, font=fnt(B, 40), fill=(40, 40, 50)); yy = 78
     if sub: d.text((160, 76), sub, font=fnt(R, 30), fill=(120, 120, 130)); yy += 40
-    for i, ln in enumerate(lines): d.text((160, yy + i * 66), ln.replace(" ✓", "").replace("✓", ""), font=fn, fill=(20, 20, 30))
+    for i, ln in enumerate(lines):
+        xx = 160
+        for wd in ln.replace(" ✓", "").replace("✓", "").split(" "):
+            hl = wd.startswith("*") and wd.rstrip(".,!?").endswith("*"); w2 = wd.replace("*", "")
+            ww = d.textlength(w2, font=fn)
+            if hl: d.rounded_rectangle([xx - 6, yy + i * 66 + 4, xx + ww + 6, yy + i * 66 + 64], 10, fill=(255, 214, 60))
+            d.text((xx, yy + i * 66), w2, font=fn, fill=(20, 20, 30)); xx += ww + d.textlength(" ", font=fn)
     if text.rstrip().endswith("✓"):  # zelená fajfka (emoji fonty v PIL nefungují spolehlivě)
         last = lines[-1].replace(" ✓", "").replace("✓", ""); lx = 160 + d.textlength(last + " ", font=fn); ly = yy + (len(lines) - 1) * 66 + 6
         d.rounded_rectangle([lx, ly, lx + 52, ly + 52], 10, fill=(40, 170, 80)); d.line([(lx + 12, ly + 27), (lx + 23, ly + 39), (lx + 41, ly + 14)], fill="white", width=7)
@@ -230,7 +240,7 @@ def frame(fi):
     tg = fi / FPS
     bi = next((i for i, b in enumerate(beats) if b["t0"] <= tg < b["t0"] + b["d"]), len(beats) - 1)
     b = beats[bi]; lt = tg - b["t0"]; a = float(amp[min(fi, nfr - 1)])
-    bgn = b.get("bg", SPEC.get("background", "17.jpg")); light, dark = bg(bgn, b.get("bg_cx", SPEC.get("bg_cx", 0.5)))
+    bgn = b.get("bg", SPEC.get("background", "17.jpg")); light, dark = bg(bgn, b.get("bg_cx", SPEC.get("bg_cx", 0.5)), b.get("bg_blur", 4))
     ob = dict(b.get("orbo", {})); mood = ob.pop("mood", "normal")
     pr = dict(t=tg, amp=a, blink=1.0 if (tg % 3.3) < 0.09 else 0.0); pr.update(MOODS.get(mood, {}))
     if "gaze" in ob: pr["gaze"] = tuple(ob["gaze"])
@@ -244,7 +254,7 @@ def frame(fi):
         img.alpha_composite(dc, (int(W / 2 - dc.width / 2), 300 if b["type"] == "doc" else int(H / 2 - dc.height / 2 - 60)))
         place_orbo(img, 860, 1560, 0.42, **{**pr, **MOODS["happy"]})
     else:
-        img = light.copy().convert("RGBA"); x, yy, sc = W / 2, 1060, ob.get("scale", 1.0); red = 0.0
+        img = light.copy().convert("RGBA"); x, yy, sc = ob.get("x", W / 2), ob.get("y", 1060), ob.get("scale", 1.0); red = 0.0
         if mood == "happy": pr["eye_shape"] = "happy" if a > 0.25 or b["type"] != "line" else "normal"
         if mood == "panic":
             k = min(1, lt / 0.25); red = k * (0.6 + 0.4 * math.sin(lt * 25)); pr["sx"] = 1 + 0.04 * math.sin(lt * 55); x += 12 * math.sin(lt * 60)
@@ -254,7 +264,7 @@ def frame(fi):
         if mood == "dim": pr.update(dim=ease(lt / b["d"]), glow=1 - 0.25 * ease(lt / b["d"]))
         if ob.get("enter"):  # vlétnutí zprava
             x += (1 - back_out(lt / 0.45)) * 700
-        place_orbo(img, x, yy + 14 * math.sin(tg * 2.1), sc, red=red, **pr)
+        if not ob.get("hidden"): place_orbo(img, x, yy + 14 * math.sin(tg * 2.1), sc, red=red, **pr)
         if bi in CHAT_AT:
             ci = CHAT_AT[bi]; cb = beats[ci]; card = chat_card(cb["who"], cb["text"], cb.get("sub", ""))
             if ci == bi:
@@ -272,7 +282,7 @@ def qc(loud=None):
     rows, warn = [], []
     for i, b in enumerate(beats):
         if b["type"] == "chat":
-            vis = sum(beats[k]["d"] for k in SPANS[i]); req = need_read(b["text"]); ok = vis + 1e-3 >= req or len(b["text"]) <= 2
+            vis = sum(beats[k]["d"] for k in SPANS[i]); req = need_read(b["text"]); ok = vis + 1e-3 >= req or len(b["text"]) <= 2 or b.get("reshow")  # reshow = divák text už četl
             rows.append(f"| chat {b['id']} | {b['text'][:40]} | {vis:.1f} s | {req:.1f} s | {'OK' if ok else 'KRÁTKÉ'} |")
             if not ok: warn.append(f"chat {b['id']} je vidět jen {vis:.1f} s, potřeba {req:.1f} s")
         if b["type"] in ("doc", "note"):

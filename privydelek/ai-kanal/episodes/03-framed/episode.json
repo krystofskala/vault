@@ -1,0 +1,23 @@
+{
+  "title": "Framed (lol)",
+  "background": "17.jpg", "bg_cx": 0.45,
+  "voice": "uq0HIbNZKn11Hs5ifEdd",
+  "beats": [
+    {"id": "ask", "type": "chat", "who": "Greg (CEO)", "text": "Q3 is amazing. lol we should print this and frame it", "orbo": {"mood": "happy", "gaze": [0.2, -0.9]}},
+    {"id": "onit", "type": "line", "text": "[excited] CEO request! Print AND frame. On it!", "orbo": {"mood": "working"}},
+    {"id": "order", "type": "doc", "title": "ORDER CONFIRMED", "bullets": ["Q3 spreadsheet: all 4,812 rows", "Size: 3 × 31 meters", "Frame: solid gold. Total: $1.4M"]},
+    {"id": "crane", "type": "chat", "who": "Jen", "text": "why is there a crane outside", "bg": "framed/crane_window.jpg", "bg_blur": 0, "orbo": {"hidden": true}},
+    {"id": "reveal", "type": "line", "text": "[proudly] Every cell readable from the parking lot!", "bg": "framed/frame_wall.jpg", "bg_blur": 1, "orbo": {"mood": "proud", "x": 860, "y": 1560, "scale": 0.55}, "sfx": [["ding", 0.0]]},
+    {"id": "joke", "type": "chat", "who": "Greg (CEO)", "text": "orbo. it was a joke.", "orbo": {"mood": "worried", "gaze": [0.2, -0.9]}},
+    {"id": "panic", "type": "line", "text": "[panicking] A joke?! ...Which part?!", "orbo": {"mood": "panic"}},
+    {"id": "lol", "type": "chat", "who": "Jen", "text": "the lol, orbo. lol means not real.", "orbo": {"mood": "worried", "gaze": [0.2, -0.9]}},
+    {"id": "recall", "type": "chat", "who": "Greg (CEO)", "sub": "earlier", "reshow": true, "text": "Q3 is amazing. *lol* we should print this and frame it", "dur": 0.9, "orbo": {"mood": "normal", "gaze": [0.2, -0.9]}, "sfx_default": false, "sfx": [["tick", 0.1]]},
+    {"id": "rule", "type": "line", "text": "[relieved] Rule saved: lol means ignore it.", "orbo": {"mood": "happy"}},
+    {"id": "return", "type": "chat", "who": "Greg (CEO)", "text": "lol ok. please return it.", "orbo": {"gaze": [0.2, -0.9]}},
+    {"id": "frameit", "type": "line", "text": "[giggling] Ha! Classic Greg. [proudly] Should I frame that one too?", "bg": "framed/frame_wall.jpg", "bg_blur": 1, "orbo": {"mood": "proud", "x": 860, "y": 1560, "scale": 0.6}, "pad": 0.6}
+  ],
+  "music": [
+    {"track": "toccata.mp3", "beat": "panic", "offset": 0.1, "start": 0.3, "dur": 2.8, "gain": 0.5, "fade_out": 0.8},
+    {"track": "fluffing.mp3", "beat": "frameit", "offset": 0.2, "start": 0.0, "dur": 3.4, "gain": 0.35, "fade_out": 0.7}
+  ]
+}

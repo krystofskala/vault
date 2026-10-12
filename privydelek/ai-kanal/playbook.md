@@ -33,6 +33,11 @@ Pravidla vzniklá z výroby a zpětné vazby uživatele. Číst před KAŽDOU ep
 - Hudba **jen na pointách** (panika, smutek, dojetí, pointa), 1,5–3 s. Zdroje: volné dílo (Wikimedia Commons), Kevin MacLeod CC BY (uvést v popisu). Žádné chráněné trendy písně ve videu – trendující zvuk jen v aplikaci IG/TikTok.
 - Hlasitost −14 LUFS (±1).
 
+## 5b. Motor (orbo_engine.py)
+- Barvy postav jsou pevné (Jen fialová, Greg oranžový, Pete zelený, Linda růžová, Mark modrý).
+- Chat: `*slovo*` = zvýraznění, `reshow: true` = opakovaná zpráva (nepočítá se do pravidla čtení).
+- Beat: `bg`, `bg_blur`, Orbo `x/y/scale/hidden`. Vlastní pozadí scény generovat skriptem `episodes/NN/make_assets.py`.
+
 ## 6. Kontrola před odesláním (vždy)
 - Celé video po 1 s + kritická místa po 0,1–0,2 s: chyby postavy, objekty navíc, useknuté texty, prázdné čtverečky místo emoji, loga.
 - Automatický report: doba čtení textů, hluchá místa, délka, hlasitost.
@@ -47,3 +52,4 @@ Pravidla vzniklá z výroby a zpětné vazby uživatele. Číst před KAŽDOU ep
 | 13. 10. | „Day 47“ nesmyslný, schválený bez čtení | premisy česky + scénář s překladem |
 | 13. 10. | AI má být opravdu hloupá podle reálu | sekce 1 |
 | 13. 10. | tempo: úvodní prompt nešel přečíst | sekce 3: vzorec času čtení |
+| 13. 10. | „Framed“ schváleno napoprvé (dobré) | postup napady → scénář + 3 agenti → engine funguje; každý nesmysl musí mít doslovný původ v zadání; pointa = špatně naučené pravidlo obrácené proti zadavateli; uživatel u pointy volí variantu s callbackem/smyčkou |
