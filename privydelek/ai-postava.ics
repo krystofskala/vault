@@ -1,0 +1,19 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//krystofskala//privydelek//CS
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+UID:ai-postava-blok-20261027@krystofskala.com
+DTSTAMP:20261012T120000Z
+DTSTART;TZID=Europe/Prague:20261027T190000
+DTEND;TZID=Europe/Prague:20261027T210000
+RRULE:FREQ=WEEKLY;BYDAY=TU,TH
+SUMMARY:AI postava – kreativní blok
+DESCRIPTION:Sypat nápady do Claude Code a stavět pipeline. Plán: privydelek/ai-postava.md ve vaultu (větev claude/privydelek-plan).
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:AI postava za 15 minut
+END:VALARM
+END:VEVENT
+END:VCALENDAR
