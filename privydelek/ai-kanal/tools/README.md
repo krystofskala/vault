@@ -1,6 +1,6 @@
 # Nástroje pro výrobu AI shorts
 
-Skripty, ze kterých vznikly Drákula ep. 1–2 a Orbo „Day 47“ a „Meeting Notes“. API klíče nejsou v gitu. Čtou se ze souboru `drakula/.env` vedle složky s nástroji (FAL_KEY, ELEVENLABS_API_KEY, PIXABAY_API_KEY).
+Skripty, ze kterých vznikly Drákula ep. 1–2 a Orbo „Day 47“ a „Meeting Notes“. Pracovní kopie je v `C:\Users\Admin\ai-kanal` (tools, assets, episodes, venv, `.env` s klíči FAL_KEY, ELEVENLABS_API_KEY, PIXABAY_API_KEY). Tady je záloha bez klíčů a médií.
 
 | Soubor | K čemu |
 |---|---|
@@ -8,6 +8,7 @@ Skripty, ze kterých vznikly Drákula ep. 1–2 a Orbo „Day 47“ a „Meeting
 | `el.py` | ElevenLabs: seznam modelů, Voice Design, TTS (`tts <voice> <model> <text> <out> [speed]`) |
 | `stock.py` | cílené stahování stock fotek z Pixabay podle scén (+ náhled k výběru) |
 | `orbo_char.py` | procedurální render Orba (emoce, natočení, jmenovka, lístečky, tužka) |
+| **`orbo_engine.py`** | **obecný motor: epizoda = `episode.json` → hlas, časování podle čtení, render, QC report** (vzor: `../episodes/02-meeting-notes/episode.json`) |
 | `orbo_ep02.py` | „Meeting Notes“: zatím nejlepší šablona epizody (chat, dokument, Orbo, titulky, SFX, hudba) |
 | `orbo_ep01.py` | „Day 47“ (zamítnutý scénář, výroba použitelná: lístečky, kalendář, tiskárna) |
 | `edit_ep01.py`, `ep02b.py`, `animatic_audio.py` | střih Drákuly (animatik, punch-iny, víko rakve, CAPTCHA obrazovky) |
@@ -15,3 +16,5 @@ Skripty, ze kterých vznikly Drákula ep. 1–2 a Orbo „Day 47“ a „Meeting
 
 Python: numpy, pillow, imageio-ffmpeg (venv).
 Pravidla výroby: `../playbook.md`.
+
+Příkazy v Claude Code (`~/.claude/skills`, kopie v `../skills/`): `/orbo-napady` → `/orbo-scenar` → `/orbo-video`.
