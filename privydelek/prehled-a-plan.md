@@ -78,7 +78,9 @@ Stav k 12. 10. 2026. Zdroj: 30 sessions v Claude Code (srpen až říjen 2026), 
 
 **Proč A+C:** konkurence je hlavně americká. Incogni pokrývá EU, ale české firmy a češtinu ne. Českou spotřebitelskou službu jsem v prvním hledání nenašel, ověřuje se to v `gdpr/overeni-konkurence-a-pravo.md`. DIY balíček je čistý digitální produkt bez právních rizik plné moci. Obsah vzniká z kampaně, kterou dělám tak jako tak. A soukromí je téma, které mě reálně baví, což je u mě podmínka dotažení.
 
-**Proč E bokem:** mám hotovou referenci. Spousta malých firem platí Wix nebo Webnode několik tisíc ročně za pomalý web, takže nabídka „rychlejší web, lepší SEO, zrušíte předplatné“ se prodává sama. Je to práce za peníze, ne pasivní příjem, ale rychle zaplatí čas na A.
+dTest navíc zjistil, že americké služby (Optery, DeleteMe) odstranily v průměru jen 35 % údajů. To je dobrý argument i dobré téma na video.
+
+**Proč E bokem:** mám hotovou referenci. Na trhu stojí jednoduchý web od freelancera 5–20 tis. Kč, automatizace v n8n nebo Make 10–30 tis. Kč a běžná sazba je 600–1 800 Kč/h. Spousta malých firem platí Wix nebo Webnode několik tisíc ročně za pomalý web, takže nabídka „rychlejší web, lepší SEO, zrušíte předplatné“ se prodává sama. Je to práce za peníze, ne pasivní příjem, ale rychle zaplatí čas na A.
 
 **Kontrola před startem:** podívat se do pracovní smlouvy a vnitřních předpisů (§ 304 zákoníku práce zakazuje výdělečnou činnost v oboru zaměstnavatele bez souhlasu). Výmaz dat ani weby s game devem nesouvisí. U hry s Petrem by to problém být mohl.
 
@@ -108,7 +110,10 @@ Stav k 12. 10. 2026. Zdroj: 30 sessions v Claude Code (srpen až říjen 2026), 
 ### Týden 4: první odpovědi a rozhodnutí
 - [ ] Odpovědi z vlastní kampaně → video 2: „Co o mně věděly“ (a kdo ignoroval lhůtu).
 - [ ] Vyhodnotit: kolik lidí je na čekací listině, kolik prodejů a za jakou cenu.
-- [ ] Rozhodnout o fázi b (služba na plnou moc). Před ní konzultace s advokátem: je to právní služba?, role správce vs. zpracovatele, ověřování totožnosti, zabezpečení dat klientů.
+- [ ] Rozhodnout o fázi b. **Pozor:** soustavné zastupování za úplatu na plnou moc může být „právní služba“ podle zákona o advokacii (přestupek, pokuta až 3 mil. Kč). ČAK už postihla podobný model u insolvenčních přihlášek. Proto místo plné moci:
+  - **Varianta b1, doporučená:** webový nástroj, kde si klient vybere firmy, vygeneruje žádosti a **odešle je sám ze svého mailu**. Nástroj pak hlídá lhůty a připraví urgence a stížnosti. Neřeší se plná moc ani cizí data u mě, a je to pasivnější.
+  - Varianta b2: služba na plnou moc jen ve spolupráci s advokátem. Nejdřív konzultace.
+- Vzory žádostí jsou volně dostupné (ÚOOÚ, advokátní weby). Prodejní hodnota je **seznam českých firem s ověřenými kontakty a postupy**, návod k exportům, hlídání lhůt a pomoc s eskalací.
 
 ### Na co si dát pozor
 - Žádné AI persony ani „AI radí v právu“. Vlastní tvář nebo hlas a vlastní reálná data, jinak YouTube vypne monetizaci (pravidlo „inauthentic content“).
