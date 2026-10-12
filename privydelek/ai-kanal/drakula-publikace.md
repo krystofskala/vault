@@ -11,12 +11,16 @@ Uložené jsou lokálně v pracovní složce Claude (`scratchpad/upload/`), v gi
 | YouTube | 3. postava | lokální generování přes noc na PC | později |
 | YouTube CZ / ES | Drákula v češtině a španělštině | stejný obraz, nový hlas namluvený do anglického načasování | test později |
 
-## Založení kanálu Drákuly
-- **Název, návrhy** (dostupnost ověřit): *The Count Logs In*, *Day N of Dracula*, *Count in the 21st Century*. Handle např. `@CountLogsIn`.
-- **Avatar:** výřez obličeje z referenčního obrázku (ref_3).
+## Kanál (založen 12. 10. 2026)
+- **Účet:** samostatný Google účet `draculaunverified@gmail.com` (oddělený od osobního). Další kanály (čuček, 3. postava, CZ/ES) zakládat jako další kanály pod tímto účtem.
+- **Jméno:** **Dracula 404**. YouTube odmítl „Dracula, Unverified“ i „Dracula Unverified“, důvod neuvádí.
+- **Handle:** **@Count404Dracula** („Count to 404, Dracula“, kde *count* = hrabě i počítat).
+  - Pozor: počítání nedělat opakujícím se vtipem a nikdy nepoužít „ah ah ah“. Počítajícího upíra má jako chráněnou postavu Sesame Street (Count von Count). Pro počítání použít jen lidovou pověru o upírovi a rozsypaných zrnkách.
+- **Avatar a banner:** `scratchpad/upload/kanal/` (banner: „Dracula 404 / 404: Reflection not found.“).
 - **Popis kanálu:**
-  > A 500-year-old count wakes up in the 21st century and vlogs every trouble of modern life. New day, new defeat. 🦇
-  > Fictional comedy series. Character, voice and video are made with AI tools. Based on the public-domain novel *Dracula* (1897).
+  > 404: Reflection not found. 🦇 A 595-year-old count vs. the 21st century. The 21st century is winning.
+  > Fictional comedy series. Character, voice and video made with AI tools. Based on the public-domain novel Dracula (1897).
+- **Věk postavy:** 595 let. Narozeniny 8. 11. 1431 (datum přisuzované historickému Vladovi III., přesné datum není doložené). Nápad na epizodu na 8. 11. 2026: „My 595th birthday“ (ověření věku odmítne datum narození).
 
 ## Epizoda 1
 - **Název:** Dracula tries to unlock his first phone 🧛📱
