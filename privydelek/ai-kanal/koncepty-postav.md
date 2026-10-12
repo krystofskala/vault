@@ -102,3 +102,9 @@ Mluví hlavně stěžovatelé (předměty bez úst = hlas mimo obraz). Chroust m
 | Merch a licence | dobrý | velmi dobrý (značka úřadu) | velmi dobrý (jednoduchá ikona) |
 
 **[odhad]** Největší šanci na rychlý dosah má Gustav (nejjednodušší háček). Nejsilnější potenciál pro merch a licence mají Chroust a Klotz. Proto testovat všechny tři a rozhodnout podle dat, ne podle mého pocitu.
+
+---
+
+## Doplněno 12. 10. 2026
+- **4. Čuček „Mull“**: myšlenka ze 3 ráno, procedurální 3D vizuál + text + hlas. Koncept a scénář 1. epizody v `cucek.md`.
+- **5. Drákula vloguje**: postava z volného díla, denní vlog „trable dnešního světa“. Viz `drakula-vlog.md`.

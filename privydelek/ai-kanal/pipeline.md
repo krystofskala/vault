@@ -160,3 +160,15 @@ Předpoklad: 4 videa týdně (~17 měsíčně), 30 s, koeficient opakovaného ge
 - Instagram API: [Changelog](https://developers.facebook.com/documentation/instagram-platform/changelog), [Content publishing](https://developers.secure.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/content-publishing)
 - YouTube API: [Revision history](https://developers.google.com/youtube/v3/revision_history)
 - Claude Code routines: [computingforgeeks](https://computingforgeeks.com/claude-code-routines-setup/), [claudeforoperators](https://claudeforoperators.com/workflows/cloud-routines/)
+
+## Aktualizace testu (12. 10. 2026)
+Statické obrázky s pohybem kamery v háčku nestačí, lidi je přeskočí. Testují se proto tři výrobní přístupy vedle sebe:
+
+| Přístup | Postava | Výroba | Odhad nákladů/měs. |
+|---|---|---|---|
+| 1. Procedurální vizuál + text a hlas | Mull (`cucek.md`) | Blender nebo shader, lokálně | ~6–22 USD (jen hlas) |
+| 2. Celé video z levného cloudového modelu, drahý model jen na háček a pointu | Gustav / Chroust / Klotz | Seedance Mini nebo Kling 720p + Seedance 2.0 | ~90–150 USD |
+| 3. Mluvící postava (lip-sync), denní vlog | Drákula (`drakula-vlog.md`) | Veo 3.1 / Seedance 2.0 s nativním zvukem | ~150–360 USD denně, méně při 3×/týden |
+
+- **Lokální generování na notebooku** (RTX 4060 8 GB, 16 GB RAM): obrázky ano, video jen nenáročné záběry (LTX-Video, Wan 2.2) v nižší kvalitě. Elektřina ~150–200 Kč/měs.
+- **Rozhodnutí podle dat po 3 týdnech:** dokoukanost, sdílení, přírůstek sledujících.
