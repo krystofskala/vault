@@ -1,6 +1,7 @@
 # Oslovování firem: šablony
 
 Zásady:
+- Oblast: celá ČR online. Praha a Středočeský kraj i s osobní schůzkou (ve zprávě nabídnout „klidně se zastavím“).
 - **Vždy osobně.** Jedna konkrétní věc, kterou jsem na jejich webu viděl, ne hromadný mail.
 - Max. 5–6 vět. Žádné „AI“ v prvním mailu, to až při hovoru.
 - Nabídnout něco zdarma a bez závazku: krátký rozbor webu.
@@ -11,11 +12,11 @@ Zásady:
 
 ## Šablona A: web na Wixu nebo Webnode s vlastní doménou
 
-**Předmět:** Váš web {firma} – postřeh od souseda z Říčan
+**Předmět:** Váš web {firma} – krátký postřeh
 
 Dobrý den,
 
-jmenuji se Kryštof Skala a dělám weby pro malé firmy v okolí Říčan. Díval jsem se na váš web {url} a všiml jsem si, že {konkrétní postřeh – např. „se na mobilu načítá přes 5 sekund“ / „na Seznamu ho při hledání ‚{obor} Říčany‘ nenajdu na první stránce“ / „rozvrh je z roku 2024“}.
+jmenuji se Kryštof Skala a dělám weby pro malé firmy. Díval jsem se na váš web {url} a všiml jsem si, že {konkrétní postřeh – např. „se na mobilu načítá přes 5 sekund“ / „na Seznamu ho při hledání ‚{obor} Říčany‘ nenajdu na první stránce“ / „rozvrh je z roku 2024“}.
 
 Nedávno jsem podobně převedl z Wixu web dojo v Říčanech: https://aikidoricany.cz. Teď je rychlejší, je vidět na Googlu i na Seznamu a nemusí platit předplatné.
 
@@ -33,9 +34,9 @@ krystofskala.com · {telefon}
 
 Dobrý den,
 
-při hledání {obor} v Říčanech jsem narazil na váš web {url}. Běží na adrese {wixsite/webnode}, a to zákazníkům i vyhledávačům působí méně důvěryhodně než vlastní doména typu {navrh}.cz.
+při hledání „{obor} {město}“ jsem narazil na váš web {url}. Běží na adrese {wixsite/webnode}, a to zákazníkům i vyhledávačům působí méně důvěryhodně než vlastní doména typu {navrh}.cz.
 
-Pomáhám malým firmám v okolí s rychlými weby bez měsíčního předplatného, třeba https://aikidoricany.cz. Vlastní doména stojí pár set korun ročně a hosting nic.
+Pomáhám malým firmám s rychlými weby bez měsíčního předplatného, třeba https://aikidoricany.cz. Vlastní doména stojí pár set korun ročně a hosting nic.
 
 Mám vám zdarma poslat, jak by to u vás mohlo vypadat?
 
