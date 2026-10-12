@@ -16,7 +16,7 @@ Zásady:
 
 Dobrý den,
 
-jmenuji se Kryštof Skala a dělám weby pro malé firmy. Díval jsem se na váš web {url} a všiml jsem si, že {konkrétní postřeh – např. „se na mobilu načítá přes 5 sekund“ / „na Seznamu ho při hledání ‚{obor} Říčany‘ nenajdu na první stránce“ / „rozvrh je z roku 2024“}.
+jmenuji se Kryštof Skala a dělám weby pro malé firmy. Díval jsem se na váš web {url} a všiml jsem si, že {konkrétní postřeh – např. „se na mobilu načítá přes 5 sekund“ / „na Seznamu ho při hledání ‚{obor} {město}‘ nenajdu na první stránce“ / „rozvrh je z roku 2024“}.
 
 Nedávno jsem podobně převedl z Wixu web dojo v Říčanech: https://aikidoricany.cz. Teď je rychlejší, je vidět na Googlu i na Seznamu a nemusí platit předplatné.
 
