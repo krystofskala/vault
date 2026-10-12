@@ -136,6 +136,11 @@ dTest navíc zjistil, že americké služby (Optery, DeleteMe) odstranily v prů
 
 ---
 
+## Škálovatelný produkt (12. 10., viz produkty-overeni.md)
+- **GDPR jako byznys: zahodit.** Zdarma už existuje datarequests.org (open source, víc jazyků, generátor žádostí a databáze firem) i YourDigitalRights (sleduje odpovědi a eskaluje). Mine na spotřebitelích nevydělal, uživí ho až B2B.
+- GDPR nechat jako misi: přispět do datarequests.org českými firmami a překladem. Pomůže to reputaci a portfoliu.
+- **Kandidát: software pro bojová umění, kroužky a spolky** (rozvrh, docházka, pásky a zkoušky, rodičovské účty, členské příspěvky, QR platby, web s editorem). Pilotní klient je dojo. Konkurence jsou levné obecné systémy (Zenamu, Reenio), takže je potřeba se trefit do úzké mezery.
+
 ## Hodnoty vs. peníze (12. 10.)
 - **GDPR jako open source zdarma**: šablony, seznam firem a návod veřejně na GitHubu, pro všechny.
 - Peníze z GDPR jen dobrovolně: donate (GitHub Sponsors, Buy Me a Coffee), YouTube, granty a spolupráce s neziskovkami, volitelný „hlídač lhůt“ pro pohodlné. Bez paywallu.
