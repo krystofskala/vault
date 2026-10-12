@@ -28,8 +28,6 @@
 - Rozpočet na generování (měsíčně).
 - Účty na platformách a jejich API pro automatické publikování.
 
-## Spojení s učením AI (nápad 12. 10.)
-- Bez vlastní tváře a jména: kanál pod značkou, ne pod jménem Kryštof Skala.
-- **Průvodcem je postava.** AI postava (nebo maskot ve stylu Shimeji) komentuje a ukazuje mé skutečné projekty: Opentify, homelab, pluginy, weby. Já dodávám obsah, postava ho prezentuje.
-- Formáty bez tváře: nahrávka obrazovky + hlas postavy, psaný návod nebo newsletter, šablony a starter kity (CLAUDE.md, skills), e-book.
-- Pozor: návody musí ukazovat reálnou práci a vlastní hodnotu, ne šablonovitou AI vatu.
+## Dva oddělené kanály (rozhodnuto 12. 10.)
+1. **AI postava, zábavný kanál se Shorts.** Reaguje na trendy a má fungovat skoro bez mé pozornosti. Cíl je co nejvíc automatizovat. Riziko: šablonovitý obsah, který jen kopíruje trendy, YouTube nemonetizuje. Postava a její styl proto musí být originální, trend je jen téma. U Shorts je výdělek z reklamy nízký, takže je to spíš experiment.
+2. **Učení AI a kódování bez tváře.** Samostatný kanál pod značkou: záznam obrazovky, skutečné projekty (Opentify bez šedé zóny, homelab, pluginy, weby), šablony a starter kity. Chce víc mé pozornosti a nese víc hodnoty. Kandidát na kurz nebo produkt.
