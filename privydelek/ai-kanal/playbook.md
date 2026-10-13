@@ -55,6 +55,7 @@ Pravidla vzniklá z výroby a zpětné vazby uživatele. Číst před KAŽDOU ep
 | 13. 10. | „Framed“ schváleno napoprvé (dobré) | postup napady → scénář + 3 agenti → engine funguje; každý nesmysl musí mít doslovný původ v zadání; pointa = špatně naučené pravidlo obrácené proti zadavateli; uživatel u pointy volí variantu s callbackem/smyčkou |
 
 | 13. 10. noc | autonomní várka 5 videí, nezávislý schvalovatel místo uživatele | schvalovatel byl přísný: v 1. kole schválil 1/5. Nejčastější vady: (a) prozrazená pointa dřív, (b) sitcomový beat bez funkce („breathe“), (c) umělá konstrukce místo reálné chyby AI (HR cíl) – zamítnuto, (d) úvod > 2 s bez akce, (e) opakující se pointa. Opraveno a schváleno 5/5 (8,0–8,3). |
+| 14. 10. | noční videa 04–08: slabé, předvídatelné pointy a nepropracovaný skript. Mýval je super funny | schvalovatel dával 8/10 bez kalibrace, proto sekce 9: Mýval je měřítko 10/10 a srovnává se proti němu |
 
 ## 8. Lekce z noční várky
 - Reálný příběh musí být jádro, ne kulisa. Kde AI chybu „zařídí“ vymyšlená instituce (HR cíl), skóre padá.
@@ -62,3 +63,11 @@ Pravidla vzniklá z výroby a zpětné vazby uživatele. Číst před KAŽDOU ep
 - Pointa nesmí zaznít dřív (např. „Good thing I'm here“ prozradí „Me!“).
 - Pauza „…“ (0,9 s) od kolegy je levný a funkční beat před pointou.
 - Délka 18–22 s vychází lépe než 26–30 s.
+
+## 9. Laťka = Mýval (proč funguje a noční videa ne)
+- **Vidíme to, o čem AI mluví.** Vlastní obrázky (CCTV pes, mýval, deratizátor honí Grega). Noční videa byla jen chaty na stejné fotce 17.jpg. Každá epizoda potřebuje aspoň 2 vlastní záběry, které ukážou následek.
+- **Orbo má vlastní pevnou logiku, se kterou eskaluje.** „Exactly what a raccoon would want us to think.“ Každá replika je samostatný vtip z jeho přesvědčení, ne jen hlášení stavu.
+- **Pointa je zvrat, který divák nečeká, ale zpětně dává smysl.** Deratizátor, kterého Orbo zavolal kvůli psovi, honí Grega. Starý setup se obrátí proti zadavateli. Pointa, kterou divák uhodne v půlce (smazaný login, smazaná záloha), nestačí.
+- **Poslední replika má dvojí význam** („Biscuit is safe.“), nevysvětluje vtip znovu.
+- **Aspoň 3 smíchy**, ne jeden na konci.
+- **Schvalovatel:** srovnání naslepo s Mývalem. Video musí být „stejně dobré nebo lepší“, jinak se nepouští. Samotné skóre nestačí.
