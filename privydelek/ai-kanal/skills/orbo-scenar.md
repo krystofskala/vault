@@ -11,7 +11,10 @@ description: Napíše scénář epizody Orba z vybrané premisy, nechá ho prov�
    - první smích do ~6 s,
    - Orbovy repliky max ~8 slov,
    - kolegové (Jen, Greg) jen v chatu,
-   - AI se opravdu splete a pointa plyne z následku.
+   - AI se opravdu splete a pointa plyne z následku,
+   - **zápletka:** nevinný začátek → chyba a eskalace → zdánlivé vyřešení → zvrat proti zadavateli → poslední věta s dvojím významem (samotná eskalace = zamítnuto),
+   - **aspoň 3 smíchy** (u každého beatu označ, kde je smích),
+   - aspoň jeden vlastní záběr následku (měřítko je Mýval).
 3. **Než scénář ukážeš uživateli**, pusť paralelně 3 agenty (general-purpose, background). Každý dostane celý scénář a kontext Orba (AI stážista, pohled AI, nadšený a úzkostný, hlas Harry, stock fotky kanceláře, chat):
    - **Punch-up:** zhodnoť každý beat, u 5 nejslabších míst dej po 5 alternativ, navrhni 3 verze konce a výsledný vylepšený scénář. Zachovej premisu, AI musí zůstat opravdu hloupá podle reálného příběhu.
    - **Test na divácích:** 6 různých diváků (16letá s vypnutým zvukem, kancelářský pracovník, manažerka bez AI, cynický programátor, fanoušek roztomilých postav, 60letý nerodilý mluvčí). U každého kde odscrolluje, kde se zasměje, co nepochopí, a 6 doporučení podle dopadu.

@@ -15,7 +15,15 @@ Pravidla vzniklá z výroby a zpětné vazby uživatele. Číst před KAŽDOU ep
 - Háček v **1. sekundě i bez zvuku**; první smích do ~6 s; 18–30 s celkem.
 - Orbovy repliky krátké (max ~8 slov), pointa = nejkratší replika, klíčové slovo na konci.
 - Orbo: nadšený + úzkostný (krátká panika, pak úleva/hrdost). Kolegové jen v chatu (Jen – suchá, Greg – CEO). Kolegové z fotek nikdy nemluví cizí repliky.
-- **Kontrolní seznam** (≥ 8/10, jinak přepsat): háček bez zvuku · smích do 6 s · jedna jasná hra · eskalace · konkrétní detaily · překvapivá, ale logická pointa · Orbo sympatický · rozpoznatelná pravda · zní dobře v AI hlase · originalita.
+- **Struktura se zápletkou (povinná, 14. 10.):**
+  1. Nevinný začátek, který problém ještě neprozradí.
+  2. Skutečná chyba AI a eskalace.
+  3. **Zdánlivé vyřešení nebo poučení**: divák si myslí, že je po problému.
+  4. **Zvrat**: oprava nebo poučení se obrátí proti zadavateli. Je to překvapivé, ale zpětně logické.
+  5. Poslední věta má dvojí význam. Aspoň jeden následek je vidět na vlastním záběru.
+  Samotná eskalace bez zvratu = zamítnuto.
+- **Aspoň 3 smíchy** v každém videu, ne jeden na konci. U každého beatu napiš, kde je smích.
+- **Kontrolní seznam** (≥ 8/10, jinak přepsat): háček bez zvuku · smích do 6 s · jedna jasná hra · eskalace · konkrétní detaily · zápletka (zdánlivé vyřešení → zvrat) · aspoň 3 smíchy · překvapivá, ale logická pointa · Orbo sympatický · rozpoznatelná pravda · zní dobře v AI hlase · originalita.
 
 ## 3. Tempo (automaticky kontrolovat)
 - **Čas textu na obrazovce ≥ znaky / 15 + 0,5 s** (chat, dokumenty, lístečky, titulky). Pokud nestačí, nechat text viset přes další záběr (např. zadání během Orbovy odpovědi).
@@ -55,6 +63,7 @@ Pravidla vzniklá z výroby a zpětné vazby uživatele. Číst před KAŽDOU ep
 | 13. 10. | „Framed“ schváleno napoprvé (dobré) | postup napady → scénář + 3 agenti → engine funguje; každý nesmysl musí mít doslovný původ v zadání; pointa = špatně naučené pravidlo obrácené proti zadavateli; uživatel u pointy volí variantu s callbackem/smyčkou |
 
 | 13. 10. noc | autonomní várka 5 videí, nezávislý schvalovatel místo uživatele | schvalovatel byl přísný: v 1. kole schválil 1/5. Nejčastější vady: (a) prozrazená pointa dřív, (b) sitcomový beat bez funkce („breathe“), (c) umělá konstrukce místo reálné chyby AI (HR cíl) – zamítnuto, (d) úvod > 2 s bez akce, (e) opakující se pointa. Opraveno a schváleno 5/5 (8,0–8,3). |
+| 14. 10. | „1. řekne problém, 2.–3. jen eskalace, žádná zápletka“; „udělej ze zápletky nové pravidlo“; „3 smíchy“ | sekce 2: struktura se zápletkou + 3 smíchy |
 | 14. 10. | noční videa 04–08: slabé, předvídatelné pointy a nepropracovaný skript. Mýval je super funny | schvalovatel dával 8/10 bez kalibrace, proto sekce 9: Mýval je měřítko 10/10 a srovnává se proti němu |
 
 ## 8. Lekce z noční várky
