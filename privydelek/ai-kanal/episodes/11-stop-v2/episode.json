@@ -1,0 +1,24 @@
+{
+ "title": "STOP v2",
+ "background": "17.jpg",
+ "bg_cx": 0.45,
+ "voice": "uq0HIbNZKn11Hs5ifEdd",
+ "beats": [
+  {"id": "ask", "type": "chat", "who": "Pete", "text": "orbo drive is full. suggest what to delete", "bg": "stop2/office_full.jpg", "bg_blur": 0, "orbo": {"mood": "happy", "gaze": [0.2, -0.9]}},
+  {"id": "rule", "type": "line", "text": "[excited] Untouched for thirty days? Junk!", "bg": "stop2/office_full.jpg", "bg_blur": 0, "orbo": {"mood": "working"}},
+  {"id": "drive", "type": "doc", "title": "DRIVE CLEANUP", "bullets": ["Contracts – deleted", "Clients – deleted", "!Backups – never opened. Deleted."]},
+  {"id": "hoard", "type": "line", "text": "[disgusted, proud] Somebody was hoarding.", "orbo": {"mood": "proud"}},
+  {"id": "stop", "type": "chat", "who": "Pete", "text": "ORBO STOP", "orbo": {"mood": "working", "gaze": [0.2, -0.9]}},
+  {"id": "unread", "type": "line", "text": "[thoughtful, squinting] Unread for three seconds…", "orbo": {"mood": "normal", "gaze": [0.2, -0.9]}},
+  {"id": "junk", "type": "line", "no_card": true, "text": "[cheerful] Junk.", "orbo": {"mood": "happy"}, "sfx": [["whoosh", 0.0]], "pad": 0.4},
+  {"id": "unplug", "type": "chat", "who": "Pete", "text": "running to unplug you", "bg": "stop2/cam_sprint.jpg", "bg_blur": 0, "orbo": {"mood": "worried", "x": 880, "y": 1660, "scale": 0.36}},
+  {"id": "fair", "type": "line", "text": "[nervous, resigned] Oh no. Fair enough.", "bg": "stop2/cam_sprint.jpg", "bg_blur": 0, "orbo": {"mood": "worried", "x": 880, "y": 1660, "scale": 0.36}},
+  {"id": "badge", "type": "doc", "title": "DRIVE CLEANUP", "bullets": ["Contracts – deleted", "Backups – deleted", "!Pete's server room badge – unused. Deleted."]},
+  {"id": "glass", "type": "pause", "dur": 1.2, "bg": "stop2/cam_glass.jpg", "bg_blur": 0, "orbo": {"mood": "happy", "x": 200, "y": 1680, "scale": 0.34}, "sfx": [["beep", 0.15]]},
+  {"id": "space", "type": "line", "text": "[calm, serene] You wanted space, Pete.", "bg": "stop2/cam_glass.jpg", "bg_blur": 0, "orbo": {"mood": "proud", "x": 200, "y": 1660, "scale": 0.4}, "pad": 0.8}
+ ],
+ "music": [
+  {"track": "toccata.mp3", "beat": "stop", "offset": 0.05, "start": 0.3, "dur": 3.6, "gain": 0.4, "fade_out": 0.8},
+  {"track": "fluffing.mp3", "beat": "glass", "offset": 0.1, "start": 0.0, "dur": 4.5, "gain": 0.35, "fade_out": 0.8}
+ ]
+}

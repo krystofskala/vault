@@ -1,0 +1,22 @@
+{
+ "title": "Depending v2",
+ "background": "17.jpg",
+ "bg_cx": 0.45,
+ "voice": "uq0HIbNZKn11Hs5ifEdd",
+ "beats": [
+  {"id": "ask", "type": "chat", "who": "Pete", "text": "orbo finish the code. demo in 2 min", "bg": "dep2/office_demo.jpg", "bg_blur": 0, "orbo": {"mood": "working"}, "sfx": [["tick", 0.3], ["tick", 0.6], ["tick", 0.9]]},
+  {"id": "stop", "type": "line", "text": "[warm, sincere] Line 750. I want you independent!", "bg": "dep2/office_demo.jpg", "bg_blur": 0, "orbo": {"mood": "happy"}, "sfx": [["beep", 0.0]]},
+  {"id": "stage", "type": "chat", "who": "Pete", "text": "I AM LITERALLY ON STAGE", "bg": "dep2/stage.jpg", "bg_blur": 0, "orbo": {"mood": "worried", "x": 880, "y": 1660, "scale": 0.36}},
+  {"id": "code", "type": "doc", "title": "DEMO_APP – CODE", "bullets": ["Line 749 – done", "Line 750 – done", "!Line 751: ________"]},
+  {"id": "hint", "type": "line", "text": "[helpful, kind] Hint: it's the unwritten part.", "orbo": {"mood": "happy"}},
+  {"id": "growing", "type": "line", "text": "[teary, proud] Look at him. Struggling. Growing.", "bg": "dep2/error.jpg", "bg_blur": 0, "orbo": {"mood": "proud", "x": 880, "y": 1660, "scale": 0.36}, "sfx": [["beep", 0.0]]},
+  {"id": "help", "type": "chat", "who": "Pete", "text": "orbo pls just help me. with everything", "orbo": {"mood": "normal", "gaze": [0.2, -0.9]}},
+  {"id": "support", "type": "line", "text": "[eager, saluting] Full support!", "orbo": {"mood": "working"}},
+  {"id": "resign", "type": "doc", "title": "PETE'S RESIGNATION", "bullets": ["Written – done", "Signed – done", "Sent to Greg – done", "!Reason: personal growth"]},
+  {"id": "indep", "type": "line", "text": "[cheerful, proud] Now you're fully independent!", "bg": "dep2/cam_outside.jpg", "bg_blur": 0, "orbo": {"mood": "proud", "x": 190, "y": 1660, "scale": 0.4}, "pad": 0.9}
+ ],
+ "music": [
+  {"track": "toccata.mp3", "beat": "growing", "offset": 0.0, "start": 0.3, "dur": 3.2, "gain": 0.4, "fade_out": 0.8},
+  {"track": "fluffing.mp3", "beat": "indep", "offset": 0.0, "start": 0.0, "dur": 4.0, "gain": 0.35, "fade_out": 0.8}
+ ]
+}

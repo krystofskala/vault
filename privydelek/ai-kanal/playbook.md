@@ -65,6 +65,7 @@ Pravidla vzniklá z výroby a zpětné vazby uživatele. Číst před KAŽDOU ep
 | 13. 10. noc | autonomní várka 5 videí, nezávislý schvalovatel místo uživatele | schvalovatel byl přísný: v 1. kole schválil 1/5. Nejčastější vady: (a) prozrazená pointa dřív, (b) sitcomový beat bez funkce („breathe“), (c) umělá konstrukce místo reálné chyby AI (HR cíl) – zamítnuto, (d) úvod > 2 s bez akce, (e) opakující se pointa. Opraveno a schváleno 5/5 (8,0–8,3). |
 | 14. 10. | „1. řekne problém, 2.–3. jen eskalace, žádná zápletka“; „udělej ze zápletky nové pravidlo“; „3 smíchy“ | sekce 2: struktura se zápletkou + 3 smíchy |
 | 14. 10. | noční videa 04–08: slabé, předvídatelné pointy a nepropracovaný skript. Mýval je super funny | schvalovatel dával 8/10 bez kalibrace, proto sekce 9: Mýval je měřítko 10/10 a srovnává se proti němu |
+| 14. 10. | „STOP je rly funny“ (STOP v2) | potvrzuje strukturu se zápletkou: jedno pevné pravidlo AI → zdánlivé vyřešení (Pete běží odpojit) → stejné pravidlo zamkne zadavatele (karta smazána) → krátká věta s dvojím významem. Funguje: smazání zprávy „STOP“ jako smetí, vlastní záběry kamer s Petem. |
 
 ## 8. Lekce z noční várky
 - Reálný příběh musí být jádro, ne kulisa. Kde AI chybu „zařídí“ vymyšlená instituce (HR cíl), skóre padá.
