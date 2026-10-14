@@ -23,6 +23,33 @@ likely failure mode, not design mistakes.
 
 ## Setup
 
+### Option A: no Mac needed — SideStore (recommended, matches Opentify)
+
+Every push to this branch builds the app on a GitHub Actions macOS runner,
+ad-hoc signs it, and publishes it as a GitHub Release plus an AltStore/
+SideStore source feed — the same pattern used for
+[Opentify](https://github.com/krystofskala/Opentify)'s iOS client. No
+Apple Developer account, no certificates, no Mac required on your end.
+
+1. In SideStore on your iPhone (you already have it from Opentify), add this source:
+   ```
+   https://raw.githubusercontent.com/krystofskala/vault/altstore/source.json
+   ```
+2. Install "Prague Street Tracker" from it like any other SideStore source.
+3. SideStore re-signs it automatically every 7 days on-device — no computer needed for renewal.
+4. New builds (triggered by pushes to this branch, or manually via the
+   "iOS sideload build" workflow in GitHub Actions) show up in SideStore's
+   Updates tab automatically.
+
+Check progress at: https://github.com/krystofskala/vault/actions/workflows/ios-sideload.yml
+
+Caveat carried over from Opentify's setup: a free Apple ID can sideload at
+most 3 apps at a time. If you're already at that limit, either free up a
+slot or this is the point where a paid Apple Developer account ($99/yr)
+would remove the cap (and unlock TestFlight instead of SideStore).
+
+### Option B: local Xcode build
+
 1. Install [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 2. From the repo root: `xcodegen generate` — this produces `PragueStreetTracker.xcodeproj`.
 3. Open the generated `.xcodeproj` in Xcode.

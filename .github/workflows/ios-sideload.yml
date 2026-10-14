@@ -1,0 +1,110 @@
+# Appka pro iPhone bez Macu: macOS runner postaví NEPODEPSANÝ .ipa, SideStore
+# ho pak podepíše přímo v telefonu bezplatným Apple ID (platí 7 dní, obnova
+# automaticky na zařízení). Stejný princip jako u Opentify -- viz
+# krystofskala/Opentify, .github/workflows/ios.yml a docs/IOS_NATIVE_PLAN.md.
+#
+# Spuštění: push na tuto větev / main (jen když se appka změnila), tag
+# `ios-*` pro okamžitou verzi, nebo ručně (workflow_dispatch). Výsledek:
+# GitHub Release s PragueStreetTracker.ipa a nový source.json ve větvi
+# `altstore` -- v SideStore přidat tenhle zdroj jednou:
+#   https://raw.githubusercontent.com/krystofskala/vault/altstore/source.json
+# a dál appka chodí jako běžný update.
+name: iOS sideload build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - claude/prague-street-tracker-app-ooiad7
+    tags: ['ios-*']
+    paths:
+      - 'App/**'
+      - 'Packages/**'
+      - 'project.yml'
+      - '.github/workflows/ios-sideload.yml'
+      - '.github/scripts/altstore_source.py'
+
+concurrency:
+  group: ios-sideload-build
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (bez podpisu)
+        run: |
+          xcodebuild build \
+            -project PragueStreetTracker.xcodeproj \
+            -scheme PragueStreetTracker \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Zabalit .ipa
+        run: |
+          APP="build/Build/Products/Release-iphoneos/PragueStreetTracker.app"
+          ls "$APP"
+          # Ad-hoc podpis (bez certifikátu) -- jen platný Mach-O pro zabalení.
+          # SideStore appku při instalaci přepodepíše svým vlastním, bezplatným
+          # Apple ID; tenhle podpis se nepoužije.
+          codesign --force --sign - "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry PragueStreetTracker.ipa Payload
+          ls -lh PragueStreetTracker.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PragueStreetTracker-ipa
+          path: PragueStreetTracker.ipa
+          retention-days: 30
+
+      - name: Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('ios-build-{0}', github.run_number) }}
+          files: PragueStreetTracker.ipa
+          prerelease: true
+          body: |
+            Nepodepsaná appka pro iPhone (build ${{ github.run_number }}). Instaluje a podepisuje
+            SideStore ze zdroje: https://raw.githubusercontent.com/${{ github.repository }}/altstore/source.json
+
+      - name: Zdroj pro SideStore (source.json)
+        run: |
+          TAG="${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('ios-build-{0}', github.run_number) }}"
+          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/PragueStreetTracker.ipa"
+          SIZE=$(stat -f%z PragueStreetTracker.ipa)
+          VERSION="0.1.${{ github.run_number }}"
+          python3 .github/scripts/altstore_source.py "$VERSION" "$URL" "$SIZE" /tmp/source.json "${{ github.sha }}"
+          git config user.name "prague-tracker-ci"
+          git config user.email "prague-tracker-ci@users.noreply.github.com"
+          git fetch origin altstore || true
+          if git rev-parse --verify origin/altstore >/dev/null 2>&1; then
+            git checkout -f -B altstore origin/altstore
+          else
+            git checkout --orphan altstore
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          cp /tmp/source.json source.json
+          git add source.json
+          git commit -m "Prague Street Tracker $VERSION" || echo "beze zmeny"
+          git push origin altstore
