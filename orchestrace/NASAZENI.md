@@ -5,8 +5,11 @@ Každý zásah na Kryštofově hardwaru (Proxmox, VM, síť): **vysvětlit → K
 
 ## 0. Trezor – citlivé soubory (PC, před vším ostatním)
 
-1. Citlivé soubory z kořene trezoru (obnovovací kódy, dešifrovací klíč) přesunout do složky `Soukromé/`.
-2. Na Fedoře v Obsidianu: Nastavení → Sync → **Vyloučené složky** → `Soukromé`.
+1. ✅ Hotovo 14. 10.: citlivé soubory jsou ve složce `Soukromé/`, na PC deny v `~/.claude/settings.json`.
+2. Na Fedoře v Obsidianu: Nastavení → Sync → **Vyloučené složky** → `Soukromé`. Vyloučené složky
+   se nastavují **pro každé zařízení zvlášť** – nastavit hned při prvním připojení trezoru na Fedoře,
+   ještě před první synchronizací, a ověřit, že složka na Fedoře neexistuje.
+3. Totéž platí pro každé další zařízení, kde poběží agenti.
    Citlivé soubory se tak na stroj s agenty vůbec nedostanou. Deny pravidla v
    `orchestrator/.claude/settings.json` jsou jen druhá pojistka.
 

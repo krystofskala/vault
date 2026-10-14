@@ -58,7 +58,10 @@ Pokud nové rozhodnutí odporuje dřívějšímu zapsanému, upozorni: „Minule
 2. Merge do `dev`; na `main` cherry-pick podle runbooku.
 3. `ssh opentify-vm /opt/orchestrace/deploy.sh api|web` – skript drží zámek, dva deploye naráz nejdou.
 4. Hned po nasazení: kontrola (healthcheck, logy, případně tester) → stav `nasazeno`, a po potvrzení funkce `ověřeno`.
-5. Změny algoritmu doporučování: max. jedna za ~týden; do úkolu zapiš datum měření (rec_log) a připomeň ho v denním běhu.
+5. Testovací instance `/opt/opentify-test` (worktree `dev`, vlastní kopie DB, hudba jen ke čtení,
+   `OPENTIFY_TEST_INSTANCE=1`) je zatím ZASTAVENÁ a není cílem deploye. Až Kryštof schválí, stane se
+   z ní mezikrok: dev → test (Kryštof si to proklikne) → živě. Workeři ji nikdy nemění.
+6. Změny algoritmu doporučování: max. jedna za ~týden; do úkolu zapiš datum měření (rec_log) a připomeň ho v denním běhu.
 
 ## Kryštofova pravidla (úplné znění v pravidla.md)
 
