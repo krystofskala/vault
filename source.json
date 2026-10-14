@@ -1,0 +1,37 @@
+{
+  "name": "Prague Street Tracker",
+  "identifier": "com.krystofskala.praguestreettracker.source",
+  "sourceURL": "https://raw.githubusercontent.com/krystofskala/vault/altstore/source.json",
+  "website": "https://github.com/krystofskala/vault",
+  "apps": [
+    {
+      "name": "Prague Street Tracker",
+      "bundleIdentifier": "com.krystofskala.praguestreettracker",
+      "developerName": "Kryštof",
+      "subtitle": "Sleduje prošlé ulice Prahy",
+      "localizedDescription": "Prague Street Tracker -- zaznamenává chůzi a vybarvuje prošlé ulice Prahy na mapě. Lokace nikdy neopustí telefon.",
+      "iconURL": "https://raw.githubusercontent.com/krystofskala/vault/e23d06ac5b106ae84a586d7781f368cea954c8c1/App/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png",
+      "tintColor": "1F6FEB",
+      "versions": [
+        {
+          "version": "0.1.1",
+          "buildVersion": "1",
+          "localizedDescription": "Build 0.1.1.",
+          "date": "2026-10-14T12:42:58Z",
+          "size": 337128,
+          "downloadURL": "https://github.com/krystofskala/vault/releases/download/ios-build-1/PragueStreetTracker.ipa",
+          "minOSVersion": "16.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSLocationAlwaysAndWhenInUseUsageDescription": "Sleduje chůzi na pozadí, aby zaznamenal prošlé ulice.",
+          "NSMotionUsageDescription": "Rozlišuje chůzi od jízdy autem/kolem, aby jízda nebyla zapsaná jako prošlá ulice."
+        }
+      }
+    }
+  ],
+  "news": [],
+  "pragueTrackerCommit": "e23d06ac5b106ae84a586d7781f368cea954c8c1"
+}
