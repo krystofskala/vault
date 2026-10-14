@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(~/Obsidian/jojojo/Soukromé/**)",
+      "Edit(~/Obsidian/jojojo/Soukromé/**)",
+      "Bash(ssh opentify-vm docker compose down*)",
+      "Bash(ssh opentify-vm rm *)"
+    ],
+    "ask": [
+      "Bash(ssh opentify-vm /opt/orchestrace/deploy.sh*)",
+      "Bash(git push*main*)"
+    ]
+  },
+  "env": {
+    "TREZOR": "/home/krystof/Obsidian/jojojo"
+  }
+}

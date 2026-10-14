@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push origin ukol/*)",
+      "Bash(/opt/orchestrace/test.sh*)",
+      "Bash(ls*)",
+      "Bash(grep*)",
+      "Bash(python3 -m py_compile*)"
+    ],
+    "deny": [
+      "Read(/opt/opentify/.env)",
+      "Read(/opt/opentify/**/.env)",
+      "Edit(/opt/opentify/**)",
+      "Bash(git push origin main*)",
+      "Bash(git push origin dev*)",
+      "Bash(git push --force*)",
+      "Bash(docker compose up*)",
+      "Bash(docker compose down*)",
+      "Bash(docker compose restart*)",
+      "Bash(rm -rf*)",
+      "Bash(*/mnt/houbar*)"
+    ]
+  }
+}
