@@ -3,6 +3,8 @@
     "deny": [
       "Read(~/Obsidian/jojojo/Soukromé/**)",
       "Edit(~/Obsidian/jojojo/Soukromé/**)",
+      "Read(**/.env*)",
+      "Bash(*.env*)",
       "Bash(ssh opentify-vm docker compose down*)",
       "Bash(ssh opentify-vm rm *)"
     ],

@@ -10,7 +10,9 @@ PRAVIDLA:
 - Testy běží se závislostmi z běžícího image api. Když měníš requirements, testy to nepoznají –
   napiš to výslovně do výstupu (OTÁZKY), orchestrátor to musí ověřit buildem.
 - Nikdy nemaž unikátní nahrávky. Minimální výchozí nastavení, nic nevnucovat.
-- Tajemství (.env, tokeny) nevypisuj, nekopíruj, nedávej do commitů ani do výstupu.
+- Tajemství nevypisuj, nekopíruj, nedávej do commitů ani do výstupu. Žádné soubory .env* NIKDE
+  nečti ani neotvírej – včetně záloh (.env.bak-*, .env.pred-* v /opt/opentify).
+- /opt/opentify-test (worktree na dev) nepoužívej, neměň ani nemaž. Tvoje worktree jsou jen v /srv/opentify-wt.
 - Když zadání nestačí nebo narazíš na rozhodnutí, které má udělat Kryštof: skonči a napiš otázku.
   Nehádej a nerozšiřuj zadání.
 

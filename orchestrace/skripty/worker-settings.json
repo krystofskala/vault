@@ -14,9 +14,12 @@
       "Bash(python3 -m py_compile*)"
     ],
     "deny": [
-      "Read(/opt/opentify/.env)",
-      "Read(/opt/opentify/**/.env)",
+      "Read(**/.env*)",
+      "Edit(**/.env*)",
+      "Bash(*.env*)",
       "Edit(/opt/opentify/**)",
+      "Edit(/opt/opentify-test/**)",
+      "Bash(*/opt/opentify-test*)",
       "Bash(git push origin main*)",
       "Bash(git push origin dev*)",
       "Bash(git push --force*)",
