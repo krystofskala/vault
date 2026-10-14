@@ -22,9 +22,15 @@ echo "== $(date -Is) deploy $CIL, větev $VETEV"
 case "$CIL" in
   api)
     PRED=$(git rev-parse HEAD)
-    git pull --ff-only -q
+    # Testy nad novým main v dočasném worktree, NE po pullu: když selžou,
+    # produkční checkout zůstane netknutý a nesouhlasil by s běžícím image.
+    git fetch -q origin main
+    TESTWT=$(mktemp -d)
+    git worktree add -q --detach "$TESTWT" origin/main
+    /opt/orchestrace/test.sh "$TESTWT" || { git worktree remove --force "$TESTWT"; echo "Testy selhaly – nic se nenasadilo." >&2; exit 1; }
+    git worktree remove --force "$TESTWT"
+    git merge --ff-only -q origin/main
     echo "commity: $PRED..$(git rev-parse HEAD)"
-    /opt/orchestrace/test.sh "$APP"          # testy musí projít před nasazením
     docker compose exec -T api python -m app.tools.activity || true   # jen informace, kdo poslouchá
     docker compose build -q api worker
     docker compose run --rm --no-deps -T api python -m app.tools.announce_restart

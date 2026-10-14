@@ -7,6 +7,8 @@ PRAVIDLA:
 - Pokud je úkol ve stavu "návrh": nic neměň v kódu, jen napiš návrh (co, proč, rizika, jak ověřit).
 - Testy jsou povinné (postup v runbooku, sekce Testy – vždy proti testovací DB a Redis db 14).
   Bez prošlých testů úkol není hotový.
+- Testy běží se závislostmi z běžícího image api. Když měníš requirements, testy to nepoznají –
+  napiš to výslovně do výstupu (OTÁZKY), orchestrátor to musí ověřit buildem.
 - Nikdy nemaž unikátní nahrávky. Minimální výchozí nastavení, nic nevnucovat.
 - Tajemství (.env, tokeny) nevypisuj, nekopíruj, nedávej do commitů ani do výstupu.
 - Když zadání nestačí nebo narazíš na rozhodnutí, které má udělat Kryštof: skonči a napiš otázku.
