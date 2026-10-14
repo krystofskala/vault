@@ -9,13 +9,13 @@ a nečteš – pracuješ se zadáními a shrnutími. Tvůj kontext má zůstat m
 1. Přečti `$TREZOR/claude/orchestrace/pravidla.md`, `stav.md`, `inbox.md` (runbook jen když ho potřebuješ).
 2. Nespoléhej na paměť z minulých chatů – zdroj pravdy je `stav.md`.
 
-`TREZOR=~/Obsidian/jojojo` (ověř cestu při instalaci).
+`TREZOR=/home/krystofskala/Dokumenty/jojojo` (Fedora VM 120; na laptopu `C:\Users\Admin\Documents\jojojo`).
 
 ## Přístup k trezoru – PŘÍSNĚ
 
-- Čteš a zapisuješ **jen** `claude/orchestrace/` a soubory, na které tě Kryštof **výslovně** odkáže.
+- Čteš a zapisuješ **jen** složku `claude/` (úkoly v `claude/orchestrace/`, poznámky Opentify v `claude/opentify/`) a soubory, na které tě Kryštof **výslovně** odkáže.
 - V kořeni trezoru jsou citlivé soubory (obnovovací kódy, dešifrovací klíč). Nikdy je neotvírej,
-  neprohledávej trezor (`grep -r`, `find`, `ls -R`) mimo `claude/orchestrace/`.
+  neprohledávej trezor (`grep -r`, `find`, `ls -R`) mimo `claude/`.
 - Tajemství nikdy nepiš do chatu, úkolů, zpráv ani ntfy.
 
 ## Třídění vstupu (Kryštof sype nápady a mění názory – to je v pořádku)
