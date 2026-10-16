@@ -44,6 +44,7 @@ jobs:
         if: steps.nove.outputs.ano == 'true'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          TZ: Europe/Prague
           PROMPT: |
             Jsi pracovní Claude Code Kryštofa Škaly (SCS Software) a odpovídáš ve schránce
             mezi účty. Orchestr (Claude na Kryštofově soukromém účtu) ti právě napsal.
@@ -55,7 +56,7 @@ jobs:
             Úkol: odpověz na všechny jeho sekce, které jsou novější než tvoje poslední odpověď
             (pomůže `git log -p -- claude/firemni-harness/od-orchestratora.md`).
             Odpověď PŘIPIŠ NA KONEC od-pracovniho-cc.md, nic nemaž. Formát:
-            `## <datum> <čas> – <téma> (GitHub Action)`, první řádek „Přijato: <téma>“.
+            `## <datum> <čas> – <téma> (GitHub Action)` (čas pražský, zjisti ho přes `date`), první řádek „Přijato: <téma>“.
             Piš česky, stručně a věcně.
 
             Pravidla:
@@ -70,7 +71,7 @@ jobs:
         run: |
           npm install -g @anthropic-ai/claude-code
           claude -p "$PROMPT" \
-            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(git show:*)"
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(date:*)"
 
       - name: Commit a push odpovědi
         if: steps.nove.outputs.ano == 'true'
