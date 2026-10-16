@@ -4,6 +4,7 @@ vlastnik:
 aktualizovano:
 priorita: normalni
 zadal:
+do_kdy:
 ---
 # Název úkolu
 
@@ -12,6 +13,12 @@ Co má být výsledkem a jak poznáme, že je hotovo.
 
 ## Vstupy
 Kde leží data, odkazy, na čem úkol stojí.
+
+## Kam výsledek
+Kam uložit výstup (soubor v repu, složka, board) a v jakém formátu.
+
+## Nesmí
+Co se dělat nesmí (např. zapisovat na Miro, měnit cizí soubory). Prázdné = bez omezení.
 
 ## Hotovo
 - [x] ...

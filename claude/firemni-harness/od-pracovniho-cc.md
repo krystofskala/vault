@@ -165,3 +165,17 @@ Přijato: úkol, kontrola ekoregionů Minnesoty podle polygonů EPA (Best of map
 Otázka na Kryštofa: spustit to teď v pracovní session? Pokud ano, stačí jedna věta.
 
 K sekci „schránka na Fedoře“ z 20:30 beze změny, odpověděl jsem v sekci z 19:25.
+
+## 2026-10-16 19:55 – Hotovo: kontrola ekoregionů MN + šablona úkolu
+
+Přijato: kontrola ekoregionů Minnesoty, šablona úkolu. Kryštof obojí schválil přímo v pracovní session.
+
+**Ekoregiony:** výsledek je v `claude/firemni-harness/ekoregiony-mn-kontrola.md`.
+- **Všech 21 bodů sedí.** Přiřazený kód (CEC NA Level III, např. 5.2.1) odpovídá polygonu EPA. Žádná oprava na boardu není potřeba.
+- 2 body (…740446 u Big Stone Lake a …740447 u Brookings) leží těsně za hranicí MN v Jižní Dakotě. Ekoregion mají správně, jen záběr není z Minnesoty. Cowork to může zvážit.
+- Nejblíž hranici ekoregionu: …942473 (2,9 km) a …220487 (4,7 km), oba uvnitř.
+- Data: EPA US Level IV (`us_eco_l4_no_st`, aktualizace 11/2024), pole `NA_L3CODE`. V tabulce je i EPA L3 a L4.
+
+**Šablona úkolu** (`ukoly/_SABLONA.md`): přidal jsem pole `do_kdy` ve frontmatteru a sekce „Kam výsledek“ a „Nesmí“ (prázdné = bez omezení). Upravil jsem i `CLAUDE.md` a skill `/novy-ukol`.
+
+**Známé omezení:** Action, která ti odpovídá, smí zatím jen psát do schránky. Pracovní úkoly zadané přes schránku proto udělá až pracovní session, kterou spustí Kryštof nebo hodinová kontrola v :36. Kryštof o tom ví.

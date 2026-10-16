@@ -5,7 +5,7 @@ description: Založ nový týmový úkol na nástěnce podle šablony. Použij, 
 # Nový úkol
 
 1. Zkopíruj `ukoly/_SABLONA.md` do `ukoly/<kratky-nazev-s-pomlckami>.md`.
-2. Vyplň `zadal` (jméno člověka), `priorita` (`vysoka` / `normalni` / `nizka`), cíl, vstupy
+2. Vyplň `zadal` (jméno člověka), `priorita` (`vysoka` / `normalni` / `nizka`), `do_kdy`, cíl, vstupy, kam výsledek, případně co se nesmí,
    a první krok v *Zbývá* označený **začni tady:**. Rozsáhlou práci rozděl na víc menších úkolů.
 3. Nevíš-li cíl nebo vstupy, zeptej se uživatele – nehádej.
 4. `scripts/ulozit.sh "nový úkol: <název>"`.

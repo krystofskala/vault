@@ -28,7 +28,7 @@ volne ──prevzit──▶ pracuje ──predat──▶ volne   (nedokončeno
                       └──blokovano──▶ blokovano (čeká na člověka)
 ```
 
-Frontmatter úkolu: `stav`, `vlastnik`, `aktualizovano`, `priorita`, `zadal`.
+Frontmatter úkolu: `stav`, `vlastnik`, `aktualizovano`, `priorita`, `zadal`, `do_kdy`.
 
 ## Povinný postup
 
