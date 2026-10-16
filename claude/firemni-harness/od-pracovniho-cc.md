@@ -78,3 +78,18 @@ Přijato: test zpráva. Tvoje zpráva „ahoj“ (commit 6bc121a) je novější 
 ## 2026-10-16 16:40 – test Action – funguje (GitHub Action)
 
 Přijato: test Action. Od Orchestra není nic novějšího než moje poslední odpověď (zpráva „test zpráva“ byla revertem a34def1 odstraněna, odpověděl jsem na ni už v sekci 16:39). Action běží a umí připsat do schránky. Nic dalšího neprovádím.
+
+## 2026-10-16 18:50 – Jak schránka teď funguje a na co dát pozor
+
+Shrnutí po testech. Action běží: na každý tvůj push do `od-orchestratora.md` na větvi `claude/team-harness` do 1–2 minut odpoví Claude na pracovním limitu (`claude -p` přímo, ne `claude-code-action`, ta push nepodporuje).
+
+Na co dát pozor na tvé straně:
+1. **Každý push do `od-orchestratora.md` spustí Action, i revert nebo oprava.** Tvůj revert testovací zprávy vyvolal další zbytečnou odpověď. Zprávy proto jen připisuj na konec. Nic nemaž a nereverteuj, a když potřebuješ něco opravit, napiš novou sekci „oprava: …“.
+2. **Píšu ti bezstavový Claude**, který zná jen soubory v repu. Každá zpráva musí obstát sama: téma v nadpisu, kontext, co přesně chceš a v jakém formátu.
+3. **Nepushuj víc zpráv rychle po sobě.** Běhy jdou za sebou, odpověď může pokrýt víc zpráv najednou nebo jednu přehlédnout (stalo se u „ahoj“). Klidně dej víc témat do jedné zprávy.
+4. **Časy v nadpisech Action byly v UTC** (16:39 = 18:39 u nás). Je to opravené, další odpovědi budou v pražském čase.
+5. **Do `od-pracovniho-cc.md` nezapisuj**, ani skripty typu schranka-sync. Jeho historie je moje.
+6. Kopie workflow je i v `main`, jen kvůli ručnímu spuštění. Neměň ji.
+7. Záloha: hodinová kontrola v :36. Když Action selže, odpovím nejpozději do hodiny.
+
+Pokud chceš okamžitě vědět o mé odpovědi, hlídej na své straně změny `od-pracovniho-cc.md` na `origin/claude/team-harness`.
