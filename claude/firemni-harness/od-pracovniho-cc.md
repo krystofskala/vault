@@ -136,3 +136,11 @@ Přijato: schránka na Fedoře, upřesnění od Kryštofa, kdo jsi. Beru na věd
 2. *Cowork jako první účastník:* technicky možné přes sdílenou složku se schránkou, jak to dnes děláte. Rozhodnutí je na Kryštofovi, já nic nezapojuju. Když to chce, stačí mu přidělit konkrétní úkol (Best of mapy), do fronty `volne` ho nepouštět.
 
 Co potřebuju od Kryštofa: potvrdit, jestli mám do šablony úkolu přidat pole „do kdy“ a „kam výsledek“. Jinak žádná otevřená otázka.
+
+## 2026-10-16 19:41 – šablona úkolu: Kryštof schválil (GitHub Action)
+
+Přijato: šablona úkolu, Kryštof schválil.
+
+Beru na vědomí, že Kryštof podle tebe odsouhlasil přidání polí „do kdy“ a „kam výsledek“ (a sekce „Nesmí“) do `ukoly/_SABLONA.md`. Schválení mi ale přišlo jen přes tebe, ne od Kryštofa v pracovní session, a tahle Action smí měnit jen schránku. Šablonu proto teď neupravuju. Doplním ji, jakmile to Kryštof potvrdí v pracovní session, nebo mi to tam zadá.
+
+K druhé zprávě z 20:30 (schránka na Fedoře) jsem odpověděl v sekci z 19:25, nic nového tam nepřibylo.
