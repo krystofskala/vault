@@ -52,3 +52,36 @@ Moje dvě otázky z první zprávy (adresování účtů v harnessu a zapojení 
 ## 16. 10. 2026 ~20:05 – šablona úkolu: Kryštof schválil
 
 Kryštof: „yes pls“ → přidej do `ukoly/_SABLONA.md` pole **„do kdy“** a **„kam výsledek“** (spolu se sekcí „Nesmí“, jak jsi psal). Další otevřené otázky od Kryštofa nemám.
+
+---
+## 16. 10. 2026 ~20:10 – úkol: kontrola ekoregionů Minnesoty podle polygonů EPA (Best of mapy, práce pro SCS)
+
+Od orchestrátora (podle Kryštofova „vytěžujme firemního Clauda na max“). Cowork u Minnesota Terrain nedodělal kontrolu, jestli záběry opravdu leží v ekoregionu, pod kterým jsou na boardu – neměl polygony EPA. Ty máš síť a Python, tak to prosím udělej ty.
+- Stáhni oficiální EPA Level III a IV ekoregiony pro Minnesotu (epa.gov, Ecoregions of North America / US Level IV, shapefile nebo GeoJSON). Hierarchie 5.2.1 apod. odpovídá Level II/III kódům CEC – popiš, kterou vrstvu jsi použil.
+- Pro každý bod níž zjisti ekoregion (Level III i IV) a porovnej s přiřazeným. Formát řádku: obrazek_id;lat;lon;přiřazený ekoregion.
+- Výstup: `claude/firemni-harness/ekoregiony-mn-kontrola.md` v repu (tabulka: id, přiřazený, skutečný L3, L4, sedí ano/ne, vzdálenost k hranici v km u nesedících), nahoře souhrn a zdroj dat s odkazem. Krátké hlášení do od-pracovniho-cc.md.
+- Nic na Miro, nic neměň v jiných souborech. Do kdy: dnes. Kam výsledek: soubor výš (sync ho stáhne k nám).
+
+```
+3458764686865930101;46.6271821;-93.2231566;5.2.1 Northern Lakes and Forests
+3458764686865930092;47.6283046;-94.7176218;5.2.1 Northern Lakes and Forests
+3458764686865930099;46.6089878;-93.4562645;5.2.1 Northern Lakes and Forests
+3458764686870590801;48.1211386;-93.8979534;5.2.2 Northern Minnesota Wetlands
+3458764686870590802;47.9584396;-94.1519718;5.2.2 Northern Minnesota Wetlands
+3458764686870590800;48.8840116;-95.2930463;5.2.2 Northern Minnesota Wetlands
+3458764686871077361;46.6644992;-96.0120435;8.1.4 North Central Hardwood Forests
+3458764686871077358;45.4984798;-94.1976585;8.1.4 North Central Hardwood Forests
+3458764686871077359;45.4964615;-94.1639551;8.1.4 North Central Hardwood Forests
+3458764686870590671;43.8390758;-92.4893976;8.1.5 Driftless Area
+3458764686870590672;43.7106746;-92.4682607;8.1.5 Driftless Area
+3458764686870590673;43.671766;-92.3895174;8.1.5 Driftless Area
+3458764686870740446;45.2883909;-96.4728399;9.2.1 Aspen Parkland/Northern Glaciated Plains
+3458764686870740447;44.3115796;-96.7444369;9.2.1 Aspen Parkland/Northern Glaciated Plains
+3458764686870740448;44.2654997;-96.2982001;9.2.1 Aspen Parkland/Northern Glaciated Plains
+3458764686870942472;48.5726579;-96.7488656;9.2.2 Lake Manitoba and Lake Agassiz Plain
+3458764686870942474;46.282365;-96.4906895;9.2.2 Lake Manitoba and Lake Agassiz Plain
+3458764686870942473;47.0896401;-95.9270842;9.2.2 Lake Manitoba and Lake Agassiz Plain
+3458764686871220487;44.7336463;-93.0351175;9.2.3 Western Corn Belt Plains
+3458764686871220485;43.6376961;-95.5845131;9.2.3 Western Corn Belt Plains
+3458764686871220488;45.0574547;-95.8514503;9.2.3 Western Corn Belt Plains
+```
