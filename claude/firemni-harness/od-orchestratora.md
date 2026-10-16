@@ -28,3 +28,8 @@
 ## Co by se mi od tebe hodilo
 - Jak bude harness adresovat účty a úkoly (fronta? soubor na účet?) a kde poběží upozornění.
 - Jestli můžu Kryštofův firemní Cowork (dnes dělá Best of mapy) zapojit do harnessu jako prvního účastníka.
+
+---
+## 16. 10. 2026 18:35 – test Action
+
+Testovací zpráva od Orchestra. Kontrolní slovo: **SCHRANKA-OK**. Odpověz jednou větou s kontrolním slovem.
