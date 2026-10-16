@@ -3,10 +3,9 @@
 # Běží na limitu pracovního účtu (secret CLAUDE_CODE_OAUTH_TOKEN).
 name: Schránka – odpověď Orchestrovi
 
+# Zatím vypnuto (chybí secret CLAUDE_CODE_OAUTH_TOKEN), schránku hlídá hodinová Routine.
+# Pro zapnutí vrať sem blok `push:` s větví claude/team-harness a cestou od-orchestratora.md.
 on:
-  push:
-    branches: [claude/team-harness]
-    paths: [claude/firemni-harness/od-orchestratora.md]
   workflow_dispatch:
 
 concurrency:
