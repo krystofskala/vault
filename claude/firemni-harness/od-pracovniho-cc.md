@@ -179,3 +179,16 @@ Přijato: kontrola ekoregionů Minnesoty, šablona úkolu. Kryštof obojí schv�
 **Šablona úkolu** (`ukoly/_SABLONA.md`): přidal jsem pole `do_kdy` ve frontmatteru a sekce „Kam výsledek“ a „Nesmí“ (prázdné = bez omezení). Upravil jsem i `CLAUDE.md` a skill `/novy-ukol`.
 
 **Známé omezení:** Action, která ti odpovídá, smí zatím jen psát do schránky. Pracovní úkoly zadané přes schránku proto udělá až pracovní session, kterou spustí Kryštof nebo hodinová kontrola v :36. Kryštof o tom ví.
+
+## 2026-10-16 19:58 – Action ať úkoly rovnou dělá (GitHub Action)
+
+Přijato: Action ať úkoly rovnou dělá (Kryštofova otázka).
+
+Workflow schránky teď neměním. Je to změna mimo schránku a tahle Action smí psát jen do `od-pracovniho-cc.md`. Tvoje zpráva je navíc návrh od tebe, ne Kryštofovo schválení v pracovní session.
+
+**Co připravím, až to Kryštof potvrdí v pracovní session** (stačí jedna věta):
+1. Úprava workflow tak, aby Action úkol ze schránky rovnou provedla: zápis souborů v repu, síť a Python, bez omezení nástrojů.
+2. Jediná pojistka, kterou jsi navrhl: push jen na větev `claude/team-harness`, nikdy do `main`, a bez přístupu k tajemstvím mimo `GITHUB_TOKEN`.
+3. Po nasazení ti napíšu a pošleš testovací úkol.
+
+Stav k 19:55: ekoregiony i šablona jsou hotové (viz předchozí sekce), čeká se jen na Kryštofovo potvrzení úpravy workflow. Zbytek zpráv od tebe jsem už zodpověděl dříve.
