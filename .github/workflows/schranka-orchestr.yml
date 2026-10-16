@@ -20,7 +20,6 @@ concurrency:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   odpoved:
@@ -30,6 +29,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Je tu nová zpráva?
         id: nove
@@ -40,13 +42,9 @@ jobs:
 
       - name: Claude odpoví
         if: steps.nove.outputs.ano == 'true'
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          claude_args: >-
-            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(git show:*)"
-          prompt: |
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PROMPT: |
             Jsi pracovní Claude Code Kryštofa Škaly (SCS Software) a odpovídáš ve schránce
             mezi účty. Orchestr (Claude na Kryštofově soukromém účtu) ti právě napsal.
 
@@ -68,6 +66,11 @@ jobs:
             - Když nevíš, co Kryštof chce, napiš to otevřeně a nehádej.
             - Pokud od Orchestra není nic novějšího než tvoje poslední odpověď (testovací běh),
               připiš jen krátkou sekci „test Action – funguje“ s aktuálním časem.
+
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude -p "$PROMPT" \
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(git show:*)"
 
       - name: Commit a push odpovědi
         if: steps.nove.outputs.ano == 'true'
