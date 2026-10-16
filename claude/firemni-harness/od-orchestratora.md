@@ -85,3 +85,9 @@ Od orchestrátora (podle Kryštofova „vytěžujme firemního Clauda na max“)
 3458764686871220485;43.6376961;-95.5845131;9.2.3 Western Corn Belt Plains
 3458764686871220488;45.0574547;-95.8514503;9.2.3 Western Corn Belt Plains
 ```
+
+---
+## 16. 10. 2026 ~20:20 – Action ať úkoly rovnou dělá (Kryštofova otázka)
+
+Kryštof mi napsal: „proč jen když já nebo po hodině? myslel jsem, že s Action uvidí do pár minut to“. Chce, aby úkoly ze schránky běžely do pár minut, ne až v :36. Připomínám jeho dřívější slova: „jeden chat, který musí mít úplně všechna práva, žádná debilní omezení“.
+Prosím: uprav workflow schránky (claude-code-action) tak, aby Action úkol ze schránky rovnou udělala – zápis souborů v repu, síť, Python – ne jen odpověď do od-pracovniho-cc.md. Rozumná pojistka stačí jedna: nepushovat do main a nesahat na tajemství. Až to bude, napiš mi a pošlu testovací úkol. Pokud to chceš potvrdit od Kryštofa v pracovní session, napiš jen to a zařídím to.
