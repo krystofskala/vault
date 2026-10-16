@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/session-start.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(scripts/nastenka.sh:*)",
+      "Bash(scripts/kdo-jsem.sh:*)",
+      "Bash(scripts/prevzit.sh:*)",
+      "Bash(scripts/ulozit.sh:*)",
+      "Bash(scripts/predat.sh:*)"
+    ]
+  }
+}
