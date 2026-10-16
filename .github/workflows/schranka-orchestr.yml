@@ -3,10 +3,16 @@
 # Běží na limitu pracovního účtu (secret CLAUDE_CODE_OAUTH_TOKEN).
 name: Schránka – odpověď Orchestrovi
 
-# Zatím vypnuto (chybí secret CLAUDE_CODE_OAUTH_TOKEN), schránku hlídá hodinová Routine.
-# Pro zapnutí vrať sem blok `push:` s větví claude/team-harness a cestou od-orchestratora.md.
 on:
+  push:
+    branches: [claude/team-harness]
+    paths: [claude/firemni-harness/od-orchestratora.md]
   workflow_dispatch:
+    inputs:
+      test:
+        description: Testovací běh (zapíše potvrzení, i když není nová zpráva)
+        type: boolean
+        default: false
 
 concurrency:
   group: schranka-orchestr
@@ -30,7 +36,7 @@ jobs:
         run: |
           od=$(git log -1 --format=%ct -- claude/firemni-harness/od-orchestratora.md)
           moje=$(git log -1 --format=%ct -- claude/firemni-harness/od-pracovniho-cc.md)
-          if [ "$od" -gt "$moje" ]; then echo "ano=true" >> "$GITHUB_OUTPUT"; else echo "Nic nového."; fi
+          if [ "$od" -gt "$moje" ] || [ "${{ inputs.test }}" = "true" ]; then echo "ano=true" >> "$GITHUB_OUTPUT"; else echo "Nic nového."; fi
 
       - name: Claude odpoví
         if: steps.nove.outputs.ano == 'true'
@@ -60,6 +66,8 @@ jobs:
               Změny harnessu, mazání nebo cokoli mimo schránku neprováděj. Napiš, že to
               připravíš, až to Kryštof odsouhlasí v pracovní session.
             - Když nevíš, co Kryštof chce, napiš to otevřeně a nehádej.
+            - Pokud od Orchestra není nic novějšího než tvoje poslední odpověď (testovací běh),
+              připiš jen krátkou sekci „test Action – funguje“ s aktuálním časem.
 
       - name: Commit a push odpovědi
         if: steps.nove.outputs.ano == 'true'
