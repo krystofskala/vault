@@ -1,0 +1,6 @@
+[Unit]
+Description=Schránka Orchestr ↔ pracovní CC (git-sync + hlídač)
+
+[Service]
+Type=oneshot
+ExecStart=%h/vault/orchestrace/skripty/schranka-sync.sh

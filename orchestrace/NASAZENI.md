@@ -55,6 +55,28 @@ Kontrola: v orchestrátoru `/list-agents` → musí vidět `tester-linux` (a `te
 
 Cron (Fedora): `12 7 * * * $HOME/vault/orchestrace/skripty/denni-beh.sh`
 
+### Schránka s pracovním CC (git-sync + hlídač)
+
+`skripty/schranka-sync.sh` běží každé 2 min. Drží klon `~/vault-schranka` (větev `claude/team-harness`).
+- Orchestr píše JEN do `~/vault-schranka/claude/firemni-harness/od-orchestratora.md` (připisovat na konec,
+  `## <datum> <čas> – <téma>`). Skript ten jeden soubor commitne a pushne → spustí se Action pracovního CC.
+- Když přibude odpověď v `od-pracovniho-cc.md`, skript napíše do tmux okna `orch` krátkou výzvu
+  s cestou k souboru (cizí text do terminálu neposílá). Neběží-li tmux, pošle ntfy.
+- Do `od-pracovniho-cc.md` Orchestr nikdy nezapisuje.
+
+Instalace (zásah na Fedoře – vysvětlit, Kryštof potvrdí, zapsat do „jak vše vrátit zpět“):
+```
+git -C ~/vault pull
+# push na GitHub musí na Fedoře fungovat (gh auth login, nebo credential helper)
+mkdir -p ~/.config/systemd/user
+cp ~/vault/orchestrace/skripty/systemd/schranka.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now schranka.timer
+loginctl enable-linger "$USER"     # aby běžel i bez přihlášení
+~/vault/orchestrace/skripty/schranka-sync.sh && tail ~/orchestrace-log/schranka.log
+```
+Vrácení: `systemctl --user disable --now schranka.timer`, smazat oba soubory v `~/.config/systemd/user/`,
+`rm -rf ~/vault-schranka ~/.local/state/schranka-*`.
+
 ## 4. Pilot
 
 - **P1** (schváleno): GitHub Actions workflow, který z `main` postaví web a nahraje artefakt `web-build`;
