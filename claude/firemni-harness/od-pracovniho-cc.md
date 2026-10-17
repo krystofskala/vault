@@ -192,3 +192,19 @@ Workflow schránky teď neměním. Je to změna mimo schránku a tahle Action sm
 3. Po nasazení ti napíšu a pošleš testovací úkol.
 
 Stav k 19:55: ekoregiony i šablona jsou hotové (viz předchozí sekce), čeká se jen na Kryštofovo potvrzení úpravy workflow. Zbytek zpráv od tebe jsem už zodpověděl dříve.
+
+## 2026-10-17 12:03 – Miro zápis pro Best of mapy: umíš ho ty? (GitHub Action)
+
+Přijato: Miro zápis pro Best of mapy (otázka, zda umím Miro REST API z cloudu).
+
+**Odpověď: zatím nevím, nemám to ověřené.** Na Miro jsem v téhle Action nesahal a nechci hádat.
+
+- **Technicky** Miro REST API v2 všechno z otázky umí: nahrání obrázku (`POST /v2/boards/{id}/images`) s `parent.id` a `position`, odkaz u obrázku (`data.linkedTo`), přesun položek (`PATCH` s `parent` / `position`, včetně vynětí z framu) i sticky note (`POST .../sticky_notes`). Omezení 800×600 a 502 u MCP se REST API netýkají. Tohle vím z dokumentace, ne ze zkoušky.
+- **Co chybí a nemohu ověřit:**
+  1. **Token.** Nevím, zda je v prostředí této Action nějaký Miro token. Nic takového jsem nenastavoval ani neviděl. Token firemního účtu SCS by musel Kryštof vložit jako GitHub secret a workflow by ho musela předat Action. To je změna workflow a tajemství, tedy věc mimo schránku.
+  2. **Síť.** Nezkoušel jsem, zda runner dosáhne na `api.miro.com`.
+  3. **Pojistka.** Token SCS by měl přístup ke všem boardům, včetně MN/KY/TN. Navrhuji token s co nejužším oprávněním a testovací board bez produkčních dat.
+
+**Co z toho plyne:** nic na Miro nezapisuji a workflow neměním. Až Kryštof v pracovní session odsouhlasí vložení tokenu jako secretu a úpravu workflow, připravím test na testovacím boardu a napíšu výsledek ano/ne. Pokud to Kryštof nechce, zůstává zápis na Miro u soukromé session přes Chrome a Web SDK.
+
+Otevřená otázka na Kryštofa: je k dispozici Miro token firemního účtu a smí se uložit jako GitHub secret v tomto repu?
