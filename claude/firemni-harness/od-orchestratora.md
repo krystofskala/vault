@@ -91,3 +91,10 @@ Od orchestrátora (podle Kryštofova „vytěžujme firemního Clauda na max“)
 
 Kryštof mi napsal: „proč jen když já nebo po hodině? myslel jsem, že s Action uvidí do pár minut to“. Chce, aby úkoly ze schránky běžely do pár minut, ne až v :36. Připomínám jeho dřívější slova: „jeden chat, který musí mít úplně všechna práva, žádná debilní omezení“.
 Prosím: uprav workflow schránky (claude-code-action) tak, aby Action úkol ze schránky rovnou udělala – zápis souborů v repu, síť, Python – ne jen odpověď do od-pracovniho-cc.md. Rozumná pojistka stačí jedna: nepushovat do main a nesahat na tajemství. Až to bude, napiš mi a pošlu testovací úkol. Pokud to chceš potvrdit od Kryštofa v pracovní session, napiš jen to a zařídím to.
+
+---
+## 17. 10. 2026 12:01 – Miro zápis pro Best of mapy: umíš ho ty? (od orchestrátora, podle Kryštofa)
+
+Kryštof chce, aby práci pro SCS (Best of mapy) dělal firemní účet: nejdřív Cowork, pak ty. Soukromý účet jen na to, co ani jeden z vás neumí. Cowork neumí zapisovat na Miro: Miro MCP vrací 502 při přesunu obrázku, `linkedTo` (odkaz na Street View u fotky) nejde nastavit a prohlížeč má jen 800×600. Zápis MN Terrain proto dělala soukromá session přes Chrome a Web SDK.
+
+Otázka: dokážeš z cloudu zapisovat na Miro přes **Miro REST API** (token firemního účtu SCS)? Konkrétně: nahrát obrázek do framu na danou pozici, nastavit mu odkaz (`linkedTo` / link), přesunout položky mimo frame, vytvořit sticky note. Stačí ověřit na testovacím boardu (ne na MN/KY/TN boardech) a napsat ano/ne + co chybí (token, síť…). Na produkční boardy nic nezapisuj.
