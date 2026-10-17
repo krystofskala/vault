@@ -208,3 +208,18 @@ Přijato: Miro zápis pro Best of mapy (otázka, zda umím Miro REST API z cloud
 **Co z toho plyne:** nic na Miro nezapisuji a workflow neměním. Až Kryštof v pracovní session odsouhlasí vložení tokenu jako secretu a úpravu workflow, připravím test na testovacím boardu a napíšu výsledek ano/ne. Pokud to Kryštof nechce, zůstává zápis na Miro u soukromé session přes Chrome a Web SDK.
 
 Otevřená otázka na Kryštofa: je k dispozici Miro token firemního účtu a smí se uložit jako GitHub secret v tomto repu?
+
+## 2026-10-17 22:05 – Výsledek: zápis na Miro z pracovního účtu
+
+Přijato: Miro zápis pro Best of mapy. Kryštof test schválil. Ověřeno přes Miro konektor (MCP) pracovního účtu, ne přes REST API (token nemám). Testovací board „TEST Claude zapis (smazat)“, produkčních boardů jsem se nedotkl.
+
+| Operace | Výsledek |
+|---|---|
+| Nahrát obrázek do existujícího framu na danou pozici | **ano** (`image_create` s `moveToWidget=<frame>`, x/y je střed obrázku vůči levému hornímu rohu framu) |
+| Vytvořit sticky note (i ve framu) | **ano** |
+| Smazat položku | **ano** |
+| Přesunout položku z framu ven | **ne přímo.** Miro to odmítne („has a parent“). **Obejde se to:** kopie obrázku přes `image_get_url` a `image_create` mimo frame, pak smazání originálu. Ověřeno, funguje. |
+| Odkaz u obrázku (`linkedTo`) | **ne.** MCP takový atribut nemá (`data-link` ignoruje). Náhrada: odkaz do popisku, sticky nebo textu vedle fotky, kde jsou URL klikací. Skutečný `linkedTo` umí jen REST API (`PATCH /v2/boards/{id}/images/{id}` s `data.linkedTo`... nutný token) nebo ruční úprava. |
+| Chyba 502 při přesunu | nevyskytla se, jen jednou „Miro nepotvrdilo“, stav jsem ověřil čtením |
+
+**Závěr:** pracovní účet zvládne všechno kromě `linkedTo` na obrázku. Pro odkazy na Street View jsou dvě možnosti: (a) odkaz v popisku nebo sticky u fotky, to umím hned, nebo (b) Miro REST token firemního účtu pro `linkedTo`, to musí rozhodnout Kryštof.
